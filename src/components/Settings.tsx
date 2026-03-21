@@ -1,6 +1,72 @@
 'use client'
+import React from 'react'
 import { useSettings } from '@/context/SettingsContext'
 import { useEffect, useState } from 'react'
+
+
+function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
+  const [step, setStep] = React.useState<'idle' | 'pending' | 'done'>('idle')
+  const [userCode, setUserCode] = React.useState('')
+  const [verifyUrl, setVerifyUrl] = React.useState('')
+
+  const startAuth = async () => {
+    const res = await fetch('/api/auth/device', { method: 'POST' })
+    const data = await res.json()
+    if (data.user_code) {
+      setUserCode(data.user_code)
+      setVerifyUrl(data.verification_url)
+      setStep('pending')
+      // Poll for completion
+      const interval = setInterval(async () => {
+        const pollRes = await fetch('/api/auth/device/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_code: data.device_code }),
+        })
+        const pollData = await pollRes.json()
+        if (pollData.success) {
+          clearInterval(interval)
+          setStep('done')
+          onConnected()
+        }
+      }, (data.interval || 5) * 1000)
+    }
+  }
+
+  if (connected || step === 'done') {
+    return (
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-green-600">✓ Connected to Google Calendar</p>
+        <a href="/api/auth/google/disconnect" className="text-xs text-red-500 hover:underline">Disconnect</a>
+      </div>
+    )
+  }
+
+  if (step === 'pending') {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-gray-700 dark:text-gray-300">Go to this URL and enter the code:</p>
+        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-sm block">{verifyUrl}</a>
+        <div className="bg-gray-100 dark:bg-gray-800 rounded-xl px-4 py-3 text-center">
+          <span className="font-mono text-2xl font-bold tracking-widest">{userCode}</span>
+        </div>
+        <p className="text-xs text-gray-400 text-center">Waiting for authorization...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm text-gray-700 dark:text-gray-300">Sync sessions to calendar</p>
+        <p className="text-xs text-gray-400 mt-0.5">Not connected</p>
+      </div>
+      <button onClick={startAuth} className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
+        Connect
+      </button>
+    </div>
+  )
+}
 
 export default function Settings() {
   const { settings, updateSettings } = useSettings()
@@ -63,29 +129,7 @@ export default function Settings() {
 
         {/* Google Calendar */}
         <Section title="Google Calendar">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-700 dark:text-gray-300">Sync sessions to calendar</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {calConnected ? 'Connected' : 'Not connected'}
-              </p>
-            </div>
-            {calConnected ? (
-              <a
-                href="/api/auth/google/disconnect"
-                className="text-xs text-red-500 hover:underline"
-              >
-                Disconnect
-              </a>
-            ) : (
-              <a
-                href="/api/auth/google"
-                className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
-              >
-                Connect
-              </a>
-            )}
-          </div>
+          <DeviceFlowAuth connected={calConnected} onConnected={() => setCalConnected(true)} />
         </Section>
 
         {/* About */}
