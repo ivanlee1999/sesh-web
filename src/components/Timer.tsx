@@ -23,6 +23,19 @@ const PHASE_COLORS: Record<string, string> = {
   overflow: '#f59e0b',
 }
 
+interface ServerTimerState {
+  phase: string
+  sessionType: string
+  intention: string
+  category: string
+  targetMs: number
+  remainingMs: number
+  overflowMs: number
+  startedAt: number | null
+  pausedAt: number | null
+  updatedAt: number
+}
+
 export default function Timer() {
   const { settings } = useSettings()
   const [phase, setPhase] = useState<TimerPhase>('idle')
@@ -32,7 +45,16 @@ export default function Timer() {
   const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60 * 1000)
   const [overflowMs, setOverflowMs] = useState(0)
   const [startedAt, setStartedAt] = useState<number>(0)
+  const [synced, setSynced] = useState<boolean | null>(null)
+
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastPutRef = useRef<number>(0)
+  // Refs for values needed in polling closure without causing re-renders
+  const phaseRef = useRef<TimerPhase>('idle')
+  const startedAtRef = useRef<number>(0)
+
+  useEffect(() => { phaseRef.current = phase }, [phase])
+  useEffect(() => { startedAtRef.current = startedAt }, [startedAt])
 
   const targetMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
@@ -75,14 +97,127 @@ export default function Timer() {
     })
   }, [])
 
+  const syncToServer = useCallback(async (body: Record<string, unknown>) => {
+    lastPutRef.current = Date.now()
+    try {
+      const res = await fetch('/api/timer', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      setSynced(res.ok)
+    } catch {
+      setSynced(false)
+    }
+  }, [])
+
+  // Apply server state to local state (used on mount + polling)
+  const applyServerState = useCallback((data: ServerTimerState) => {
+    if (data.phase === 'running' && data.startedAt) {
+      const newRemaining = data.targetMs - (Date.now() - data.startedAt)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      setPhase(newRemaining > 0 ? 'running' : 'overflow')
+      setSessionType(data.sessionType as SessionType)
+      setIntention(data.intention)
+      setCategory(data.category as Category)
+      setRemainingMs(newRemaining)
+      setOverflowMs(newRemaining > 0 ? data.overflowMs : Math.abs(newRemaining))
+      setStartedAt(data.startedAt)
+      intervalRef.current = setInterval(tick, 100)
+    } else if (data.phase === 'paused') {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      setPhase('paused')
+      setSessionType(data.sessionType as SessionType)
+      setIntention(data.intention)
+      setCategory(data.category as Category)
+      setRemainingMs(data.remainingMs)
+      setOverflowMs(data.overflowMs)
+      if (data.startedAt) setStartedAt(data.startedAt)
+    }
+  }, [tick])
+
+  // On mount: fetch server state and resume if a timer is active
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const res = await fetch('/api/timer')
+        if (!res.ok) { setSynced(false); return }
+        const data: ServerTimerState = await res.json()
+        setSynced(true)
+        if (data.phase === 'running' || data.phase === 'paused') {
+          applyServerState(data)
+        }
+      } catch {
+        setSynced(false)
+      }
+    }
+    init()
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [applyServerState])
+
+  // Poll every 2s — apply server state if phase or startedAt changed (cross-device sync)
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      // Skip if we just PUT (within 3s) to avoid overriding our own updates
+      if (Date.now() - lastPutRef.current < 3000) return
+      try {
+        const res = await fetch('/api/timer')
+        if (!res.ok) { setSynced(false); return }
+        const data: ServerTimerState = await res.json()
+        setSynced(true)
+
+        const phaseChanged = data.phase !== phaseRef.current
+        const startedAtChanged = data.startedAt !== startedAtRef.current
+
+        if (!phaseChanged && !startedAtChanged) return
+
+        if (data.phase === 'running' || data.phase === 'paused') {
+          applyServerState(data)
+        } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+            intervalRef.current = null
+          }
+          setPhase('idle')
+          setOverflowMs(0)
+          setIntention('')
+        }
+      } catch {
+        setSynced(false)
+      }
+    }, 2000)
+    return () => clearInterval(poll)
+  }, [applyServerState])
+
   const startTimer = useCallback(() => {
-    if (phase === 'idle') {
-      setStartedAt(Date.now())
+    const isIdle = phaseRef.current === 'idle'
+    const now = Date.now()
+    const newStartedAt = isIdle ? now : startedAtRef.current
+
+    if (isIdle) {
+      setStartedAt(now)
       setOverflowMs(0)
     }
     setPhase('running')
     intervalRef.current = setInterval(tick, 100)
-  }, [phase, tick])
+
+    syncToServer({
+      phase: 'running',
+      sessionType,
+      intention,
+      category,
+      targetMs,
+      remainingMs,
+      overflowMs: isIdle ? 0 : overflowMs,
+      startedAt: newStartedAt,
+      pausedAt: null,
+    })
+  }, [tick, syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
@@ -90,7 +225,18 @@ export default function Timer() {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
-  }, [])
+    syncToServer({
+      phase: 'paused',
+      sessionType,
+      intention,
+      category,
+      targetMs,
+      remainingMs,
+      overflowMs,
+      startedAt,
+      pausedAt: Date.now(),
+    })
+  }, [syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
 
   const finishSession = useCallback(async () => {
     if (intervalRef.current) {
@@ -100,9 +246,11 @@ export default function Timer() {
     const endedAt = Date.now()
     const actualMs = endedAt - startedAt
     const overflow = Math.max(0, overflowMs)
+    const sessionId = crypto.randomUUID()
 
+    // Save to IndexedDB
     await saveSession({
-      id: crypto.randomUUID(),
+      id: sessionId,
       intention,
       category,
       type: sessionType,
@@ -112,6 +260,37 @@ export default function Timer() {
       startedAt,
       endedAt,
       notes: '',
+    })
+
+    // Save to server
+    fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: sessionId,
+        intention,
+        category,
+        type: sessionType,
+        targetMs,
+        actualMs,
+        overflowMs: overflow,
+        startedAt,
+        endedAt,
+        notes: '',
+      }),
+    }).catch(() => {})
+
+    // Reset server timer state
+    syncToServer({
+      phase: 'idle',
+      sessionType,
+      intention: '',
+      category,
+      targetMs,
+      remainingMs: targetMs,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
     })
 
     if (settings.soundEnabled) playChime()
@@ -129,7 +308,7 @@ export default function Timer() {
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, playChime])
+  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, playChime, syncToServer])
 
   const abandonSession = useCallback(() => {
     if (intervalRef.current) {
@@ -140,7 +319,18 @@ export default function Timer() {
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [targetMs])
+    syncToServer({
+      phase: 'idle',
+      sessionType,
+      intention: '',
+      category,
+      targetMs,
+      remainingMs: targetMs,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+    })
+  }, [targetMs, syncToServer, sessionType, category])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -173,6 +363,18 @@ export default function Timer() {
 
   return (
     <div className="flex flex-col items-center px-4 pt-16 md:pt-20 gap-6">
+      {/* Sync indicator */}
+      <div className="absolute top-4 right-4 flex items-center gap-1.5">
+        <div
+          className={clsx(
+            'w-2 h-2 rounded-full transition-colors',
+            synced === null ? 'bg-gray-300 dark:bg-gray-600' :
+            synced ? 'bg-green-400' : 'bg-gray-400 dark:bg-gray-600'
+          )}
+          title={synced === null ? 'Connecting…' : synced ? 'Synced' : 'Offline'}
+        />
+      </div>
+
       {/* Session type tabs */}
       <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 gap-1 w-full max-w-sm">
         {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (

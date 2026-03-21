@@ -17,33 +17,72 @@ function startOfDay(d: Date): number {
   return x.getTime()
 }
 
+interface ServerAnalytics {
+  todayMs: number
+  todayCount: number
+  streak: number
+  days: { label: string; ms: number }[]
+}
+
 export default function Analytics() {
   const [sessions, setSessions] = useState<Session[]>([])
-  const [weekSessions, setWeekSessions] = useState<Session[]>([])
+  const [serverStats, setServerStats] = useState<ServerAnalytics | null>(null)
 
   useEffect(() => {
     const load = async () => {
+      // Fetch server analytics
+      try {
+        const res = await fetch('/api/analytics')
+        if (res.ok) {
+          setServerStats(await res.json())
+        }
+      } catch {}
+
+      // Fetch full session list (for category breakdown + timeline)
+      try {
+        const res = await fetch('/api/sessions')
+        if (res.ok) {
+          setSessions(await res.json())
+          return
+        }
+      } catch {}
+      // Fallback to IndexedDB
       const all = await getAllSessions()
       setSessions(all)
-      const now = Date.now()
-      const weekAgo = now - 7 * 24 * 3600000
-      setWeekSessions(all.filter(s => s.startedAt >= weekAgo && s.type === 'focus'))
     }
     load()
   }, [])
 
-  const today = startOfDay(new Date())
-  const todaySessions = sessions.filter(s => s.startedAt >= today && s.type === 'focus')
-  const todayMs = todaySessions.reduce((a, s) => a + s.actualMs, 0)
-  const todayCount = todaySessions.length
-
-  // 7-day bar chart data
-  const days = Array.from({ length: 7 }, (_, i) => {
+  // Use server stats if available, otherwise compute locally
+  const todayMs = serverStats?.todayMs ?? (() => {
+    const today = startOfDay(new Date())
+    return sessions.filter(s => s.startedAt >= today && s.type === 'focus').reduce((a, s) => a + s.actualMs, 0)
+  })()
+  const todayCount = serverStats?.todayCount ?? (() => {
+    const today = startOfDay(new Date())
+    return sessions.filter(s => s.startedAt >= today && s.type === 'focus').length
+  })()
+  const streak = serverStats?.streak ?? (() => {
+    let s = 0
+    const d = new Date()
+    while (true) {
+      const start = startOfDay(d)
+      const has = sessions.some(x => x.startedAt >= start && x.startedAt < start + 86400000 && x.type === 'focus')
+      if (!has) break
+      s++
+      d.setDate(d.getDate() - 1)
+    }
+    return s
+  })()
+  const days = serverStats?.days ?? Array.from({ length: 7 }, (_, i) => {
     const d = new Date()
     d.setDate(d.getDate() - (6 - i))
     const start = startOfDay(d)
     const end = start + 86400000
-    const ms = weekSessions.filter(s => s.startedAt >= start && s.startedAt < end).reduce((a, s) => a + s.actualMs, 0)
+    const weekAgo = Date.now() - 7 * 24 * 3600000
+    const ms = sessions
+      .filter(s => s.type === 'focus' && s.startedAt >= start && s.startedAt < end && s.startedAt >= weekAgo)
+      .reduce((a, s) => a + s.actualMs, 0)
     return { label: d.toLocaleDateString('en', { weekday: 'short' }), ms }
   })
 
@@ -56,20 +95,6 @@ export default function Analytics() {
     const ms = focusSessions.filter(s => s.category === cat).reduce((a, s) => a + s.actualMs, 0)
     return { cat, ms, pct: totalFocusMs ? Math.round((ms / totalFocusMs) * 100) : 0 }
   }).filter(x => x.ms > 0).sort((a, b) => b.ms - a.ms)
-
-  // Streak
-  const streak = (() => {
-    let s = 0
-    const d = new Date()
-    while (true) {
-      const start = startOfDay(d)
-      const has = sessions.some(x => x.startedAt >= start && x.startedAt < start + 86400000 && x.type === 'focus')
-      if (!has) break
-      s++
-      d.setDate(d.getDate() - 1)
-    }
-    return s
-  })()
 
   return (
     <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">

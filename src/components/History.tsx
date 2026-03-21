@@ -31,6 +31,15 @@ export default function History() {
   const [sessions, setSessions] = useState<Session[]>([])
 
   const load = async () => {
+    try {
+      const res = await fetch('/api/sessions')
+      if (res.ok) {
+        const data = await res.json()
+        setSessions(data)
+        return
+      }
+    } catch {}
+    // Fallback to IndexedDB
     const all = await getAllSessions()
     setSessions(all)
   }
@@ -38,6 +47,9 @@ export default function History() {
   useEffect(() => { load() }, [])
 
   const handleDelete = async (id: string) => {
+    // Delete from server
+    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {})
+    // Delete from IndexedDB
     await deleteSession(id)
     load()
   }
