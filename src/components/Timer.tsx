@@ -4,7 +4,6 @@ import { Play, Pause, Square, SkipForward } from 'lucide-react'
 import ProgressRing from './ProgressRing'
 import IntentionInput from './IntentionInput'
 import { useSettings } from '@/context/SettingsContext'
-import { saveSession } from '@/lib/db'
 import type { Category, SessionType, TimerPhase } from '@/types'
 import { CATEGORY_COLORS } from '@/types'
 import clsx from 'clsx'
@@ -46,6 +45,7 @@ export default function Timer() {
   const [overflowMs, setOverflowMs] = useState(0)
   const [startedAt, setStartedAt] = useState<number>(0)
   const [synced, setSynced] = useState<boolean | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastPutRef = useRef<number>(0)
@@ -253,8 +253,7 @@ export default function Timer() {
           return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
         })
 
-    // Save to IndexedDB
-    await saveSession({
+    const sessionPayload = {
       id: sessionId,
       intention,
       category,
@@ -265,25 +264,27 @@ export default function Timer() {
       startedAt,
       endedAt,
       notes: '',
-    })
+    }
 
-    // Save to server
-    fetch('/api/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: sessionId,
-        intention,
-        category,
-        type: sessionType,
-        targetMs,
-        actualMs,
-        overflowMs: overflow,
-        startedAt,
-        endedAt,
-        notes: '',
-      }),
-    }).catch(() => {})
+    // Save to server — must succeed before resetting UI
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionPayload),
+      })
+
+      if (!res.ok) {
+        throw new Error('Failed to save session')
+      }
+
+      setSaveError(null)
+    } catch {
+      setSaveError('Failed to save session. Please try finishing again.')
+      // Restart the interval so the timer keeps ticking
+      intervalRef.current = setInterval(tick, 100)
+      return
+    }
 
     // Sync to Google Calendar (fire-and-forget)
     if (settings.calendarSync) {
@@ -331,7 +332,7 @@ export default function Timer() {
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer])
+  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, tick])
 
   const abandonSession = useCallback(() => {
     if (intervalRef.current) {
@@ -491,6 +492,13 @@ export default function Timer() {
           </button>
         )}
       </div>
+
+      {/* Save error */}
+      {saveError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2 text-sm text-red-600 dark:text-red-400">
+          {saveError}
+        </div>
+      )}
 
       {/* Keyboard hints */}
       {phase === 'idle' && (
