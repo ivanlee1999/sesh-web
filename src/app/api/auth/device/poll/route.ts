@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import { getDb } from '@/lib/server-db'
 
 export async function POST(req: NextRequest) {
   const { device_code } = await req.json()
@@ -17,12 +18,22 @@ export async function POST(req: NextRequest) {
   const data = await res.json()
   
   if (data.access_token) {
-    const cookieStore = await cookies()
-    cookieStore.set('google_tokens', JSON.stringify({
+    const tokenData = {
       access_token: data.access_token,
       refresh_token: data.refresh_token,
       expires_at: Date.now() + (data.expires_in * 1000),
-    }), {
+    }
+
+    // Store in server DB for cross-device access
+    const db = getDb()
+    db.prepare(`
+      UPDATE google_oauth SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
+      WHERE id = 1
+    `).run(tokenData.access_token, tokenData.refresh_token || '', tokenData.expires_at, Date.now())
+
+    // Also set cookie for this device
+    const cookieStore = await cookies()
+    cookieStore.set('google_tokens', JSON.stringify(tokenData), {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
