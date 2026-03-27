@@ -256,10 +256,14 @@ export default function Timer() {
 
   // Re-sync from server when app becomes visible (iOS PWA resume)
   useEffect(() => {
-    const onVisible = async () => {
-      if (document.hidden) return
+    let lastResync = 0
+    const resync = async () => {
+      // Debounce: skip if we resynced within the last 500ms
+      const now = Date.now()
+      if (now - lastResync < 500) return
+      lastResync = now
       try {
-        const res = await fetch('/api/timer')
+        const res = await fetch('/api/timer', { cache: 'no-store' })
         if (!res.ok) return
         const data: ServerTimerState = await res.json()
         setSynced(true)
@@ -281,8 +285,17 @@ export default function Timer() {
         }
       } catch {}
     }
+    const onVisible = () => { if (!document.hidden) resync() }
+    const onFocus = () => resync()
+    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) resync() }
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
+    }
   }, [applyServerState, targetMs])
 
   const handleIntentionChange = useCallback((value: string) => {
