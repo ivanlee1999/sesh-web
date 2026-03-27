@@ -254,6 +254,37 @@ export default function Timer() {
     return () => clearInterval(poll)
   }, [applyServerState, postSwMessage])
 
+  // Re-sync from server when app becomes visible (iOS PWA resume)
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.hidden) return
+      try {
+        const res = await fetch('/api/timer')
+        if (!res.ok) return
+        const data: ServerTimerState = await res.json()
+        setSynced(true)
+        serverUpdatedAtRef.current = data.updatedAt
+        if (data.phase === 'running' || data.phase === 'paused') {
+          applyServerState(data)
+        } else if (data.phase === 'idle') {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current)
+            intervalRef.current = null
+          }
+          setPhase('idle')
+          setSessionType(data.sessionType as SessionType)
+          setCategory(data.category as Category)
+          setRemainingMs(data.remainingMs || targetMs)
+          setOverflowMs(0)
+          setStartedAt(0)
+          setIntention(data.intention)
+        }
+      } catch {}
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [applyServerState, targetMs])
+
   const handleIntentionChange = useCallback((value: string) => {
     setIntention(value)
 
