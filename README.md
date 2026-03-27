@@ -29,6 +29,14 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Background Timer Auto-Completion
+
+When a timer expires while no client tab is actively running, the server can auto-complete the session:
+
+- **`DISCORD_WEBHOOK_URL`** — optional env var. When set, a Discord message is posted when a session is auto-completed in the background.
+- **How it works** — the service worker periodically pings `GET /api/timer?background=1` every 30 seconds. If the server detects the timer has expired, it atomically saves the session and resets the timer.
+- **Limitations** — background completion relies on the service worker staying alive, which is best-effort. Browsers may kill the worker after all tabs are closed, especially on mobile and Safari. Guaranteed all-tabs-closed completion would require a server-side scheduler or external ping service (e.g., cron job hitting the background endpoint).
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

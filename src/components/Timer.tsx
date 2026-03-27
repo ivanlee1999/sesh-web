@@ -81,6 +81,15 @@ export default function Timer() {
     }
   }, [settings.focusDuration, settings.shortBreakDuration, settings.longBreakDuration, sessionType, phase, targetMs])
 
+  // Post a message to the service worker (for background polling control)
+  const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
+    if (!('serviceWorker' in navigator)) return
+    try {
+      const reg = await navigator.serviceWorker.ready
+      reg.active?.postMessage({ type })
+    } catch {}
+  }, [])
+
   const playChime = useCallback(() => {
     if (!settings.soundEnabled) return
     try {
@@ -189,6 +198,10 @@ export default function Timer() {
         serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
+          // Ensure the SW resumes background polling after page reload
+          postSwMessage('TIMER_STARTED')
+        } else {
+          postSwMessage('TIMER_STOPPED')
         }
       } catch {
         setSynced(false)
@@ -199,7 +212,7 @@ export default function Timer() {
       if (intervalRef.current) clearInterval(intervalRef.current)
       if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     }
-  }, [applyServerState])
+  }, [applyServerState, postSwMessage])
 
   // Poll every 2s — apply server state if phase or startedAt changed (cross-device sync)
   useEffect(() => {
@@ -220,20 +233,26 @@ export default function Timer() {
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
         } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
+          // Server auto-completed (or another client finished) — full reset
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
           setPhase('idle')
+          setSessionType(data.sessionType as SessionType)
+          setCategory(data.category as Category)
+          setRemainingMs(data.remainingMs)
           setOverflowMs(0)
-          setIntention('')
+          setStartedAt(0)
+          setIntention(data.intention)
+          postSwMessage('TIMER_STOPPED')
         }
       } catch {
         setSynced(false)
       }
     }, 2000)
     return () => clearInterval(poll)
-  }, [applyServerState])
+  }, [applyServerState, postSwMessage])
 
   const handleIntentionChange = useCallback((value: string) => {
     setIntention(value)
@@ -286,7 +305,9 @@ export default function Timer() {
       startedAt: newStartedAt,
       pausedAt: null,
     })
-  }, [tick, syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs])
+
+    postSwMessage('TIMER_STARTED')
+  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
@@ -305,7 +326,9 @@ export default function Timer() {
       startedAt,
       pausedAt: Date.now(),
     })
-  }, [syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
+
+    postSwMessage('TIMER_STOPPED')
+  }, [syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
 
   const finishSession = useCallback(async () => {
     if (intentionSyncTimeoutRef.current) {
@@ -401,11 +424,13 @@ export default function Timer() {
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
 
+    postSwMessage('TIMER_STOPPED')
+
     setPhase('idle')
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, tick])
+  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) {
@@ -431,7 +456,9 @@ export default function Timer() {
       startedAt: null,
       pausedAt: null,
     })
-  }, [targetMs, syncToServer, sessionType, category])
+
+    postSwMessage('TIMER_STOPPED')
+  }, [targetMs, syncToServer, postSwMessage, sessionType, category])
 
   // Keyboard shortcuts
   useEffect(() => {

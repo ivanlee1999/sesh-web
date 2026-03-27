@@ -31,9 +31,114 @@ function rowToJson(row: TimerRow) {
   }
 }
 
-export async function GET() {
+/**
+ * Auto-complete an expired timer atomically.
+ * Uses a deterministic session ID (`auto-{started_at}`) and compare-and-swap
+ * on started_at so that concurrent callers never create duplicate sessions.
+ */
+function tryAutoComplete(db: ReturnType<typeof getDb>) {
+  const selectTimer = db.prepare('SELECT * FROM timer_state WHERE id = 1')
+
+  const resetTimer = db.prepare(`
+    UPDATE timer_state
+    SET phase = 'idle', intention = '', remaining_ms = target_ms,
+        overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?
+    WHERE id = 1 AND phase = 'running' AND started_at = ?
+  `)
+
+  const insertSession = db.prepare(`
+    INSERT OR IGNORE INTO sessions
+      (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  const run = db.transaction(() => {
+    const row = selectTimer.get() as TimerRow
+    if (!row || row.phase !== 'running' || !row.started_at || row.target_ms <= 0) {
+      return { completed: false, row }
+    }
+
+    const elapsed = Date.now() - row.started_at
+    if (elapsed < row.target_ms) {
+      return { completed: false, row }
+    }
+
+    const endedAt = Date.now()
+    const actualMs = endedAt - row.started_at
+    const overflowMs = Math.max(0, actualMs - row.target_ms)
+    const sessionId = `auto-${row.started_at}`
+
+    // Compare-and-swap: only reset if started_at still matches
+    const result = resetTimer.run(endedAt, row.started_at)
+    if (result.changes === 0) {
+      // Another request already completed it
+      return { completed: false, row: selectTimer.get() as TimerRow }
+    }
+
+    insertSession.run(
+      sessionId,
+      row.intention,
+      row.category,
+      row.session_type,
+      row.target_ms,
+      actualMs,
+      overflowMs,
+      row.started_at,
+      endedAt,
+      'auto-completed'
+    )
+
+    return {
+      completed: true,
+      row: selectTimer.get() as TimerRow,
+      notification: {
+        intention: row.intention,
+        sessionType: row.session_type,
+        targetMs: row.target_ms,
+        overflowMs,
+      },
+    }
+  })
+
+  return run()
+}
+
+function sendDiscordNotification(notification: {
+  intention: string
+  sessionType: string
+  targetMs: number
+  overflowMs: number
+}) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL
+  if (!webhookUrl) return
+
+  const duration = Math.round(notification.targetMs / 60000)
+  const overflow = Math.round(notification.overflowMs / 60000)
+  const msg = notification.intention
+    ? `✅ **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+    : `✅ **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+
+  void fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: msg }),
+  }).catch(() => {})
+}
+
+export async function GET(request: Request) {
   try {
     const db = getDb()
+
+    const isBackgroundCheck = new URL(request.url).searchParams.get('background') === '1'
+
+    if (isBackgroundCheck) {
+      const result = tryAutoComplete(db)
+      if (result.completed && result.notification) {
+        sendDiscordNotification(result.notification)
+      }
+      return NextResponse.json(rowToJson(result.row))
+    }
+
     const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
     return NextResponse.json(rowToJson(row))
   } catch {
