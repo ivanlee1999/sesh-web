@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { getAllSessions } from '@/lib/db'
 import type { Session } from '@/types'
 import { CATEGORY_COLORS, CATEGORY_LABELS, type Category } from '@/types'
 
@@ -27,64 +26,60 @@ interface ServerAnalytics {
 export default function Analytics() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [serverStats, setServerStats] = useState<ServerAnalytics | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const load = async () => {
-      // Fetch server analytics
+      setLoading(true)
+      setError(null)
       try {
-        const res = await fetch('/api/analytics')
-        if (res.ok) {
-          setServerStats(await res.json())
-        }
-      } catch {}
+        const [analyticsRes, sessionsRes] = await Promise.all([
+          fetch('/api/analytics'),
+          fetch('/api/sessions'),
+        ])
 
-      // Fetch full session list (for category breakdown + timeline)
-      try {
-        const res = await fetch('/api/sessions')
-        if (res.ok) {
-          setSessions(await res.json())
-          return
+        if (!analyticsRes.ok || !sessionsRes.ok) {
+          throw new Error('Failed to load analytics')
         }
-      } catch {}
-      // Fallback to IndexedDB
-      const all = await getAllSessions()
-      setSessions(all)
+
+        setServerStats(await analyticsRes.json())
+        setSessions(await sessionsRes.json())
+      } catch {
+        setError('Failed to load analytics data. Please try again.')
+      } finally {
+        setLoading(false)
+      }
     }
     load()
   }, [])
 
-  // Use server stats if available, otherwise compute locally
-  const todayMs = serverStats?.todayMs ?? (() => {
-    const today = startOfDay(new Date())
-    return sessions.filter(s => s.startedAt >= today && s.type === 'focus').reduce((a, s) => a + s.actualMs, 0)
-  })()
-  const todayCount = serverStats?.todayCount ?? (() => {
-    const today = startOfDay(new Date())
-    return sessions.filter(s => s.startedAt >= today && s.type === 'focus').length
-  })()
-  const streak = serverStats?.streak ?? (() => {
-    let s = 0
-    const d = new Date()
-    while (true) {
-      const start = startOfDay(d)
-      const has = sessions.some(x => x.startedAt >= start && x.startedAt < start + 86400000 && x.type === 'focus')
-      if (!has) break
-      s++
-      d.setDate(d.getDate() - 1)
-    }
-    return s
-  })()
-  const days = serverStats?.days ?? Array.from({ length: 7 }, (_, i) => {
-    const d = new Date()
-    d.setDate(d.getDate() - (6 - i))
-    const start = startOfDay(d)
-    const end = start + 86400000
-    const weekAgo = Date.now() - 7 * 24 * 3600000
-    const ms = sessions
-      .filter(s => s.type === 'focus' && s.startedAt >= start && s.startedAt < end && s.startedAt >= weekAgo)
-      .reduce((a, s) => a + s.actualMs, 0)
-    return { label: d.toLocaleDateString('en', { weekday: 'short' }), ms }
-  })
+  if (loading) {
+    return (
+      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
+        <div className="text-center py-16 text-gray-400">
+          <p className="text-sm">Loading…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </div>
+      </div>
+    )
+  }
+
+  const todayMs = serverStats?.todayMs ?? 0
+  const todayCount = serverStats?.todayCount ?? 0
+  const streak = serverStats?.streak ?? 0
+  const days = serverStats?.days ?? []
 
   const maxMs = Math.max(...days.map(d => d.ms), 1)
 
