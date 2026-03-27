@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getDb } from '@/lib/server-db'
+export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   const { device_code } = await req.json()

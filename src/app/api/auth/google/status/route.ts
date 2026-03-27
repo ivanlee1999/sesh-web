@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const db = getDb()
