@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDb } from '@/lib/server-db'
 
 const GOOGLE_CALENDAR_COLOR_IDS: Record<string, string> = {
-  development: '9',  // blueberry
-  writing: '3',      // grape
-  design: '6',       // tangerine
-  learning: '5',     // banana
-  exercise: '10',    // sage
-  other: '8',        // graphite
+  development: '9',
+  writing: '3',
+  design: '6',
+  learning: '5',
+  exercise: '10',
+  other: '8',
 }
 
 async function refreshAccessToken(refreshToken: string) {
@@ -55,15 +56,15 @@ function buildDefaultSummary(type: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const tokenCookie = req.cookies.get('google_tokens')
-  if (!tokenCookie) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  // Read tokens from server DB instead of cookies
+  const db = getDb()
+  const row = db.prepare('SELECT access_token, refresh_token, expires_at FROM google_oauth WHERE id = 1').get() as { access_token: string; refresh_token?: string; expires_at: number } | undefined
 
-  let tokens: { access_token: string; refresh_token?: string; expires_at?: number }
-  try {
-    tokens = JSON.parse(tokenCookie.value)
-  } catch {
-    return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+  if (!row?.access_token) {
+    return NextResponse.json({ error: 'Google Calendar not connected' }, { status: 401 })
   }
+
+  let tokens = { access_token: row.access_token, refresh_token: row.refresh_token, expires_at: row.expires_at }
 
   const body = await req.json()
   const { intention, category, type, startedAt, endedAt, targetMs, actualMs, overflowMs } = body
@@ -71,16 +72,11 @@ export async function POST(req: NextRequest) {
   const start = new Date(startedAt)
   const end = new Date(endedAt)
 
-  // Build description
   const typeLabel = type === 'focus' ? 'Focus' : type === 'short-break' ? 'Short Break' : 'Long Break'
   const categoryLabel = category.charAt(0).toUpperCase() + category.slice(1)
   let description = `Category: ${categoryLabel}\nType: ${typeLabel}\nDuration: ${formatDuration(actualMs || (endedAt - startedAt))}`
-  if (targetMs) {
-    description += `\nTarget: ${formatDuration(targetMs)}`
-  }
-  if (overflowMs && overflowMs > 0) {
-    description += `\nOverflow: +${formatDuration(overflowMs)}`
-  }
+  if (targetMs) description += `\nTarget: ${formatDuration(targetMs)}`
+  if (overflowMs && overflowMs > 0) description += `\nOverflow: +${formatDuration(overflowMs)}`
 
   const event = {
     summary: intention || buildDefaultSummary(type),
@@ -90,12 +86,15 @@ export async function POST(req: NextRequest) {
     colorId: GOOGLE_CALENDAR_COLOR_IDS[category] || '8',
   }
 
-  // Proactively refresh if token is expired
-  if (tokens.expires_at && tokens.expires_at < Date.now() && tokens.refresh_token) {
+  // Refresh if expired
+  if (tokens.expires_at < Date.now() && tokens.refresh_token) {
     try {
       const refreshed = await refreshAccessToken(tokens.refresh_token)
       tokens.access_token = refreshed.access_token
       tokens.expires_at = refreshed.expires_at
+      // Store refreshed tokens back to DB
+      db.prepare(`UPDATE google_oauth SET access_token = ?, expires_at = ?, updated_at = ? WHERE id = 1`)
+        .run(tokens.access_token, tokens.expires_at, Date.now())
     } catch {
       return NextResponse.json({ error: 'Token refresh failed' }, { status: 401 })
     }
@@ -104,12 +103,13 @@ export async function POST(req: NextRequest) {
   try {
     let res = await createCalendarEvent(tokens.access_token, event)
 
-    // If 401, try refreshing and retrying once
     if (res.status === 401 && tokens.refresh_token) {
       try {
         const refreshed = await refreshAccessToken(tokens.refresh_token)
         tokens.access_token = refreshed.access_token
         tokens.expires_at = refreshed.expires_at
+        db.prepare(`UPDATE google_oauth SET access_token = ?, expires_at = ?, updated_at = ? WHERE id = 1`)
+          .run(tokens.access_token, tokens.expires_at, Date.now())
         res = await createCalendarEvent(tokens.access_token, event)
       } catch {
         return NextResponse.json({ error: 'Token refresh failed' }, { status: 401 })
@@ -117,24 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!res.ok) throw new Error(await res.text())
-
-    const data = await res.json()
-    const response = NextResponse.json({ id: data.id })
-
-    // Update cookie with refreshed token if it changed
-    response.cookies.set('google_tokens', JSON.stringify({
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: tokens.expires_at,
-    }), {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 365 * 24 * 60 * 60,
-      path: '/',
-    })
-
-    return response
+    return NextResponse.json({ id: (await res.json()).id })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDb } from '@/lib/server-db'
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
@@ -17,12 +18,23 @@ export async function GET(req: NextRequest) {
     const tokens = await res.json()
     if (!tokens.access_token) throw new Error('no token')
 
-    const response = NextResponse.redirect(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/?tab=settings`)
-    response.cookies.set('google_tokens', JSON.stringify({
+    const expiresAt = Date.now() + (tokens.expires_in * 1000)
+    const tokenData = {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
-      expires_at: Date.now() + (tokens.expires_in * 1000),
-    }), {
+      expires_at: expiresAt,
+    }
+
+    // Store in server DB for cross-device sync
+    const db = getDb()
+    db.prepare(`
+      UPDATE google_oauth SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
+      WHERE id = 1
+    `).run(tokenData.access_token, tokenData.refresh_token || '', tokenData.expires_at, Date.now())
+
+    // Also set cookie for this device's session
+    const response = NextResponse.redirect(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/?tab=settings`)
+    response.cookies.set('google_tokens', JSON.stringify(tokenData), {
       httpOnly: true,
       secure: false,
       sameSite: 'lax',
