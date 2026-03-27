@@ -49,12 +49,24 @@ export default function Timer() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastPutRef = useRef<number>(0)
-  // Refs for values needed in polling closure without causing re-renders
+  // Refs for values needed in polling closure / debounced callbacks without causing re-renders
   const phaseRef = useRef<TimerPhase>('idle')
   const startedAtRef = useRef<number>(0)
+  const remainingMsRef = useRef(remainingMs)
+  const overflowMsRef = useRef(overflowMs)
+  const sessionTypeRef = useRef(sessionType)
+  const intentionRef = useRef(intention)
+  const categoryRef = useRef(category)
+  const serverUpdatedAtRef = useRef(0)
+  const intentionSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { phaseRef.current = phase }, [phase])
   useEffect(() => { startedAtRef.current = startedAt }, [startedAt])
+  useEffect(() => { remainingMsRef.current = remainingMs }, [remainingMs])
+  useEffect(() => { overflowMsRef.current = overflowMs }, [overflowMs])
+  useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
+  useEffect(() => { intentionRef.current = intention }, [intention])
+  useEffect(() => { categoryRef.current = category }, [category])
 
   const targetMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
@@ -86,6 +98,27 @@ export default function Timer() {
     } catch {}
   }, [settings.soundEnabled])
 
+  const buildTimerPayload = useCallback((overrides?: Partial<{
+    phase: TimerPhase
+    sessionType: SessionType
+    intention: string
+    category: Category
+    remainingMs: number
+    overflowMs: number
+    startedAt: number | null
+    pausedAt: number | null
+  }>) => ({
+    phase: overrides?.phase ?? phaseRef.current,
+    sessionType: overrides?.sessionType ?? sessionTypeRef.current,
+    intention: overrides?.intention ?? intentionRef.current,
+    category: overrides?.category ?? categoryRef.current,
+    targetMs,
+    remainingMs: overrides?.remainingMs ?? remainingMsRef.current,
+    overflowMs: overrides?.overflowMs ?? overflowMsRef.current,
+    startedAt: overrides?.startedAt !== undefined ? overrides.startedAt : startedAtRef.current,
+    pausedAt: overrides?.pausedAt !== undefined ? overrides.pausedAt : (phaseRef.current === 'paused' ? Date.now() : null),
+  }), [targetMs])
+
   const tick = useCallback(() => {
     setRemainingMs(prev => {
       if (prev <= 0) {
@@ -105,7 +138,13 @@ export default function Timer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      setSynced(res.ok)
+      if (!res.ok) {
+        setSynced(false)
+        return
+      }
+      const data: ServerTimerState = await res.json()
+      serverUpdatedAtRef.current = data.updatedAt
+      setSynced(true)
     } catch {
       setSynced(false)
     }
@@ -147,6 +186,7 @@ export default function Timer() {
         if (!res.ok) { setSynced(false); return }
         const data: ServerTimerState = await res.json()
         setSynced(true)
+        serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
         }
@@ -157,6 +197,7 @@ export default function Timer() {
     init()
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     }
   }, [applyServerState])
 
@@ -171,10 +212,10 @@ export default function Timer() {
         const data: ServerTimerState = await res.json()
         setSynced(true)
 
-        const phaseChanged = data.phase !== phaseRef.current
-        const startedAtChanged = data.startedAt !== startedAtRef.current
+        // Ignore if server state hasn't changed since our last known update
+        if (data.updatedAt <= serverUpdatedAtRef.current) return
 
-        if (!phaseChanged && !startedAtChanged) return
+        serverUpdatedAtRef.current = data.updatedAt
 
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
@@ -193,6 +234,34 @@ export default function Timer() {
     }, 2000)
     return () => clearInterval(poll)
   }, [applyServerState])
+
+  const handleIntentionChange = useCallback((value: string) => {
+    setIntention(value)
+
+    if (phaseRef.current === 'idle') return
+
+    if (intentionSyncTimeoutRef.current) {
+      clearTimeout(intentionSyncTimeoutRef.current)
+    }
+
+    intentionSyncTimeoutRef.current = setTimeout(() => {
+      syncToServer(buildTimerPayload({
+        intention: value,
+        pausedAt: phaseRef.current === 'paused' ? Date.now() : null,
+      }))
+    }, 500)
+  }, [buildTimerPayload, syncToServer])
+
+  const handleCategoryChange = useCallback((value: Category) => {
+    setCategory(value)
+
+    if (phaseRef.current === 'idle') return
+
+    syncToServer(buildTimerPayload({
+      category: value,
+      pausedAt: phaseRef.current === 'paused' ? Date.now() : null,
+    }))
+  }, [buildTimerPayload, syncToServer])
 
   const startTimer = useCallback(() => {
     const isIdle = phaseRef.current === 'idle'
@@ -239,6 +308,10 @@ export default function Timer() {
   }, [syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
 
   const finishSession = useCallback(async () => {
+    if (intentionSyncTimeoutRef.current) {
+      clearTimeout(intentionSyncTimeoutRef.current)
+      intentionSyncTimeoutRef.current = null
+    }
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
@@ -335,6 +408,10 @@ export default function Timer() {
   }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, tick])
 
   const abandonSession = useCallback(() => {
+    if (intentionSyncTimeoutRef.current) {
+      clearTimeout(intentionSyncTimeoutRef.current)
+      intentionSyncTimeoutRef.current = null
+    }
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
@@ -509,19 +586,12 @@ export default function Timer() {
       )}
 
       {/* Intention + category */}
-      {!isActive && (
-        <IntentionInput
-          intention={intention}
-          setIntention={setIntention}
-          category={category}
-          setCategory={setCategory}
-        />
-      )}
-      {isActive && intention && (
-        <div className="text-center max-w-xs">
-          <p className="text-sm text-gray-500 dark:text-gray-400 italic">&ldquo;{intention}&rdquo;</p>
-        </div>
-      )}
+      <IntentionInput
+        intention={intention}
+        setIntention={handleIntentionChange}
+        category={category}
+        setCategory={handleCategoryChange}
+      />
     </div>
   )
 }
