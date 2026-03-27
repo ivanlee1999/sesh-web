@@ -81,6 +81,15 @@ export default function Timer() {
     }
   }, [settings.focusDuration, settings.shortBreakDuration, settings.longBreakDuration, sessionType, phase, targetMs])
 
+  // Post a message to the service worker (for background polling control)
+  const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
+    if (!('serviceWorker' in navigator)) return
+    try {
+      const reg = await navigator.serviceWorker.ready
+      reg.active?.postMessage({ type })
+    } catch {}
+  }, [])
+
   const playChime = useCallback(() => {
     if (!settings.soundEnabled) return
     try {
@@ -189,6 +198,10 @@ export default function Timer() {
         serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
+          // Ensure the SW resumes background polling after page reload
+          postSwMessage('TIMER_STARTED')
+        } else {
+          postSwMessage('TIMER_STOPPED')
         }
       } catch {
         setSynced(false)
@@ -199,7 +212,7 @@ export default function Timer() {
       if (intervalRef.current) clearInterval(intervalRef.current)
       if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     }
-  }, [applyServerState])
+  }, [applyServerState, postSwMessage])
 
   // Poll every 2s — apply server state if phase or startedAt changed (cross-device sync)
   useEffect(() => {
@@ -220,20 +233,26 @@ export default function Timer() {
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
         } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
+          // Server auto-completed (or another client finished) — full reset
           if (intervalRef.current) {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
           setPhase('idle')
+          setSessionType(data.sessionType as SessionType)
+          setCategory(data.category as Category)
+          setRemainingMs(data.remainingMs)
           setOverflowMs(0)
-          setIntention('')
+          setStartedAt(0)
+          setIntention(data.intention)
+          postSwMessage('TIMER_STOPPED')
         }
       } catch {
         setSynced(false)
       }
     }, 2000)
     return () => clearInterval(poll)
-  }, [applyServerState])
+  }, [applyServerState, postSwMessage])
 
   const handleIntentionChange = useCallback((value: string) => {
     setIntention(value)
@@ -286,7 +305,9 @@ export default function Timer() {
       startedAt: newStartedAt,
       pausedAt: null,
     })
-  }, [tick, syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs])
+
+    postSwMessage('TIMER_STARTED')
+  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
@@ -305,7 +326,9 @@ export default function Timer() {
       startedAt,
       pausedAt: Date.now(),
     })
-  }, [syncToServer, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
+
+    postSwMessage('TIMER_STOPPED')
+  }, [syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
 
   const finishSession = useCallback(async () => {
     if (intentionSyncTimeoutRef.current) {
@@ -316,79 +339,65 @@ export default function Timer() {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
-    const endedAt = Date.now()
-    const actualMs = endedAt - startedAt
-    const overflow = Math.max(0, overflowMs)
-    const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
-        })
 
-    const sessionPayload = {
-      id: sessionId,
-      intention,
-      category,
-      type: sessionType,
-      targetMs,
-      actualMs,
-      overflowMs: overflow,
-      startedAt,
-      endedAt,
-      notes: '',
-    }
-
-    // Save to server — must succeed before resetting UI
+    // Atomically complete the timer on the server using compare-and-swap on
+    // startedAt.  This prevents duplicate sessions when the background
+    // auto-complete fires concurrently.
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch('/api/timer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionPayload),
+        body: JSON.stringify({
+          startedAt,
+          intention,
+          category,
+          notes: '',
+        }),
       })
 
       if (!res.ok) {
         throw new Error('Failed to save session')
       }
 
+      const data = await res.json()
+
+      // If the server reports the timer was already completed (by auto-complete
+      // or another client), skip saving again but still reset the local UI.
+      if (!data.completed) {
+        // Session was already persisted — just reset UI below.
+      }
+
       setSaveError(null)
+
+      // Sync to Google Calendar (fire-and-forget) — only if we were the ones
+      // who actually completed the session.
+      if (data.completed && settings.calendarSync && data.session) {
+        fetch('/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            intention: data.session.intention,
+            category: data.session.category,
+            type: data.session.type,
+            startedAt: data.session.startedAt,
+            endedAt: data.session.endedAt,
+            targetMs: data.session.targetMs,
+            actualMs: data.session.actualMs,
+            overflowMs: data.session.overflowMs,
+          }),
+        }).catch(() => {})
+      }
+
+      // Update serverUpdatedAtRef so the polling loop doesn't fight us
+      if (data.timer?.updatedAt) {
+        serverUpdatedAtRef.current = data.timer.updatedAt
+      }
     } catch {
       setSaveError('Failed to save session. Please try finishing again.')
       // Restart the interval so the timer keeps ticking
       intervalRef.current = setInterval(tick, 100)
       return
     }
-
-    // Sync to Google Calendar (fire-and-forget)
-    if (settings.calendarSync) {
-      fetch('/api/calendar/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          intention,
-          category,
-          type: sessionType,
-          startedAt,
-          endedAt,
-          targetMs,
-          actualMs,
-          overflowMs: overflow,
-        }),
-      }).catch(() => {})
-    }
-
-    // Reset server timer state
-    syncToServer({
-      phase: 'idle',
-      sessionType,
-      intention: '',
-      category,
-      targetMs,
-      remainingMs: targetMs,
-      overflowMs: 0,
-      startedAt: null,
-      pausedAt: null,
-    })
 
     if (settings.soundEnabled) playChime()
 
@@ -401,11 +410,13 @@ export default function Timer() {
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
 
+    postSwMessage('TIMER_STOPPED')
+
     setPhase('idle')
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, tick])
+  }, [startedAt, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) {
@@ -431,7 +442,9 @@ export default function Timer() {
       startedAt: null,
       pausedAt: null,
     })
-  }, [targetMs, syncToServer, sessionType, category])
+
+    postSwMessage('TIMER_STOPPED')
+  }, [targetMs, syncToServer, postSwMessage, sessionType, category])
 
   // Keyboard shortcuts
   useEffect(() => {

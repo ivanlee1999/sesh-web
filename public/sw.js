@@ -1,3 +1,4 @@
+// ── Offline cache (existing) ──────────────────────────────────────────
 const CACHE_NAME = 'sesh-v1'
 const STATIC_ASSETS = [
   '/',
@@ -33,4 +34,44 @@ self.addEventListener('fetch', event => {
       })
       .catch(() => caches.match(event.request))
   )
+})
+
+// ── Background timer polling ─────────────────────────────────────────
+// Periodically pings /api/timer?background=1 so the server can auto-
+// complete expired timers even when the app tab is backgrounded.
+// NOTE: This is best-effort — the browser may kill the worker when all
+// tabs are closed. Guaranteed completion requires a server-side scheduler.
+
+const TIMER_CHECK_INTERVAL = 30000 // 30 seconds
+let checkInterval = null
+
+function startChecking() {
+  if (checkInterval) return
+  checkInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/timer?background=1', { cache: 'no-store' })
+      const data = await res.json()
+      // Server flipped to idle — timer was auto-completed, stop polling
+      if (data.phase === 'idle') {
+        stopChecking()
+      }
+    } catch {
+      // Network error — keep trying
+    }
+  }, TIMER_CHECK_INTERVAL)
+}
+
+function stopChecking() {
+  if (checkInterval) {
+    clearInterval(checkInterval)
+    checkInterval = null
+  }
+}
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'TIMER_STARTED') {
+    startChecking()
+  } else if (event.data?.type === 'TIMER_STOPPED') {
+    stopChecking()
+  }
 })
