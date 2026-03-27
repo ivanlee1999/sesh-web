@@ -339,79 +339,65 @@ export default function Timer() {
       clearInterval(intervalRef.current)
       intervalRef.current = null
     }
-    const endedAt = Date.now()
-    const actualMs = endedAt - startedAt
-    const overflow = Math.max(0, overflowMs)
-    const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-          const r = Math.random() * 16 | 0
-          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
-        })
 
-    const sessionPayload = {
-      id: sessionId,
-      intention,
-      category,
-      type: sessionType,
-      targetMs,
-      actualMs,
-      overflowMs: overflow,
-      startedAt,
-      endedAt,
-      notes: '',
-    }
-
-    // Save to server — must succeed before resetting UI
+    // Atomically complete the timer on the server using compare-and-swap on
+    // startedAt.  This prevents duplicate sessions when the background
+    // auto-complete fires concurrently.
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch('/api/timer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionPayload),
+        body: JSON.stringify({
+          startedAt,
+          intention,
+          category,
+          notes: '',
+        }),
       })
 
       if (!res.ok) {
         throw new Error('Failed to save session')
       }
 
+      const data = await res.json()
+
+      // If the server reports the timer was already completed (by auto-complete
+      // or another client), skip saving again but still reset the local UI.
+      if (!data.completed) {
+        // Session was already persisted — just reset UI below.
+      }
+
       setSaveError(null)
+
+      // Sync to Google Calendar (fire-and-forget) — only if we were the ones
+      // who actually completed the session.
+      if (data.completed && settings.calendarSync && data.session) {
+        fetch('/api/calendar/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            intention: data.session.intention,
+            category: data.session.category,
+            type: data.session.type,
+            startedAt: data.session.startedAt,
+            endedAt: data.session.endedAt,
+            targetMs: data.session.targetMs,
+            actualMs: data.session.actualMs,
+            overflowMs: data.session.overflowMs,
+          }),
+        }).catch(() => {})
+      }
+
+      // Update serverUpdatedAtRef so the polling loop doesn't fight us
+      if (data.timer?.updatedAt) {
+        serverUpdatedAtRef.current = data.timer.updatedAt
+      }
     } catch {
       setSaveError('Failed to save session. Please try finishing again.')
       // Restart the interval so the timer keeps ticking
       intervalRef.current = setInterval(tick, 100)
       return
     }
-
-    // Sync to Google Calendar (fire-and-forget)
-    if (settings.calendarSync) {
-      fetch('/api/calendar/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          intention,
-          category,
-          type: sessionType,
-          startedAt,
-          endedAt,
-          targetMs,
-          actualMs,
-          overflowMs: overflow,
-        }),
-      }).catch(() => {})
-    }
-
-    // Reset server timer state
-    syncToServer({
-      phase: 'idle',
-      sessionType,
-      intention: '',
-      category,
-      targetMs,
-      remainingMs: targetMs,
-      overflowMs: 0,
-      startedAt: null,
-      pausedAt: null,
-    })
 
     if (settings.soundEnabled) playChime()
 
@@ -430,7 +416,7 @@ export default function Timer() {
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer, postSwMessage, tick])
+  }, [startedAt, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) {
