@@ -18,10 +18,15 @@ export async function GET(req: NextRequest) {
     if (!tokens.access_token) throw new Error('no token')
 
     const response = NextResponse.redirect(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/?tab=settings`)
-    response.cookies.set('gcal_token', JSON.stringify(tokens), {
+    response.cookies.set('google_tokens', JSON.stringify({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: Date.now() + (tokens.expires_in * 1000),
+    }), {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 24 * 30,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 365 * 24 * 60 * 60,
       path: '/',
     })
     return response

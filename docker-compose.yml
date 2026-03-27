@@ -7,3 +7,8 @@ services:
       - "3033:3000"
     env_file:
       - .env.local
+    volumes:
+      - sesh_data:/app/data
+
+volumes:
+  sesh_data:

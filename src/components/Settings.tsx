@@ -73,7 +73,10 @@ export default function Settings() {
   const [calConnected, setCalConnected] = useState(false)
 
   useEffect(() => {
-    setCalConnected(!!document.cookie.includes('gcal_token'))
+    fetch('/api/auth/google/status')
+      .then(res => res.json())
+      .then(data => setCalConnected(data.connected))
+      .catch(() => setCalConnected(false))
   }, [])
 
   return (
@@ -129,7 +132,17 @@ export default function Settings() {
 
         {/* Google Calendar */}
         <Section title="Google Calendar">
-          <DeviceFlowAuth connected={calConnected} onConnected={() => setCalConnected(true)} />
+          <DeviceFlowAuth connected={calConnected} onConnected={() => {
+            setCalConnected(true)
+            updateSettings({ calendarSync: true })
+          }} />
+          {calConnected && (
+            <Toggle
+              label="Auto-sync to Google Calendar"
+              checked={settings.calendarSync}
+              onChange={v => updateSettings({ calendarSync: v })}
+            />
+          )}
         </Section>
 
         {/* About */}

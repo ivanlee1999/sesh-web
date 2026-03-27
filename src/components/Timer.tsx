@@ -246,7 +246,12 @@ export default function Timer() {
     const endedAt = Date.now()
     const actualMs = endedAt - startedAt
     const overflow = Math.max(0, overflowMs)
-    const sessionId = crypto.randomUUID()
+    const sessionId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+        })
 
     // Save to IndexedDB
     await saveSession({
@@ -280,6 +285,24 @@ export default function Timer() {
       }),
     }).catch(() => {})
 
+    // Sync to Google Calendar (fire-and-forget)
+    if (settings.calendarSync) {
+      fetch('/api/calendar/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intention,
+          category,
+          type: sessionType,
+          startedAt,
+          endedAt,
+          targetMs,
+          actualMs,
+          overflowMs: overflow,
+        }),
+      }).catch(() => {})
+    }
+
     // Reset server timer state
     syncToServer({
       phase: 'idle',
@@ -308,7 +331,7 @@ export default function Timer() {
     setRemainingMs(targetMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, playChime, syncToServer])
+  }, [startedAt, overflowMs, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, syncToServer])
 
   const abandonSession = useCallback(() => {
     if (intervalRef.current) {
