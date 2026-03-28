@@ -75,6 +75,9 @@ export default function Timer() {
   useEffect(() => { customDurationMsRef.current = customDurationMs }, [customDurationMs])
   const activeTargetMsRef = useRef(activeTargetMs)
   useEffect(() => { activeTargetMsRef.current = activeTargetMs }, [activeTargetMs])
+  // When true, the idle-reset effect skips one cycle so server-driven
+  // reconciliation isn't immediately clobbered by the defaultDurationMs reset.
+  const suppressIdleResetRef = useRef(false)
 
   const defaultDurationMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
@@ -85,9 +88,15 @@ export default function Timer() {
   // targetMs is kept for buildTimerPayload backward compat during active sessions
   const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
 
-  // Sync idle dial when settings or session type changes
+  // Sync idle dial when settings or session type changes.
+  // Server-driven reconciliation sets suppressIdleResetRef to avoid clobbering
+  // a custom duration that was just fetched from the API.
   useEffect(() => {
     if (phase === 'idle') {
+      if (suppressIdleResetRef.current) {
+        suppressIdleResetRef.current = false
+        return
+      }
       setCustomDurationMs(defaultDurationMs)
       setRemainingMs(defaultDurationMs)
       setActiveTargetMs(defaultDurationMs)
@@ -216,11 +225,17 @@ export default function Timer() {
           // Ensure the SW resumes background polling after page reload
           postSwMessage('TIMER_STARTED')
         } else {
-          // Reconcile idle duration from server (e.g. another client set a custom duration)
-          if (data.phase === 'idle' && data.remainingMs) {
-            setCustomDurationMs(data.remainingMs)
-            setActiveTargetMs(data.remainingMs)
-            setRemainingMs(data.remainingMs)
+          // Reconcile idle state from server (e.g. another client set a custom duration)
+          if (data.phase === 'idle') {
+            suppressIdleResetRef.current = true
+            if (data.sessionType) setSessionType(data.sessionType as SessionType)
+            if (data.category) setCategory(data.category as Category)
+            if (data.intention) setIntention(data.intention)
+            if (data.remainingMs) {
+              setCustomDurationMs(data.remainingMs)
+              setActiveTargetMs(data.remainingMs)
+              setRemainingMs(data.remainingMs)
+            }
           }
           postSwMessage('TIMER_STOPPED')
         }
@@ -260,6 +275,7 @@ export default function Timer() {
             intervalRef.current = null
           }
           const idleDuration = data.remainingMs || data.targetMs
+          suppressIdleResetRef.current = true
           setPhase('idle')
           setSessionType(data.sessionType as SessionType)
           setCategory(data.category as Category)
@@ -270,6 +286,16 @@ export default function Timer() {
           setStartedAt(0)
           setIntention(data.intention)
           postSwMessage('TIMER_STOPPED')
+        } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
+          // Another client changed idle state (e.g. dragged duration) — apply it
+          const idleDuration = data.remainingMs || data.targetMs
+          suppressIdleResetRef.current = true
+          setSessionType(data.sessionType as SessionType)
+          setCategory(data.category as Category)
+          setCustomDurationMs(idleDuration)
+          setActiveTargetMs(idleDuration)
+          setRemainingMs(idleDuration)
+          setIntention(data.intention)
         }
       } catch {
         setSynced(false)
@@ -300,6 +326,7 @@ export default function Timer() {
             intervalRef.current = null
           }
           const idleDuration = data.remainingMs || data.targetMs || targetMs
+          suppressIdleResetRef.current = true
           setPhase('idle')
           setSessionType(data.sessionType as SessionType)
           setCategory(data.category as Category)
@@ -604,6 +631,19 @@ export default function Timer() {
           const ms = minutes * 60 * 1000
           setCustomDurationMs(ms)
           setRemainingMs(ms)
+          // Persist idle duration to server so it survives reload and syncs
+          // to other clients.
+          syncToServer({
+            phase: 'idle',
+            sessionType: sessionTypeRef.current,
+            intention: intentionRef.current,
+            category: categoryRef.current,
+            targetMs: ms,
+            remainingMs: ms,
+            overflowMs: 0,
+            startedAt: null,
+            pausedAt: null,
+          })
         }}
       >
         <div className="flex flex-col items-center">
