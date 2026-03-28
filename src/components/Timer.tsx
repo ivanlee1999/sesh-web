@@ -1,9 +1,8 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Play, Pause, Square, SkipForward } from 'lucide-react'
+import { Play, Pause, SkipForward, Square, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ProgressRing from './ProgressRing'
-import IntentionInput from './IntentionInput'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
@@ -340,15 +339,6 @@ export default function Timer() {
     }, 500)
   }, [buildTimerPayload, syncToServer])
 
-  const handleCategoryChange = useCallback((value: Category) => {
-    setCategory(value)
-    if (phaseRef.current === 'idle') return
-    syncToServer(buildTimerPayload({
-      category: value,
-      pausedAt: phaseRef.current === 'paused' ? Date.now() : null,
-    }))
-  }, [buildTimerPayload, syncToServer])
-
   const startTimer = useCallback(() => {
     const isIdle = phaseRef.current === 'idle'
     const now = Date.now()
@@ -514,8 +504,22 @@ export default function Timer() {
 
   const viewState = phase === 'idle' ? 'idle' : 'active'
 
+  // Determine the display intention for the active state
+  const displayIntention = intention || todoistTaskContent
+
+  // Whether to show the text input in idle (only when no Todoist task selected)
+  const showIdleIntentionInput = !todoistTaskId
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 20px', paddingBottom: 96, gap: 20, minHeight: '100%' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      padding: '16px 20px',
+      paddingBottom: 96,
+      minHeight: '100%',
+      justifyContent: viewState === 'active' ? 'center' : undefined,
+    }}>
       {/* Sync indicator */}
       <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{
@@ -533,9 +537,16 @@ export default function Timer() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%' }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 32,
+              width: '100%',
+              paddingTop: 8,
+            }}
           >
-            {/* Tasks (above ring when idle) */}
+            {/* Todoist tasks — compact at top */}
             <div style={{ width: '100%', maxWidth: 360 }}>
               <TodoistTasks
                 selectedTaskId={todoistTaskId}
@@ -543,32 +554,81 @@ export default function Timer() {
               />
             </div>
 
-            {/* Session type pills */}
-            <div className="session-type-picker" style={{ width: '100%', maxWidth: 320 }}>
-              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setSessionType(t)}
-                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+            {/* Selected task display or intention input */}
+            {todoistTaskId && todoistTaskContent ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 16px',
+                borderRadius: 12,
+                background: 'var(--accent-light)',
+                border: '1.5px solid var(--accent)',
+                maxWidth: 360,
+                width: '100%',
+              }}>
+                <span style={{
+                  flex: 1,
+                  fontSize: 15,
+                  color: 'var(--text-primary)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {todoistTaskContent}
+                </span>
+                <motion.button
+                  whileTap={{ scale: 0.85 }}
+                  onClick={() => handleTodoistTaskSelect(null)}
+                  style={{
+                    padding: 4,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-tertiary)',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    minWidth: 44,
+                    minHeight: 44,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-                </button>
-              ))}
-            </div>
+                  <X className="w-4 h-4" />
+                </motion.button>
+              </div>
+            ) : showIdleIntentionInput ? (
+              <div style={{ width: '100%', maxWidth: 360 }}>
+                <input
+                  type="text"
+                  value={intention}
+                  onChange={e => handleIntentionChange(e.target.value)}
+                  placeholder="What are you working on?"
+                  maxLength={120}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: 12,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    fontSize: 15,
+                    outline: 'none',
+                    transition: 'border-color 0.2s ease',
+                    minHeight: 44,
+                  }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
+                />
+              </div>
+            ) : null}
 
-            {/* Intention input */}
-            <IntentionInput
-              intention={intention}
-              setIntention={handleIntentionChange}
-              category={category}
-              setCategory={handleCategoryChange}
-            />
-
-            {/* Ring */}
+            {/* THE HERO — Timer Ring */}
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={220}
+              size={260}
               strokeWidth={5}
               interactive={true}
               onProgressChange={(p) => {
@@ -589,124 +649,177 @@ export default function Timer() {
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span className="font-mono" style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                <span className="font-mono" style={{ fontSize: 56, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
                   {formatTime(displayMs)}
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                   DRAG TO SET
                 </span>
               </div>
             </ProgressRing>
+
+            {/* Session type pills — small, subtle, below ring */}
+            <div className="session-type-picker" style={{ width: '100%', maxWidth: 280 }}>
+              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setSessionType(t)}
+                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+                >
+                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                </button>
+              ))}
+            </div>
 
             {/* Start button */}
             <motion.button
               whileTap={{ scale: 0.96 }}
               onClick={startTimer}
               className="primary-pill"
-              style={{ minWidth: 180 }}
+              style={{ minWidth: 180, minHeight: 48 }}
             >
               <Play style={{ width: 18, height: 18, fill: '#fff' }} />
               Start {sessionType === 'focus' ? 'Focus' : 'Break'}
             </motion.button>
-
-            <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-              Drag ring to set duration &middot; Enter to start
-            </p>
           </motion.div>
         ) : (
+          /* ═══════ ACTIVE STATE ═══════ */
           <motion.div
             key="active"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%', paddingTop: 20 }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 32,
+              width: '100%',
+            }}
           >
             {/* Intention + phase header */}
-            <div style={{ textAlign: 'center' }}>
-              {(intention || todoistTaskContent) && (
-                <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-                  {intention || todoistTaskContent}
+            <div style={{ textAlign: 'center', maxWidth: 320 }}>
+              {displayIntention && (
+                <p style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>
+                  {displayIntention}
                 </p>
               )}
               <p style={{
-                fontSize: 12, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase',
+                fontSize: 12, fontWeight: 600, letterSpacing: '1.5px', textTransform: 'uppercase',
                 color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
               }}>
                 {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
               </p>
             </div>
 
-            {/* Ring */}
+            {/* Ring — THE HERO */}
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={260}
+              size={280}
               strokeWidth={5}
               interactive={false}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 {isOverflow && (
-                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--warning)', marginBottom: 2 }}>+{formatTime(overflowMs)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warning)', marginBottom: 4 }}>+{formatTime(overflowMs)}</span>
                 )}
-                <span className="font-mono" style={{ fontSize: 56, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                <span className="font-mono" style={{ fontSize: 64, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
                   {formatTime(displayMs)}
                 </span>
               </div>
             </ProgressRing>
 
-            {/* Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Controls — simple text buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               {(phase === 'running' || phase === 'overflow') && (
                 <>
-                  <motion.button whileTap={{ scale: 0.96 }} onClick={pauseTimer} className="ghost-button">
-                    <Pause style={{ width: 16, height: 16 }} />
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={pauseTimer}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '12px 24px',
+                      borderRadius: 12,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-secondary)',
+                      fontSize: 16,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      minHeight: 44,
+                    }}
+                  >
+                    <Pause style={{ width: 18, height: 18 }} />
                     Pause
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.96 }} onClick={finishSession} className="ghost-button ghost-button--accent">
-                    <SkipForward style={{ width: 16, height: 16 }} />
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={finishSession}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '12px 24px',
+                      borderRadius: 12,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--accent)',
+                      fontSize: 16,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      minHeight: 44,
+                    }}
+                  >
+                    <SkipForward style={{ width: 18, height: 18 }} />
                     Finish
                   </motion.button>
                 </>
               )}
               {phase === 'paused' && (
                 <>
-                  <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 14 }}>
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '12px 28px', fontSize: 15, minHeight: 44 }}>
                     <Play style={{ width: 16, height: 16, fill: '#fff' }} />
                     Resume
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.96 }} onClick={finishSession} className="ghost-button ghost-button--accent">
-                    <SkipForward style={{ width: 16, height: 16 }} />
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={finishSession}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '12px 24px',
+                      borderRadius: 12,
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--accent)',
+                      fontSize: 16,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      minHeight: 44,
+                    }}
+                  >
+                    <SkipForward style={{ width: 18, height: 18 }} />
                     Finish
                   </motion.button>
                 </>
               )}
             </div>
 
-            {/* Abandon */}
+            {/* Abandon — minimal */}
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={abandonSession}
               className="ghost-button ghost-button--danger"
+              style={{ minHeight: 44 }}
             >
               <Square style={{ width: 14, height: 14 }} />
               Abandon
             </motion.button>
-
-            {/* Linked task */}
-            {todoistTaskId && (
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Linked: {todoistTaskContent || 'Todoist task'}
-              </p>
-            )}
-
-            {/* Intention input (still editable during active) */}
-            <IntentionInput
-              intention={intention}
-              setIntention={handleIntentionChange}
-              category={category}
-              setCategory={handleCategoryChange}
-            />
 
             {/* Save error */}
             {saveError && (
@@ -717,10 +830,6 @@ export default function Timer() {
                 {saveError}
               </div>
             )}
-
-            <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-              Space to {phase === 'running' ? 'pause' : 'resume'} &middot; Esc to abandon
-            </p>
           </motion.div>
         )}
       </AnimatePresence>

@@ -84,6 +84,11 @@
    Base
    ────────────────────────────────────────── */
 
+html {
+  /* Ensure safe areas work in PWA standalone mode */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -114,7 +119,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -128,11 +133,22 @@ body {
   left: 0;
   right: 0;
   z-index: 100;
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.85);
   border-top: 0.5px solid var(--border);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 8px 0;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tabbar {
+    background: rgba(28, 28, 30, 0.85);
+  }
+}
+
+.dark .tabbar {
+  background: rgba(28, 28, 30, 0.85);
 }
 
 .tabbar-inner {
@@ -141,7 +157,7 @@ body {
   display: flex;
   justify-content: space-around;
   align-items: center;
-  height: 52px;
+  height: 49px;
 }
 
 .tabbar-item {
@@ -149,7 +165,9 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 4px 16px;
+  padding: 6px 20px;
+  min-height: 44px;
+  min-width: 44px;
   border: none;
   background: none;
   cursor: pointer;
