@@ -502,11 +502,23 @@ export default function Timer() {
 
     if (settings.soundEnabled) playChime()
 
+    // Only show a local notification if the user does NOT have web push enabled.
+    // The server already sends a web push on completion, so showing both would
+    // cause a duplicate notification.
     if (Notification.permission === 'granted') {
-      new Notification('sesh — session complete', {
-        body: intention || `${sessionType} finished`,
-        icon: '/icons/icon-192.png',
-      })
+      const hasPushSub = await (async () => {
+        try {
+          if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false
+          const reg = await navigator.serviceWorker.ready
+          return !!(await reg.pushManager.getSubscription())
+        } catch { return false }
+      })()
+      if (!hasPushSub) {
+        new Notification('sesh — session complete', {
+          body: intention || `${sessionType} finished`,
+          icon: '/icons/icon-192.png',
+        })
+      }
     }
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
