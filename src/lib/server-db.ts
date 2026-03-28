@@ -17,6 +17,13 @@ export function getDb(): Database.Database {
   return db
 }
 
+function ensureColumn(d: Database.Database, table: string, column: string, ddl: string) {
+  const cols = d.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  if (!cols.some(c => c.name === column)) {
+    d.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+  }
+}
+
 function initSchema(d: Database.Database) {
   d.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -70,4 +77,8 @@ function initSchema(d: Database.Database) {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
   `)
+
+  // Migrations: add todoist_task_id to sessions and timer_state
+  ensureColumn(d, 'sessions', 'todoist_task_id', 'todoist_task_id TEXT')
+  ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
 }

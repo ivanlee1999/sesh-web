@@ -13,6 +13,15 @@ export interface Session {
   startedAt: number
   endedAt: number
   notes: string
+  todoistTaskId?: string | null
+}
+
+export interface TodoistTask {
+  id: string
+  content: string
+  duration: { amount: number; unit: 'minute' } | null
+  labels: string[]
+  priority: number
 }
 
 export interface AppSettings {

@@ -3,8 +3,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, Square, SkipForward } from 'lucide-react'
 import ProgressRing from './ProgressRing'
 import IntentionInput from './IntentionInput'
+import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
-import type { Category, SessionType, TimerPhase } from '@/types'
+import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 import { CATEGORY_COLORS } from '@/types'
 import clsx from 'clsx'
 
@@ -33,6 +34,7 @@ interface ServerTimerState {
   startedAt: number | null
   pausedAt: number | null
   updatedAt: number
+  todoistTaskId: string | null
 }
 
 export default function Timer() {
@@ -46,6 +48,9 @@ export default function Timer() {
   const [startedAt, setStartedAt] = useState<number>(0)
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Todoist task linkage
+  const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
+  const [todoistTaskContent, setTodoistTaskContent] = useState<string>('')
   // Idle dial state — separate from active countdown target
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
@@ -70,6 +75,8 @@ export default function Timer() {
   useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
   useEffect(() => { intentionRef.current = intention }, [intention])
   useEffect(() => { categoryRef.current = category }, [category])
+  const todoistTaskIdRef = useRef<string | null>(null)
+  useEffect(() => { todoistTaskIdRef.current = todoistTaskId }, [todoistTaskId])
 
   const customDurationMsRef = useRef(customDurationMs)
   useEffect(() => { customDurationMsRef.current = customDurationMs }, [customDurationMs])
@@ -148,6 +155,7 @@ export default function Timer() {
     overflowMs: overrides?.overflowMs ?? overflowMsRef.current,
     startedAt: overrides?.startedAt !== undefined ? overrides.startedAt : startedAtRef.current,
     pausedAt: overrides?.pausedAt !== undefined ? overrides.pausedAt : (phaseRef.current === 'paused' ? Date.now() : null),
+    todoistTaskId: todoistTaskIdRef.current,
   }), [targetMs])
 
   const tick = useCallback(() => {
@@ -194,6 +202,7 @@ export default function Timer() {
       setOverflowMs(newRemaining > 0 ? data.overflowMs : Math.abs(newRemaining))
       setStartedAt(data.startedAt)
       setActiveTargetMs(data.targetMs)
+      if (data.todoistTaskId) setTodoistTaskId(data.todoistTaskId)
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
       if (intervalRef.current) {
@@ -208,6 +217,7 @@ export default function Timer() {
       setOverflowMs(data.overflowMs)
       setActiveTargetMs(data.targetMs)
       if (data.startedAt) setStartedAt(data.startedAt)
+      if (data.todoistTaskId) setTodoistTaskId(data.todoistTaskId)
     }
   }, [tick])
 
@@ -285,6 +295,8 @@ export default function Timer() {
           setOverflowMs(0)
           setStartedAt(0)
           setIntention(data.intention)
+          setTodoistTaskId(null)
+          setTodoistTaskContent('')
           postSwMessage('TIMER_STOPPED')
         } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
           // Another client changed idle state (e.g. dragged duration) — apply it
@@ -405,6 +417,7 @@ export default function Timer() {
       overflowMs: isIdle ? 0 : overflowMs,
       startedAt: newStartedAt,
       pausedAt: null,
+      todoistTaskId: isIdle ? todoistTaskIdRef.current : todoistTaskIdRef.current,
     })
 
     postSwMessage('TIMER_STARTED')
@@ -426,6 +439,7 @@ export default function Timer() {
       overflowMs,
       startedAt,
       pausedAt: Date.now(),
+      todoistTaskId: todoistTaskIdRef.current,
     })
 
     postSwMessage('TIMER_STOPPED')
@@ -541,6 +555,8 @@ export default function Timer() {
     setRemainingMs(defaultDurationMs)
     setOverflowMs(0)
     setIntention('')
+    setTodoistTaskId(null)
+    setTodoistTaskContent('')
   }, [startedAt, intention, category, sessionType, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
@@ -557,6 +573,8 @@ export default function Timer() {
     setRemainingMs(defaultDurationMs)
     setOverflowMs(0)
     setIntention('')
+    setTodoistTaskId(null)
+    setTodoistTaskContent('')
     syncToServer({
       phase: 'idle',
       sessionType,
@@ -567,6 +585,7 @@ export default function Timer() {
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
+      todoistTaskId: null,
     })
 
     postSwMessage('TIMER_STOPPED')
@@ -589,6 +608,11 @@ export default function Timer() {
   }, [phase, startTimer, pauseTimer, abandonSession])
 
   // Notification permission is now managed via the Settings push toggle
+
+  const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
+    setTodoistTaskId(task?.id ?? null)
+    setTodoistTaskContent(task?.content ?? '')
+  }, [])
 
   const isActive = phase === 'running' || phase === 'paused' || phase === 'overflow'
   const isOverflow = remainingMs < 0
@@ -748,6 +772,13 @@ export default function Timer() {
         </div>
       )}
 
+      {/* Linked Todoist task label */}
+      {isActive && todoistTaskId && (
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Linked: {todoistTaskContent || 'Todoist task'}
+        </p>
+      )}
+
       {/* Keyboard hints */}
       {phase === 'idle' && (
         <p className="text-xs text-gray-400">Drag ring to set duration · Enter to start</p>
@@ -763,6 +794,14 @@ export default function Timer() {
         category={category}
         setCategory={handleCategoryChange}
       />
+
+      {/* Todoist task picker — only when idle */}
+      {phase === 'idle' && (
+        <TodoistTasks
+          selectedTaskId={todoistTaskId}
+          onSelectTask={handleTodoistTaskSelect}
+        />
+      )}
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { sendPushToAll } from '@/lib/push'
+import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
 export const dynamic = 'force-dynamic'
 
 interface TimerRow {
@@ -15,6 +16,7 @@ interface TimerRow {
   started_at: number | null
   paused_at: number | null
   updated_at: number
+  todoist_task_id: string | null
 }
 
 function rowToJson(row: TimerRow) {
@@ -29,6 +31,21 @@ function rowToJson(row: TimerRow) {
     startedAt: row.started_at,
     pausedAt: row.paused_at,
     updatedAt: row.updated_at,
+    todoistTaskId: row.todoist_task_id,
+  }
+}
+
+/**
+ * Sync Todoist duration after session completion (non-fatal).
+ */
+async function syncTodoistDuration(todoistTaskId: string, actualMs: number) {
+  if (!isTodoistConfigured()) return
+  const minutes = Math.round(actualMs / 60000)
+  if (minutes <= 0) return
+  try {
+    await addTaskDuration(todoistTaskId, minutes)
+  } catch (err) {
+    console.error('[todoist] Failed to sync duration:', err)
   }
 }
 
@@ -43,14 +60,15 @@ function tryAutoComplete(db: ReturnType<typeof getDb>) {
   const resetTimer = db.prepare(`
     UPDATE timer_state
     SET phase = 'idle', intention = '', remaining_ms = target_ms,
-        overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?
+        overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?,
+        todoist_task_id = NULL
     WHERE id = 1 AND phase = 'running' AND started_at = ?
   `)
 
   const insertSession = db.prepare(`
     INSERT OR IGNORE INTO sessions
-      (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, todoist_task_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   const run = db.transaction(() => {
@@ -86,12 +104,15 @@ function tryAutoComplete(db: ReturnType<typeof getDb>) {
       overflowMs,
       row.started_at,
       endedAt,
-      'auto-completed'
+      'auto-completed',
+      row.todoist_task_id,
     )
 
     return {
       completed: true,
       row: selectTimer.get() as TimerRow,
+      todoistTaskId: row.todoist_task_id,
+      actualMs,
       notification: {
         intention: row.intention,
         sessionType: row.session_type,
@@ -116,8 +137,8 @@ function sendDiscordNotification(notification: {
   const duration = Math.round(notification.targetMs / 60000)
   const overflow = Math.round(notification.overflowMs / 60000)
   const msg = notification.intention
-    ? `✅ **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
-    : `✅ **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+    ? `\u2705 **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+    : `\u2705 **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
 
   void fetch(webhookUrl, {
     method: 'POST',
@@ -135,9 +156,13 @@ export async function GET() {
     if (result.completed && result.notification) {
       sendDiscordNotification(result.notification)
       await sendPushToAll(
-        'sesh — session complete',
+        'sesh \u2014 session complete',
         result.notification.intention || `${result.notification.sessionType} session finished`
       )
+      // Todoist sync outside transaction, non-fatal
+      if (result.todoistTaskId && result.actualMs) {
+        void syncTodoistDuration(result.todoistTaskId, result.actualMs)
+      }
     }
     return NextResponse.json(rowToJson(result.row))
   } catch {
@@ -165,14 +190,15 @@ export async function POST(request: Request) {
     const resetTimer = db.prepare(`
       UPDATE timer_state
       SET phase = 'idle', intention = '', remaining_ms = target_ms,
-          overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?
+          overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?,
+          todoist_task_id = NULL
       WHERE id = 1 AND started_at = ?
     `)
 
     const insertSession = db.prepare(`
       INSERT OR IGNORE INTO sessions
-        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, todoist_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const result = db.transaction(() => {
@@ -205,12 +231,14 @@ export async function POST(request: Request) {
         row.started_at,
         endedAt,
         body.notes ?? '',
+        row.todoist_task_id,
       )
 
       return {
         completed: true,
         alreadyDone: false,
         row: selectTimer.get() as TimerRow,
+        todoistTaskId: row.todoist_task_id,
         session: {
           id: sessionId,
           intention: body.intention ?? row.intention,
@@ -239,9 +267,14 @@ export async function POST(request: Request) {
         overflowMs: result.session.overflowMs,
       })
       await sendPushToAll(
-        'sesh — session complete',
+        'sesh \u2014 session complete',
         result.session.intention || `${result.session.type} session finished`
       )
+    }
+
+    // Todoist sync outside transaction, non-fatal
+    if (result.todoistTaskId && result.session) {
+      void syncTodoistDuration(result.todoistTaskId, result.session.actualMs)
     }
 
     return NextResponse.json({
@@ -263,7 +296,7 @@ export async function PUT(request: Request) {
       UPDATE timer_state SET
         phase = ?, session_type = ?, intention = ?, category = ?,
         target_ms = ?, remaining_ms = ?, overflow_ms = ?,
-        started_at = ?, paused_at = ?, updated_at = ?
+        started_at = ?, paused_at = ?, updated_at = ?, todoist_task_id = ?
       WHERE id = 1
     `).run(
       body.phase ?? 'idle',
@@ -276,6 +309,7 @@ export async function PUT(request: Request) {
       body.startedAt ?? null,
       body.pausedAt ?? null,
       now,
+      body.todoistTaskId ?? null,
     )
     const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
     return NextResponse.json(rowToJson(row))
