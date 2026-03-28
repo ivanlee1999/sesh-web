@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Play, Pause, SkipForward, Square, X } from 'lucide-react'
+import { Play, Pause, SkipForward, Square } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
