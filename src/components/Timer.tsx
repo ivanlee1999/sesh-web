@@ -554,51 +554,8 @@ export default function Timer() {
               />
             </div>
 
-            {/* Selected task display or intention input */}
-            {todoistTaskId && todoistTaskContent ? (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 16px',
-                borderRadius: 12,
-                background: 'var(--accent-light)',
-                border: '1.5px solid var(--accent)',
-                maxWidth: 360,
-                width: '100%',
-              }}>
-                <span style={{
-                  flex: 1,
-                  fontSize: 15,
-                  color: 'var(--text-primary)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {todoistTaskContent}
-                </span>
-                <motion.button
-                  whileTap={{ scale: 0.85 }}
-                  onClick={() => handleTodoistTaskSelect(null)}
-                  style={{
-                    padding: 4,
-                    borderRadius: 6,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--text-tertiary)',
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                    minWidth: 44,
-                    minHeight: 44,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <X className="w-4 h-4" />
-                </motion.button>
-              </div>
-            ) : showIdleIntentionInput ? (
+            {/* Intention input — only when no Todoist task selected */}
+            {showIdleIntentionInput ? (
               <div style={{ width: '100%', maxWidth: 360 }}>
                 <input
                   type="text"
