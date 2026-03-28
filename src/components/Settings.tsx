@@ -2,7 +2,7 @@
 import React from 'react'
 import { useSettings } from '@/context/SettingsContext'
 import { useEffect, useState } from 'react'
-
+import { motion } from 'framer-motion'
 
 function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
   const [step, setStep] = React.useState<'idle' | 'pending' | 'done'>('idle')
@@ -16,7 +16,6 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
       setUserCode(data.user_code)
       setVerifyUrl(data.verification_url)
       setStep('pending')
-      // Poll for completion
       const interval = setInterval(async () => {
         const pollRes = await fetch('/api/auth/device/poll', {
           method: 'POST',
@@ -35,35 +34,56 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
 
   if (connected || step === 'done') {
     return (
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-green-600">✓ Connected to Google Calendar</p>
-        <a href="/api/auth/google/disconnect" className="text-xs text-red-500 hover:underline">Disconnect</a>
+      <div className="settings-row">
+        <div>
+          <p className="settings-row__label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }} />
+            Connected
+          </p>
+        </div>
+        <a
+          href="/api/auth/google/disconnect"
+          style={{ fontSize: 13, color: 'var(--danger)', textDecoration: 'none' }}
+        >
+          Disconnect
+        </a>
       </div>
     )
   }
 
   if (step === 'pending') {
     return (
-      <div className="space-y-3">
-        <p className="text-sm text-gray-700 dark:text-gray-300">Go to this URL and enter the code:</p>
-        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline text-sm block">{verifyUrl}</a>
-        <div className="bg-gray-100 dark:bg-gray-800 rounded-xl px-4 py-3 text-center">
-          <span className="font-mono text-2xl font-bold tracking-widest">{userCode}</span>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Go to this URL and enter the code:</p>
+        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: 'var(--accent)' }}>{verifyUrl}</a>
+        <div style={{
+          background: 'var(--bg-elevated)', borderRadius: 12, padding: '16px', textAlign: 'center',
+        }}>
+          <span className="font-mono" style={{ fontSize: 24, fontWeight: 700, letterSpacing: '0.2em', color: 'var(--text-primary)' }}>
+            {userCode}
+          </span>
         </div>
-        <p className="text-xs text-gray-400 text-center">Waiting for authorization...</p>
+        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center' }}>Waiting for authorization...</p>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="settings-row">
       <div>
-        <p className="text-sm text-gray-700 dark:text-gray-300">Sync sessions to calendar</p>
-        <p className="text-xs text-gray-400 mt-0.5">Not connected</p>
+        <p className="settings-row__label">Google Calendar</p>
+        <p className="settings-row__detail">Not connected</p>
       </div>
-      <button onClick={startAuth} className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={startAuth}
+        style={{
+          padding: '6px 14px', borderRadius: 8, border: 'none',
+          background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+        }}
+      >
         Connect
-      </button>
+      </motion.button>
     </div>
   )
 }
@@ -102,8 +122,6 @@ function PushNotificationToggle() {
         const reg = await navigator.serviceWorker.ready
         const sub = await reg.pushManager.getSubscription()
         setPushEnabled(!!sub)
-        // Clear stale confirmation flag when browser subscription is gone
-        // so the local notification fallback in Timer.tsx keeps working.
         if (!sub) {
           try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
         }
@@ -147,16 +165,11 @@ function PushNotificationToggle() {
       })
 
       if (!res.ok) {
-        // Server rejected the subscription — unsubscribe the browser side so
-        // the local-notification fallback in Timer keeps working.
         await sub.unsubscribe()
         throw new Error('Server failed to save push subscription')
       }
 
-      // Persist confirmation so Timer.tsx can distinguish "server has our sub"
-      // from "browser has a sub the server never stored".
       try { localStorage.setItem('pushSubscriptionConfirmed', '1') } catch {}
-
       setPushEnabled(true)
     } finally {
       setPushBusy(false)
@@ -186,34 +199,36 @@ function PushNotificationToggle() {
   const statusText = !pushSupported
     ? 'Not supported in this browser'
     : pushPermission === 'denied'
-    ? 'Permission denied in browser settings'
+    ? 'Permission denied'
     : pushEnabled
     ? 'Enabled'
     : 'Disabled'
 
   return (
-    <div className="flex items-center justify-between">
+    <div className="settings-row">
       <div>
-        <p className="text-sm text-gray-700 dark:text-gray-300">Session completion alerts</p>
-        <p className="text-xs text-gray-400 mt-0.5">{statusText}</p>
+        <p className="settings-row__label">Session alerts</p>
+        <p className="settings-row__detail">{statusText}</p>
       </div>
-      <button
+      <IOSSwitch
+        checked={pushEnabled}
         disabled={!pushSupported || pushPermission === 'denied' || pushBusy}
-        onClick={() => {
-          if (pushEnabled) disablePush()
-          else enablePush()
-        }}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-          pushEnabled ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-600'
-        } ${(!pushSupported || pushPermission === 'denied' || pushBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
-      >
-        <span
-          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-            pushEnabled ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
+        onChange={() => { if (pushEnabled) disablePush(); else enablePush() }}
+      />
     </div>
+  )
+}
+
+function IOSSwitch({ checked, onChange, disabled }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onChange}
+      disabled={disabled}
+      className={`ios-switch ${checked ? 'ios-switch--on' : ''}`}
+      style={{ opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
+    >
+      <span className="ios-switch__thumb" />
+    </button>
   )
 }
 
@@ -229,143 +244,133 @@ export default function Settings() {
   }, [])
 
   return (
-    <div className="px-4 pt-16 md:pt-20 pb-4">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Settings</h1>
+    <div style={{ padding: '24px 20px' }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 28 }}>Settings</h1>
 
-      <div className="flex flex-col gap-4">
-        {/* Timer durations */}
-        <Section title="Timer Durations">
-          <NumberField
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        {/* Timer Durations */}
+        <SettingsGroup title="Timer Durations">
+          <NumberRow
             label="Focus"
             value={settings.focusDuration}
             min={1} max={120}
             onChange={v => updateSettings({ focusDuration: v })}
-            unit="min"
           />
-          <NumberField
+          <NumberRow
             label="Short Break"
             value={settings.shortBreakDuration}
             min={1} max={60}
             onChange={v => updateSettings({ shortBreakDuration: v })}
-            unit="min"
           />
-          <NumberField
+          <NumberRow
             label="Long Break"
             value={settings.longBreakDuration}
             min={1} max={120}
             onChange={v => updateSettings({ longBreakDuration: v })}
-            unit="min"
           />
-        </Section>
+        </SettingsGroup>
 
         {/* Notifications */}
-        <Section title="Notifications">
-          <Toggle
-            label="Sound on completion"
-            checked={settings.soundEnabled}
-            onChange={v => updateSettings({ soundEnabled: v })}
-          />
-        </Section>
-
-        {/* Push Notifications */}
-        <Section title="Push Notifications">
+        <SettingsGroup title="Notifications">
+          <div className="settings-row">
+            <p className="settings-row__label">Sound on completion</p>
+            <IOSSwitch
+              checked={settings.soundEnabled}
+              onChange={() => updateSettings({ soundEnabled: !settings.soundEnabled })}
+            />
+          </div>
           <PushNotificationToggle />
-        </Section>
+        </SettingsGroup>
 
         {/* Appearance */}
-        <Section title="Appearance">
-          <Toggle
-            label="Dark mode"
-            checked={settings.darkMode}
-            onChange={v => {
-              updateSettings({ darkMode: v })
-              document.documentElement.classList.toggle('dark', v)
-            }}
-          />
-        </Section>
+        <SettingsGroup title="Appearance">
+          <div className="settings-row">
+            <p className="settings-row__label">Dark mode</p>
+            <IOSSwitch
+              checked={settings.darkMode}
+              onChange={() => updateSettings({ darkMode: !settings.darkMode })}
+            />
+          </div>
+        </SettingsGroup>
 
         {/* Google Calendar */}
-        <Section title="Google Calendar">
+        <SettingsGroup title="Google Calendar">
           <DeviceFlowAuth connected={calConnected} onConnected={() => {
             setCalConnected(true)
             updateSettings({ calendarSync: true })
           }} />
           {calConnected && (
-            <Toggle
-              label="Auto-sync to Google Calendar"
-              checked={settings.calendarSync}
-              onChange={v => updateSettings({ calendarSync: v })}
-            />
+            <div className="settings-row">
+              <p className="settings-row__label">Auto-sync sessions</p>
+              <IOSSwitch
+                checked={settings.calendarSync}
+                onChange={() => updateSettings({ calendarSync: !settings.calendarSync })}
+              />
+            </div>
           )}
-        </Section>
+        </SettingsGroup>
 
         {/* About */}
-        <Section title="About">
-          <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
-            <p>sesh-web v0.1.0</p>
-            <p>PWA Pomodoro timer</p>
+        <SettingsGroup title="About">
+          <div style={{ padding: '12px 16px' }}>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>sesh-web v0.1.0</p>
+            <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2 }}>PWA Pomodoro timer</p>
           </div>
-        </Section>
+        </SettingsGroup>
       </div>
     </div>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
-      <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{title}</h2>
-      <div className="flex flex-col gap-3">{children}</div>
+    <div>
+      <p className="section-label">{title}</p>
+      <div className="group-card">
+        {children}
+      </div>
     </div>
   )
 }
 
-function NumberField({
-  label, value, min, max, onChange, unit,
+function NumberRow({
+  label, value, min, max, onChange,
 }: {
   label: string; value: number; min: number; max: number
-  onChange: (v: number) => void; unit: string
+  onChange: (v: number) => void
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
-      <div className="flex items-center gap-2">
-        <button
+    <div className="settings-row">
+      <p className="settings-row__label">{label}</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           onClick={() => onChange(Math.max(min, value - 1))}
-          className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: 'var(--bg-elevated)', border: 'none',
+            color: 'var(--text-primary)', fontSize: 16, fontWeight: 500,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
         >
           −
-        </button>
-        <span className="font-mono text-sm w-12 text-center text-gray-900 dark:text-gray-100">
-          {value} {unit}
+        </motion.button>
+        <span className="font-mono" style={{ fontSize: 15, color: 'var(--text-primary)', width: 48, textAlign: 'center' }}>
+          {value}m
         </span>
-        <button
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           onClick={() => onChange(Math.min(max, value + 1))}
-          className="w-7 h-7 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: 'var(--bg-elevated)', border: 'none',
+            color: 'var(--text-primary)', fontSize: 16, fontWeight: 500,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
         >
           +
-        </button>
+        </motion.button>
       </div>
-    </div>
-  )
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
-      <button
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-          checked ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-600'
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-6' : 'translate-x-1'
-          }`}
-        />
-      </button>
     </div>
   )
 }

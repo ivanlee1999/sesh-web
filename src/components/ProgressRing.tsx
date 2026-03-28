@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useCallback, useEffect } from 'react'
+import { motion } from 'framer-motion'
 
 interface ProgressRingProps {
   progress: number  // 0-1
@@ -17,7 +18,7 @@ export default function ProgressRing({
   progress,
   color,
   size,
-  strokeWidth = 8,
+  strokeWidth = 6,
   children,
   interactive = false,
   onProgressChange,
@@ -45,7 +46,7 @@ export default function ProgressRing({
     if (angle < 0) angle += 2 * Math.PI
 
     const raw = angle / (2 * Math.PI)
-    // Snap to whole minutes (1/60 increments), clamp 1–60 min
+    // Snap to whole minutes (1/60 increments), clamp 1-60 min
     const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
     lastProgressRef.current = snapped
     onProgressChange(snapped)
@@ -101,31 +102,25 @@ export default function ProgressRing({
     }
   }, [interactive, updateFromPoint, onDragEnd])
 
-  // Compute thumb position — angle in standard SVG coordinates (no CSS rotation)
-  // progress=0 is 12 o'clock. We map to angle where 0 is 3 o'clock in SVG.
-  // 12 o'clock in SVG = -π/2 radians from the positive x-axis
+  // Compute thumb position
   const thumbAngle = progress * 2 * Math.PI - Math.PI / 2
   const thumbX = size / 2 + radius * Math.cos(thumbAngle)
   const thumbY = size / 2 + radius * Math.sin(thumbAngle)
 
-  // Tick marks at 5-minute intervals (5, 10, 15, ... 60)
+  // Tick marks at 5-minute intervals (interactive only)
   const ticks = interactive ? Array.from({ length: 12 }, (_, i) => {
     const minuteFraction = ((i + 1) * 5) / 60
     const tickAngle = minuteFraction * 2 * Math.PI - Math.PI / 2
-    const innerR = radius - strokeWidth * 0.8
-    const outerR = radius + strokeWidth * 0.8
+    const innerR = radius - strokeWidth * 1.2
+    const outerR = radius + strokeWidth * 1.2
     return {
       x1: size / 2 + innerR * Math.cos(tickAngle),
       y1: size / 2 + innerR * Math.sin(tickAngle),
       x2: size / 2 + outerR * Math.cos(tickAngle),
       y2: size / 2 + outerR * Math.sin(tickAngle),
-      major: (i + 1) % 3 === 0, // 15, 30, 45, 60
+      major: (i + 1) % 3 === 0,
     }
   }) : []
-
-  // Build the arc path for progress using stroke-dasharray (same approach as before)
-  // but without CSS rotation — we need to set the transform on the circle instead.
-  // Actually, stroke-dasharray with a rotation transform on the circle is simplest.
 
   return (
     <div
@@ -142,15 +137,25 @@ export default function ProgressRing({
         onTouchEnd={handleTouchEnd}
         style={interactive ? { touchAction: 'none', cursor: 'pointer' } : undefined}
       >
-        {/* Background circle */}
+        {/* Glow filter for active ring */}
+        <defs>
+          <filter id="ring-glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        {/* Background track */}
         <circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="currentColor"
+          stroke="var(--ring-track)"
           strokeWidth={strokeWidth}
-          className="text-gray-200 dark:text-gray-700"
         />
 
         {/* Tick marks (idle/interactive only) */}
@@ -161,15 +166,14 @@ export default function ProgressRing({
             y1={tick.y1}
             x2={tick.x2}
             y2={tick.y2}
-            stroke="currentColor"
-            strokeWidth={tick.major ? 2 : 1}
-            className="text-gray-300 dark:text-gray-600"
+            stroke="var(--ring-track)"
+            strokeWidth={tick.major ? 1.5 : 0.75}
             strokeLinecap="round"
           />
         ))}
 
         {/* Progress arc */}
-        <circle
+        <motion.circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
@@ -179,9 +183,10 @@ export default function ProgressRing({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className="transition-all duration-100"
-          // Rotate so dasharray starts from 12 o'clock (top)
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          filter={!interactive && progress > 0 ? 'url(#ring-glow)' : undefined}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ type: 'spring', stiffness: 120, damping: 20 }}
         />
 
         {/* Thumb (interactive only) */}
@@ -189,16 +194,16 @@ export default function ProgressRing({
           <circle
             cx={thumbX}
             cy={thumbY}
-            r={strokeWidth * 1.2}
+            r={strokeWidth * 1.6}
             fill={color}
             stroke="white"
-            strokeWidth={2}
-            style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))' }}
+            strokeWidth={2.5}
+            style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}
           />
         )}
       </svg>
 
-      <div className="absolute inset-0 flex items-center justify-center" style={interactive ? { pointerEvents: "none" } : undefined}>
+      <div className="absolute inset-0 flex items-center justify-center" style={interactive ? { pointerEvents: 'none' } : undefined}>
         {children}
       </div>
     </div>

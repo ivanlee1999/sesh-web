@@ -40,6 +40,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     load()
   }, [])
 
+  // Apply dark mode class whenever settings change
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', settings.darkMode)
+  }, [settings.darkMode])
+
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings(prev => {
       const next = { ...prev, ...updates }

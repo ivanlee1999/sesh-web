@@ -1,7 +1,7 @@
 'use client'
 import type { Category } from '@/types'
 import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/types'
-import clsx from 'clsx'
+import { motion } from 'framer-motion'
 
 interface IntentionInputProps {
   intention: string
@@ -12,31 +12,51 @@ interface IntentionInputProps {
 
 export default function IntentionInput({ intention, setIntention, category, setCategory }: IntentionInputProps) {
   return (
-    <div className="w-full max-w-sm flex flex-col gap-3">
+    <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <input
         type="text"
         value={intention}
         onChange={e => setIntention(e.target.value)}
         placeholder="What are you working on?"
         maxLength={120}
-        className="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 text-sm"
+        style={{
+          width: '100%',
+          padding: '12px 16px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          background: 'var(--bg-secondary)',
+          color: 'var(--text-primary)',
+          fontSize: 15,
+          outline: 'none',
+          transition: 'border-color 0.2s ease',
+        }}
+        onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
+        onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
       />
-      <div className="flex flex-wrap gap-2">
-        {(Object.keys(CATEGORY_LABELS) as Category[]).map(cat => (
-          <button
-            key={cat}
-            onClick={() => setCategory(cat)}
-            className={clsx(
-              'px-3 py-1.5 rounded-lg text-xs font-medium transition-all border-2',
-              category === cat
-                ? 'text-white border-transparent shadow-sm'
-                : 'bg-transparent text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300'
-            )}
-            style={category === cat ? { backgroundColor: CATEGORY_COLORS[cat], borderColor: CATEGORY_COLORS[cat] } : {}}
-          >
-            {CATEGORY_LABELS[cat]}
-          </button>
-        ))}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {(Object.keys(CATEGORY_LABELS) as Category[]).map(cat => {
+          const isActive = category === cat
+          return (
+            <motion.button
+              key={cat}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setCategory(cat)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 8,
+                border: `1.5px solid ${isActive ? CATEGORY_COLORS[cat] : 'var(--border)'}`,
+                background: isActive ? CATEGORY_COLORS[cat] : 'transparent',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {CATEGORY_LABELS[cat]}
+            </motion.button>
+          )
+        })}
       </div>
     </div>
   )

@@ -1,13 +1,13 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, Square, SkipForward } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import ProgressRing from './ProgressRing'
 import IntentionInput from './IntentionInput'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 import { CATEGORY_COLORS } from '@/types'
-import clsx from 'clsx'
 
 function formatTime(ms: number): string {
   const totalSec = Math.floor(Math.abs(ms) / 1000)
@@ -17,10 +17,10 @@ function formatTime(ms: number): string {
 }
 
 const PHASE_COLORS: Record<string, string> = {
-  focus: '#22c55e',
-  'short-break': '#06b6d4',
-  'long-break': '#06b6d4',
-  overflow: '#f59e0b',
+  focus: 'var(--accent)',
+  'short-break': '#FF9500',
+  'long-break': '#FF9500',
+  overflow: '#FF9500',
 }
 
 interface ServerTimerState {
@@ -48,16 +48,13 @@ export default function Timer() {
   const [startedAt, setStartedAt] = useState<number>(0)
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  // Todoist task linkage
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
   const [todoistTaskContent, setTodoistTaskContent] = useState<string>('')
-  // Idle dial state — separate from active countdown target
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastPutRef = useRef<number>(0)
-  // Refs for values needed in polling closure / debounced callbacks without causing re-renders
   const phaseRef = useRef<TimerPhase>('idle')
   const startedAtRef = useRef<number>(0)
   const remainingMsRef = useRef(remainingMs)
@@ -82,8 +79,6 @@ export default function Timer() {
   useEffect(() => { customDurationMsRef.current = customDurationMs }, [customDurationMs])
   const activeTargetMsRef = useRef(activeTargetMs)
   useEffect(() => { activeTargetMsRef.current = activeTargetMs }, [activeTargetMs])
-  // When true, the idle-reset effect skips one cycle so server-driven
-  // reconciliation isn't immediately clobbered by the defaultDurationMs reset.
   const suppressIdleResetRef = useRef(false)
 
   const defaultDurationMs = sessionType === 'focus'
@@ -92,12 +87,8 @@ export default function Timer() {
     ? settings.shortBreakDuration * 60 * 1000
     : settings.longBreakDuration * 60 * 1000
 
-  // targetMs is kept for buildTimerPayload backward compat during active sessions
   const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
 
-  // Sync idle dial when settings or session type changes.
-  // Server-driven reconciliation sets suppressIdleResetRef to avoid clobbering
-  // a custom duration that was just fetched from the API.
   useEffect(() => {
     if (phase === 'idle') {
       if (suppressIdleResetRef.current) {
@@ -110,7 +101,6 @@ export default function Timer() {
     }
   }, [defaultDurationMs, sessionType, phase])
 
-  // Post a message to the service worker (for background polling control)
   const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
     if (!('serviceWorker' in navigator)) return
     try {
@@ -177,19 +167,13 @@ export default function Timer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) {
-        setSynced(false)
-        return
-      }
+      if (!res.ok) { setSynced(false); return }
       const data: ServerTimerState = await res.json()
       serverUpdatedAtRef.current = data.updatedAt
       setSynced(true)
-    } catch {
-      setSynced(false)
-    }
+    } catch { setSynced(false) }
   }, [])
 
-  // Apply server state to local state (used on mount + polling)
   const applyServerState = useCallback((data: ServerTimerState) => {
     if (data.phase === 'running' && data.startedAt) {
       const newRemaining = data.targetMs - (Date.now() - data.startedAt)
@@ -206,10 +190,7 @@ export default function Timer() {
       if (!data.todoistTaskId) setTodoistTaskContent('')
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
       setPhase('paused')
       setSessionType(data.sessionType as SessionType)
       setIntention(data.intention)
@@ -223,7 +204,7 @@ export default function Timer() {
     }
   }, [tick])
 
-  // On mount: fetch server state and resume if a timer is active
+  // On mount: fetch server state
   useEffect(() => {
     const init = async () => {
       try {
@@ -234,10 +215,8 @@ export default function Timer() {
         serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
-          // Ensure the SW resumes background polling after page reload
           postSwMessage('TIMER_STARTED')
         } else {
-          // Reconcile idle state from server (e.g. another client set a custom duration)
           if (data.phase === 'idle') {
             suppressIdleResetRef.current = true
             if (data.sessionType) setSessionType(data.sessionType as SessionType)
@@ -251,9 +230,7 @@ export default function Timer() {
           }
           postSwMessage('TIMER_STOPPED')
         }
-      } catch {
-        setSynced(false)
-      }
+      } catch { setSynced(false) }
     }
     init()
     return () => {
@@ -262,30 +239,22 @@ export default function Timer() {
     }
   }, [applyServerState, postSwMessage])
 
-  // Poll every 2s — apply server state if phase or startedAt changed (cross-device sync)
+  // Poll every 2s
   useEffect(() => {
     const poll = setInterval(async () => {
-      // Skip if we just PUT (within 3s) to avoid overriding our own updates
       if (Date.now() - lastPutRef.current < 3000) return
       try {
         const res = await fetch('/api/timer')
         if (!res.ok) { setSynced(false); return }
         const data: ServerTimerState = await res.json()
         setSynced(true)
-
-        // Ignore if server state hasn't changed since our last known update
         if (data.updatedAt <= serverUpdatedAtRef.current) return
-
         serverUpdatedAtRef.current = data.updatedAt
 
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
         } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
-          // Server auto-completed (or another client finished) — full reset
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current)
-            intervalRef.current = null
-          }
+          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
           const idleDuration = data.remainingMs || data.targetMs
           suppressIdleResetRef.current = true
           setPhase('idle')
@@ -301,7 +270,6 @@ export default function Timer() {
           setTodoistTaskContent('')
           postSwMessage('TIMER_STOPPED')
         } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
-          // Another client changed idle state (e.g. dragged duration) — apply it
           const idleDuration = data.remainingMs || data.targetMs
           suppressIdleResetRef.current = true
           setSessionType(data.sessionType as SessionType)
@@ -311,18 +279,15 @@ export default function Timer() {
           setRemainingMs(idleDuration)
           setIntention(data.intention)
         }
-      } catch {
-        setSynced(false)
-      }
+      } catch { setSynced(false) }
     }, 2000)
     return () => clearInterval(poll)
   }, [applyServerState, postSwMessage])
 
-  // Re-sync from server when app becomes visible (iOS PWA resume)
+  // Re-sync on visibility change
   useEffect(() => {
     let lastResync = 0
     const resync = async () => {
-      // Debounce: skip if we resynced within the last 500ms
       const now = Date.now()
       if (now - lastResync < 500) return
       lastResync = now
@@ -335,10 +300,7 @@ export default function Timer() {
         if (data.phase === 'running' || data.phase === 'paused') {
           applyServerState(data)
         } else if (data.phase === 'idle') {
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current)
-            intervalRef.current = null
-          }
+          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
           const idleDuration = data.remainingMs || data.targetMs || targetMs
           suppressIdleResetRef.current = true
           setPhase('idle')
@@ -368,13 +330,8 @@ export default function Timer() {
 
   const handleIntentionChange = useCallback((value: string) => {
     setIntention(value)
-
     if (phaseRef.current === 'idle') return
-
-    if (intentionSyncTimeoutRef.current) {
-      clearTimeout(intentionSyncTimeoutRef.current)
-    }
-
+    if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     intentionSyncTimeoutRef.current = setTimeout(() => {
       syncToServer(buildTimerPayload({
         intention: value,
@@ -385,9 +342,7 @@ export default function Timer() {
 
   const handleCategoryChange = useCallback((value: Category) => {
     setCategory(value)
-
     if (phaseRef.current === 'idle') return
-
     syncToServer(buildTimerPayload({
       category: value,
       pausedAt: phaseRef.current === 'paused' ? Date.now() : null,
@@ -419,75 +374,37 @@ export default function Timer() {
       overflowMs: isIdle ? 0 : overflowMs,
       startedAt: newStartedAt,
       pausedAt: null,
-      todoistTaskId: isIdle ? todoistTaskIdRef.current : todoistTaskIdRef.current,
+      todoistTaskId: todoistTaskIdRef.current,
     })
-
     postSwMessage('TIMER_STARTED')
   }, [tick, syncToServer, postSwMessage, sessionType, intention, category, remainingMs, overflowMs])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
     syncToServer({
-      phase: 'paused',
-      sessionType,
-      intention,
-      category,
-      targetMs,
-      remainingMs,
-      overflowMs,
-      startedAt,
-      pausedAt: Date.now(),
+      phase: 'paused', sessionType, intention, category, targetMs,
+      remainingMs, overflowMs, startedAt, pausedAt: Date.now(),
       todoistTaskId: todoistTaskIdRef.current,
     })
-
     postSwMessage('TIMER_STOPPED')
   }, [syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
 
   const finishSession = useCallback(async () => {
-    if (intentionSyncTimeoutRef.current) {
-      clearTimeout(intentionSyncTimeoutRef.current)
-      intentionSyncTimeoutRef.current = null
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
+    if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
 
-    // Atomically complete the timer on the server using compare-and-swap on
-    // startedAt.  This prevents duplicate sessions when the background
-    // auto-complete fires concurrently.
     try {
       const res = await fetch('/api/timer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startedAt,
-          intention,
-          category,
-          notes: '',
-        }),
+        body: JSON.stringify({ startedAt, intention, category, notes: '' }),
       })
-
-      if (!res.ok) {
-        throw new Error('Failed to save session')
-      }
-
+      if (!res.ok) throw new Error('Failed to save session')
       const data = await res.json()
-
-      // If the server reports the timer was already completed (by auto-complete
-      // or another client), skip saving again but still reset the local UI.
-      if (!data.completed) {
-        // Session was already persisted — just reset UI below.
-      }
 
       setSaveError(null)
 
-      // Sync to Google Calendar (fire-and-forget) — only if we were the ones
-      // who actually completed the session.
       if (data.completed && settings.calendarSync && data.session) {
         fetch('/api/calendar/sync', {
           method: 'POST',
@@ -505,24 +422,15 @@ export default function Timer() {
         }).catch(() => {})
       }
 
-      // Update serverUpdatedAtRef so the polling loop doesn't fight us
-      if (data.timer?.updatedAt) {
-        serverUpdatedAtRef.current = data.timer.updatedAt
-      }
+      if (data.timer?.updatedAt) serverUpdatedAtRef.current = data.timer.updatedAt
     } catch {
       setSaveError('Failed to save session. Please try finishing again.')
-      // Restart the interval so the timer keeps ticking
       intervalRef.current = setInterval(tick, 100)
       return
     }
 
     if (settings.soundEnabled) playChime()
 
-    // Only suppress the local notification when there is both a confirmed
-    // server-side subscription AND an active browser push subscription.
-    // If either is missing (e.g. browser data cleared, server deleted it),
-    // clear the stale flag and fire the local notification so the user
-    // always gets alerted.
     if (Notification.permission === 'granted') {
       let pushActive = false
       try {
@@ -530,16 +438,9 @@ export default function Timer() {
         if (flagSet && 'serviceWorker' in navigator) {
           const reg = await navigator.serviceWorker.ready
           const sub = await reg.pushManager.getSubscription()
-          if (sub) {
-            pushActive = true
-          } else {
-            // Browser subscription gone — clear stale flag
-            localStorage.removeItem('pushSubscriptionConfirmed')
-          }
+          if (sub) { pushActive = true } else { localStorage.removeItem('pushSubscriptionConfirmed') }
         }
-      } catch {
-        try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
-      }
+      } catch { try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {} }
       if (!pushActive) {
         new Notification('sesh — session complete', {
           body: intention || `${sessionType} finished`,
@@ -549,7 +450,6 @@ export default function Timer() {
     }
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
-
     postSwMessage('TIMER_STOPPED')
 
     setPhase('idle')
@@ -562,14 +462,8 @@ export default function Timer() {
   }, [startedAt, intention, category, sessionType, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
-    if (intentionSyncTimeoutRef.current) {
-      clearTimeout(intentionSyncTimeoutRef.current)
-      intentionSyncTimeoutRef.current = null
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
+    if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
     setPhase('idle')
     setCustomDurationMs(defaultDurationMs)
     setRemainingMs(defaultDurationMs)
@@ -578,18 +472,10 @@ export default function Timer() {
     setTodoistTaskId(null)
     setTodoistTaskContent('')
     syncToServer({
-      phase: 'idle',
-      sessionType,
-      intention: '',
-      category,
-      targetMs: defaultDurationMs,
-      remainingMs: defaultDurationMs,
-      overflowMs: 0,
-      startedAt: null,
-      pausedAt: null,
-      todoistTaskId: null,
+      phase: 'idle', sessionType, intention: '', category,
+      targetMs: defaultDurationMs, remainingMs: defaultDurationMs,
+      overflowMs: 0, startedAt: null, pausedAt: null, todoistTaskId: null,
     })
-
     postSwMessage('TIMER_STOPPED')
   }, [defaultDurationMs, syncToServer, postSwMessage, sessionType, category])
 
@@ -609,14 +495,11 @@ export default function Timer() {
     return () => window.removeEventListener('keydown', onKey)
   }, [phase, startTimer, pauseTimer, abandonSession])
 
-  // Notification permission is now managed via the Settings push toggle
-
   const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
     setTodoistTaskId(task?.id ?? null)
     setTodoistTaskContent(task?.content ?? '')
   }, [])
 
-  const isActive = phase === 'running' || phase === 'paused' || phase === 'overflow'
   const isOverflow = remainingMs < 0
 
   const displayMs = phase === 'idle'
@@ -629,181 +512,218 @@ export default function Timer() {
 
   const ringColor = isOverflow ? PHASE_COLORS.overflow : (CATEGORY_COLORS[category] || PHASE_COLORS[sessionType])
 
+  const viewState = phase === 'idle' ? 'idle' : 'active'
+
   return (
-    <div className="flex flex-col items-center px-4 pt-16 md:pt-20 gap-6">
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 20px', gap: 20, minHeight: '100%' }}>
       {/* Sync indicator */}
-      <div className="absolute top-4 right-4 flex items-center gap-1.5">
-        <div
-          className={clsx(
-            'w-2 h-2 rounded-full transition-colors',
-            synced === null ? 'bg-gray-300 dark:bg-gray-600' :
-            synced ? 'bg-green-400' : 'bg-gray-400 dark:bg-gray-600'
-          )}
-          title={synced === null ? 'Connecting…' : synced ? 'Synced' : 'Offline'}
-        />
+      <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{
+          width: 7, height: 7, borderRadius: '50%',
+          background: synced === null ? 'var(--text-tertiary)' : synced ? 'var(--success)' : 'var(--text-tertiary)',
+          transition: 'background 0.3s ease',
+        }} />
       </div>
 
-      {/* Session type tabs */}
-      <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 gap-1 w-full max-w-sm">
-        {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-          <button
-            key={t}
-            disabled={isActive}
-            onClick={() => setSessionType(t)}
-            className={clsx(
-              'flex-1 text-xs py-2 rounded-lg font-medium transition-all',
-              sessionType === t
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-500 dark:text-gray-400',
-              isActive && 'opacity-50 cursor-not-allowed'
-            )}
+      <AnimatePresence mode="wait" initial={false}>
+        {viewState === 'idle' ? (
+          <motion.div
+            key="idle"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%' }}
           >
-            {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short Break' : 'Long Break'}
-          </button>
-        ))}
-      </div>
+            {/* Tasks (above ring when idle) */}
+            <div style={{ width: '100%', maxWidth: 360 }}>
+              <TodoistTasks
+                selectedTaskId={todoistTaskId}
+                onSelectTask={handleTodoistTaskSelect}
+              />
+            </div>
 
-      {/* Progress ring */}
-      <ProgressRing
-        progress={progress}
-        color={ringColor}
-        size={240}
-        strokeWidth={10}
-        interactive={phase === 'idle'}
-        onProgressChange={(p) => {
-          const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-          const ms = minutes * 60 * 1000
-          setCustomDurationMs(ms)
-          setRemainingMs(ms)
-        }}
-        onDragEnd={(p) => {
-          // Persist idle duration to server only on drag end so we send a
-          // single request with the final value instead of racing PUTs on
-          // every pointer move.
-          const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-          const ms = minutes * 60 * 1000
-          syncToServer({
-            phase: 'idle',
-            sessionType: sessionTypeRef.current,
-            intention: intentionRef.current,
-            category: categoryRef.current,
-            targetMs: ms,
-            remainingMs: ms,
-            overflowMs: 0,
-            startedAt: null,
-            pausedAt: null,
-          })
-        }}
-      >
-        <div className="flex flex-col items-center">
-          {isOverflow && (
-            <span className="text-xs text-amber-500 font-medium mb-1">overflow</span>
-          )}
-          <span className="font-mono text-5xl font-bold text-gray-900 dark:text-gray-100">
-            {formatTime(displayMs)}
-          </span>
-          {isOverflow && (
-            <span className="text-xs text-amber-400 mt-1">+{formatTime(overflowMs)}</span>
-          )}
-          <span className="text-xs text-gray-400 mt-2 capitalize">{phase}</span>
-        </div>
-      </ProgressRing>
+            {/* Session type pills */}
+            <div className="session-type-picker" style={{ width: '100%', maxWidth: 320 }}>
+              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setSessionType(t)}
+                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+                >
+                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                </button>
+              ))}
+            </div>
 
-      {/* Controls */}
-      <div className="flex items-center gap-4">
-        {phase === 'idle' && (
-          <button
-            onClick={startTimer}
-            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-2xl font-semibold transition-colors shadow-md"
-          >
-            <Play className="w-5 h-5 fill-white" />
-            Start
-          </button>
-        )}
-        {(phase === 'running' || phase === 'overflow') && (
-          <>
-            <button
-              onClick={pauseTimer}
-              className="flex items-center gap-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 px-6 py-3 rounded-2xl font-semibold transition-colors"
+            {/* Intention input */}
+            <IntentionInput
+              intention={intention}
+              setIntention={handleIntentionChange}
+              category={category}
+              setCategory={handleCategoryChange}
+            />
+
+            {/* Ring */}
+            <ProgressRing
+              progress={progress}
+              color={ringColor}
+              size={220}
+              strokeWidth={6}
+              interactive={true}
+              onProgressChange={(p) => {
+                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+                const ms = minutes * 60 * 1000
+                setCustomDurationMs(ms)
+                setRemainingMs(ms)
+              }}
+              onDragEnd={(p) => {
+                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+                const ms = minutes * 60 * 1000
+                syncToServer({
+                  phase: 'idle', sessionType: sessionTypeRef.current,
+                  intention: intentionRef.current, category: categoryRef.current,
+                  targetMs: ms, remainingMs: ms, overflowMs: 0,
+                  startedAt: null, pausedAt: null,
+                })
+              }}
             >
-              <Pause className="w-5 h-5" />
-              Pause
-            </button>
-            <button
-              onClick={finishSession}
-              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-semibold transition-colors shadow-md"
-            >
-              <SkipForward className="w-5 h-5" />
-              Finish
-            </button>
-          </>
-        )}
-        {phase === 'paused' && (
-          <>
-            <button
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span className="font-mono" style={{ fontSize: 44, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {formatTime(displayMs)}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, letterSpacing: '0.5px' }}>
+                  DRAG TO SET
+                </span>
+              </div>
+            </ProgressRing>
+
+            {/* Start button */}
+            <motion.button
+              whileTap={{ scale: 0.96 }}
               onClick={startTimer}
-              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-2xl font-semibold transition-colors shadow-md"
+              className="primary-pill"
+              style={{ minWidth: 180 }}
             >
-              <Play className="w-5 h-5 fill-white" />
-              Resume
-            </button>
-            <button
-              onClick={finishSession}
-              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl font-semibold transition-colors"
-            >
-              <SkipForward className="w-5 h-5" />
-              Finish
-            </button>
-          </>
-        )}
-        {isActive && (
-          <button
-            onClick={abandonSession}
-            className="p-3 rounded-2xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 transition-colors"
-            title="Abandon (Esc)"
+              <Play style={{ width: 18, height: 18, fill: '#fff' }} />
+              Start {sessionType === 'focus' ? 'Focus' : 'Break'}
+            </motion.button>
+
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+              Drag ring to set duration &middot; Enter to start
+            </p>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="active"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, width: '100%', paddingTop: 20 }}
           >
-            <Square className="w-5 h-5" />
-          </button>
+            {/* Intention + phase header */}
+            <div style={{ textAlign: 'center' }}>
+              {(intention || todoistTaskContent) && (
+                <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  {intention || todoistTaskContent}
+                </p>
+              )}
+              <p style={{
+                fontSize: 12, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase',
+                color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
+              }}>
+                {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+              </p>
+            </div>
+
+            {/* Ring */}
+            <ProgressRing
+              progress={progress}
+              color={ringColor}
+              size={260}
+              strokeWidth={6}
+              interactive={false}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {isOverflow && (
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--warning)', marginBottom: 2 }}>+{formatTime(overflowMs)}</span>
+                )}
+                <span className="font-mono" style={{ fontSize: 52, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {formatTime(displayMs)}
+                </span>
+              </div>
+            </ProgressRing>
+
+            {/* Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {(phase === 'running' || phase === 'overflow') && (
+                <>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={pauseTimer} className="ghost-button">
+                    <Pause style={{ width: 16, height: 16 }} />
+                    Pause
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={finishSession} className="ghost-button">
+                    <SkipForward style={{ width: 16, height: 16 }} />
+                    Finish
+                  </motion.button>
+                </>
+              )}
+              {phase === 'paused' && (
+                <>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 14 }}>
+                    <Play style={{ width: 16, height: 16, fill: '#fff' }} />
+                    Resume
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.95 }} onClick={finishSession} className="ghost-button">
+                    <SkipForward style={{ width: 16, height: 16 }} />
+                    Finish
+                  </motion.button>
+                </>
+              )}
+            </div>
+
+            {/* Abandon */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={abandonSession}
+              className="ghost-button ghost-button--danger"
+            >
+              <Square style={{ width: 14, height: 14 }} />
+              Abandon
+            </motion.button>
+
+            {/* Linked task */}
+            {todoistTaskId && (
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                Linked: {todoistTaskContent || 'Todoist task'}
+              </p>
+            )}
+
+            {/* Intention input (still editable during active) */}
+            <IntentionInput
+              intention={intention}
+              setIntention={handleIntentionChange}
+              category={category}
+              setCategory={handleCategoryChange}
+            />
+
+            {/* Save error */}
+            {saveError && (
+              <div style={{
+                padding: '10px 16px', borderRadius: 12,
+                background: 'rgba(255, 59, 48, 0.08)', color: 'var(--danger)', fontSize: 14,
+              }}>
+                {saveError}
+              </div>
+            )}
+
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+              Space to {phase === 'running' ? 'pause' : 'resume'} &middot; Esc to abandon
+            </p>
+          </motion.div>
         )}
-      </div>
-
-      {/* Save error */}
-      {saveError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-2 text-sm text-red-600 dark:text-red-400">
-          {saveError}
-        </div>
-      )}
-
-      {/* Linked Todoist task label */}
-      {isActive && todoistTaskId && (
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Linked: {todoistTaskContent || 'Todoist task'}
-        </p>
-      )}
-
-      {/* Keyboard hints */}
-      {phase === 'idle' && (
-        <p className="text-xs text-gray-400">Drag ring to set duration · Enter to start</p>
-      )}
-      {isActive && (
-        <p className="text-xs text-gray-400">Space to pause · Esc to abandon</p>
-      )}
-
-      {/* Intention + category */}
-      <IntentionInput
-        intention={intention}
-        setIntention={handleIntentionChange}
-        category={category}
-        setCategory={handleCategoryChange}
-      />
-
-      {/* Todoist task picker — only when idle */}
-      {phase === 'idle' && (
-        <TodoistTasks
-          selectedTaskId={todoistTaskId}
-          onSelectTask={handleTodoistTaskSelect}
-        />
-      )}
+      </AnimatePresence>
     </div>
   )
 }

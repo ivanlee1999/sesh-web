@@ -1,7 +1,8 @@
 'use client'
 import { Timer, BarChart2, History, Settings } from 'lucide-react'
-import type { Tab } from '@/app/page'
 import clsx from 'clsx'
+
+type Tab = 'timer' | 'analytics' | 'history' | 'settings'
 
 interface NavBarProps {
   activeTab: Tab
