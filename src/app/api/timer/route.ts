@@ -134,7 +134,7 @@ export async function GET() {
     const result = tryAutoComplete(db)
     if (result.completed && result.notification) {
       sendDiscordNotification(result.notification)
-      sendPushToAll(
+      await sendPushToAll(
         'sesh — session complete',
         result.notification.intention || `${result.notification.sessionType} session finished`
       )
@@ -238,7 +238,7 @@ export async function POST(request: Request) {
         targetMs: result.session.targetMs,
         overflowMs: result.session.overflowMs,
       })
-      sendPushToAll(
+      await sendPushToAll(
         'sesh — session complete',
         result.session.intention || `${result.session.type} session finished`
       )

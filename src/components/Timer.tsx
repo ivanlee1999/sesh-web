@@ -502,17 +502,29 @@ export default function Timer() {
 
     if (settings.soundEnabled) playChime()
 
-    // Only suppress the local notification when the server has confirmed it
-    // stored the push subscription.  Checking the browser subscription alone is
-    // not enough — the subscribe API may have rejected it (rate-limit, cap, etc.)
-    // and the user would end up with no notification at all.
+    // Only suppress the local notification when there is both a confirmed
+    // server-side subscription AND an active browser push subscription.
+    // If either is missing (e.g. browser data cleared, server deleted it),
+    // clear the stale flag and fire the local notification so the user
+    // always gets alerted.
     if (Notification.permission === 'granted') {
-      const serverHasPushSub = (() => {
-        try {
-          return localStorage.getItem('pushSubscriptionConfirmed') === '1'
-        } catch { return false }
-      })()
-      if (!serverHasPushSub) {
+      let pushActive = false
+      try {
+        const flagSet = localStorage.getItem('pushSubscriptionConfirmed') === '1'
+        if (flagSet && 'serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready
+          const sub = await reg.pushManager.getSubscription()
+          if (sub) {
+            pushActive = true
+          } else {
+            // Browser subscription gone — clear stale flag
+            localStorage.removeItem('pushSubscriptionConfirmed')
+          }
+        }
+      } catch {
+        try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
+      }
+      if (!pushActive) {
         new Notification('sesh — session complete', {
           body: intention || `${sessionType} finished`,
           icon: '/icons/icon-192.png',

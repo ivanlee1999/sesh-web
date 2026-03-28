@@ -102,8 +102,14 @@ function PushNotificationToggle() {
         const reg = await navigator.serviceWorker.ready
         const sub = await reg.pushManager.getSubscription()
         setPushEnabled(!!sub)
+        // Clear stale confirmation flag when browser subscription is gone
+        // so the local notification fallback in Timer.tsx keeps working.
+        if (!sub) {
+          try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
+        }
       } catch {
         setPushEnabled(false)
+        try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
       }
     }
 

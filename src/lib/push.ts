@@ -8,7 +8,7 @@ type PushSubscriptionRow = {
   auth: string
 }
 
-export function sendPushToAll(title: string, body: string) {
+export async function sendPushToAll(title: string, body: string) {
   const vapidPublic = process.env.VAPID_PUBLIC_KEY
   const vapidPrivate = process.env.VAPID_PRIVATE_KEY
   const vapidSubject = process.env.VAPID_SUBJECT
@@ -19,7 +19,7 @@ export function sendPushToAll(title: string, body: string) {
   const db = getDb()
   const subs = db.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions').all() as PushSubscriptionRow[]
 
-  for (const sub of subs) {
+  const results = subs.map(sub =>
     webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
       JSON.stringify({ title, body })
@@ -29,5 +29,7 @@ export function sendPushToAll(title: string, body: string) {
         db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(sub.endpoint)
       }
     })
-  }
+  )
+
+  await Promise.allSettled(results)
 }
