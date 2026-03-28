@@ -134,11 +134,22 @@ function PushNotificationToggle() {
         })
       }
 
-      await fetch('/api/push/subscribe', {
+      const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sub),
       })
+
+      if (!res.ok) {
+        // Server rejected the subscription — unsubscribe the browser side so
+        // the local-notification fallback in Timer keeps working.
+        await sub.unsubscribe()
+        throw new Error('Server failed to save push subscription')
+      }
+
+      // Persist confirmation so Timer.tsx can distinguish "server has our sub"
+      // from "browser has a sub the server never stored".
+      try { localStorage.setItem('pushSubscriptionConfirmed', '1') } catch {}
 
       setPushEnabled(true)
     } finally {
@@ -159,6 +170,7 @@ function PushNotificationToggle() {
         })
         await sub.unsubscribe()
       }
+      try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
       setPushEnabled(false)
     } finally {
       setPushBusy(false)

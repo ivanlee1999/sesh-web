@@ -37,13 +37,26 @@ function getClientIp(request: Request): string {
 }
 
 /**
- * Only accept subscription endpoints that look like valid web push URLs.
- * Legitimate push services use HTTPS endpoints on well-known origins.
+ * Allowed push-service hostname suffixes.  Real browser push subscriptions
+ * always point at the browser vendor's push service – accepting arbitrary
+ * HTTPS URLs would let an attacker use this endpoint as an SSRF primitive.
  */
+const ALLOWED_PUSH_ORIGINS = [
+  '.push.services.mozilla.com',   // Firefox
+  '.fcm.googleapis.com',          // Chrome / Android
+  '.notify.windows.com',          // Edge / Windows
+  '.push.apple.com',              // Safari
+  '.web.push.apple.com',          // Safari (alternate)
+]
+
 function isValidPushEndpoint(endpoint: string): boolean {
   try {
     const url = new URL(endpoint)
-    return url.protocol === 'https:'
+    if (url.protocol !== 'https:') return false
+    const hostname = url.hostname.toLowerCase()
+    return ALLOWED_PUSH_ORIGINS.some(
+      suffix => hostname === suffix.slice(1) || hostname.endsWith(suffix)
+    )
   } catch {
     return false
   }
