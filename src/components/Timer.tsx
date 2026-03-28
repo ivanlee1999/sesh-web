@@ -579,7 +579,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={200}
+            size={180}
             strokeWidth={5}
             interactive={true}
             onProgressChange={(p) => {
@@ -599,7 +599,7 @@ export default function Timer() {
               })
             }}
           >
-            <span className="font-mono" style={{ fontSize: 44, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+            <span className="font-mono" style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
               {formatTime(displayMs)}
             </span>
           </ProgressRing>
@@ -658,7 +658,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={220}
+            size={200}
             strokeWidth={5}
             interactive={false}
           >
