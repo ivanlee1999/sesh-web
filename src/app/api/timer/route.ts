@@ -125,22 +125,16 @@ function sendDiscordNotification(notification: {
   }).catch(() => {})
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const db = getDb()
 
-    const isBackgroundCheck = new URL(request.url).searchParams.get('background') === '1'
-
-    if (isBackgroundCheck) {
-      const result = tryAutoComplete(db)
-      if (result.completed && result.notification) {
-        sendDiscordNotification(result.notification)
-      }
-      return NextResponse.json(rowToJson(result.row))
+    // Always check for auto-complete on any GET (not just background)
+    const result = tryAutoComplete(db)
+    if (result.completed && result.notification) {
+      sendDiscordNotification(result.notification)
     }
-
-    const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
-    return NextResponse.json(rowToJson(row))
+    return NextResponse.json(rowToJson(result.row))
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
@@ -229,6 +223,16 @@ export async function POST(request: Request) {
     if (!result.completed) {
       // Return 200 with completed: false — the session was already saved by another path
       return NextResponse.json({ completed: false })
+    }
+
+    // Send Discord notification on manual finish too
+    if (result.session) {
+      sendDiscordNotification({
+        intention: result.session.intention,
+        sessionType: result.session.type,
+        targetMs: result.session.targetMs,
+        overflowMs: result.session.overflowMs,
+      })
     }
 
     return NextResponse.json({
