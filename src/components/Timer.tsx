@@ -216,6 +216,12 @@ export default function Timer() {
           // Ensure the SW resumes background polling after page reload
           postSwMessage('TIMER_STARTED')
         } else {
+          // Reconcile idle duration from server (e.g. another client set a custom duration)
+          if (data.phase === 'idle' && data.remainingMs) {
+            setCustomDurationMs(data.remainingMs)
+            setActiveTargetMs(data.remainingMs)
+            setRemainingMs(data.remainingMs)
+          }
           postSwMessage('TIMER_STOPPED')
         }
       } catch {
@@ -253,10 +259,13 @@ export default function Timer() {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
+          const idleDuration = data.remainingMs || data.targetMs
           setPhase('idle')
           setSessionType(data.sessionType as SessionType)
           setCategory(data.category as Category)
-          setRemainingMs(data.remainingMs)
+          setCustomDurationMs(idleDuration)
+          setActiveTargetMs(idleDuration)
+          setRemainingMs(idleDuration)
           setOverflowMs(0)
           setStartedAt(0)
           setIntention(data.intention)
@@ -290,10 +299,13 @@ export default function Timer() {
             clearInterval(intervalRef.current)
             intervalRef.current = null
           }
+          const idleDuration = data.remainingMs || data.targetMs || targetMs
           setPhase('idle')
           setSessionType(data.sessionType as SessionType)
           setCategory(data.category as Category)
-          setRemainingMs(data.remainingMs || targetMs)
+          setCustomDurationMs(idleDuration)
+          setActiveTargetMs(idleDuration)
+          setRemainingMs(idleDuration)
           setOverflowMs(0)
           setStartedAt(0)
           setIntention(data.intention)
