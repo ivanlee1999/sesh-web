@@ -565,12 +565,7 @@ export default function Timer() {
     return () => window.removeEventListener('keydown', onKey)
   }, [phase, startTimer, pauseTimer, abandonSession])
 
-  // Request notification permission
-  useEffect(() => {
-    if (Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }, [])
+  // Notification permission is now managed via the Settings push toggle
 
   const isActive = phase === 'running' || phase === 'paused' || phase === 'overflow'
   const isOverflow = remainingMs < 0

@@ -75,3 +75,28 @@ self.addEventListener('message', event => {
     stopChecking()
   }
 })
+
+// ── Web Push notifications ──────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() || { title: 'sesh', body: 'Session complete!' }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: 'sesh-timer',
+    })
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      if (clientList.length > 0) {
+        return clientList[0].focus()
+      }
+      return clients.openWindow('/')
+    })
+  )
+})

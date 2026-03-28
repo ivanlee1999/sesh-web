@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
+import { sendPushToAll } from '@/lib/push'
 export const dynamic = 'force-dynamic'
 
 interface TimerRow {
@@ -133,6 +134,10 @@ export async function GET() {
     const result = tryAutoComplete(db)
     if (result.completed && result.notification) {
       sendDiscordNotification(result.notification)
+      sendPushToAll(
+        'sesh — session complete',
+        result.notification.intention || `${result.notification.sessionType} session finished`
+      )
     }
     return NextResponse.json(rowToJson(result.row))
   } catch {
@@ -233,6 +238,10 @@ export async function POST(request: Request) {
         targetMs: result.session.targetMs,
         overflowMs: result.session.overflowMs,
       })
+      sendPushToAll(
+        'sesh — session complete',
+        result.session.intention || `${result.session.type} session finished`
+      )
     }
 
     return NextResponse.json({

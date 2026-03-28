@@ -68,6 +68,137 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
   )
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const output = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i++) {
+    output[i] = rawData.charCodeAt(i)
+  }
+  return output
+}
+
+function PushNotificationToggle() {
+  const [pushSupported, setPushSupported] = useState<boolean | null>(null)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default')
+  const [pushBusy, setPushBusy] = useState(false)
+
+  useEffect(() => {
+    const initPush = async () => {
+      const supported =
+        typeof window !== 'undefined' &&
+        'serviceWorker' in navigator &&
+        'PushManager' in window &&
+        'Notification' in window
+
+      setPushSupported(supported)
+      if (!supported) return
+
+      setPushPermission(Notification.permission)
+
+      try {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        setPushEnabled(!!sub)
+      } catch {
+        setPushEnabled(false)
+      }
+    }
+
+    initPush()
+  }, [])
+
+  const enablePush = async () => {
+    setPushBusy(true)
+    try {
+      const vapidRes = await fetch('/api/push/vapid', { cache: 'no-store' })
+      const { publicKey } = await vapidRes.json()
+      if (!publicKey) throw new Error('Missing public key')
+
+      const permission = Notification.permission === 'granted'
+        ? 'granted'
+        : await Notification.requestPermission()
+
+      setPushPermission(permission)
+      if (permission !== 'granted') return
+
+      const reg = await navigator.serviceWorker.ready
+      let sub = await reg.pushManager.getSubscription()
+
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        })
+      }
+
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub),
+      })
+
+      setPushEnabled(true)
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  const disablePush = async () => {
+    setPushBusy(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub) {
+        await fetch('/api/push/subscribe', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        })
+        await sub.unsubscribe()
+      }
+      setPushEnabled(false)
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
+  const statusText = !pushSupported
+    ? 'Not supported in this browser'
+    : pushPermission === 'denied'
+    ? 'Permission denied in browser settings'
+    : pushEnabled
+    ? 'Enabled'
+    : 'Disabled'
+
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <p className="text-sm text-gray-700 dark:text-gray-300">Session completion alerts</p>
+        <p className="text-xs text-gray-400 mt-0.5">{statusText}</p>
+      </div>
+      <button
+        disabled={!pushSupported || pushPermission === 'denied' || pushBusy}
+        onClick={() => {
+          if (pushEnabled) disablePush()
+          else enablePush()
+        }}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          pushEnabled ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-600'
+        } ${(!pushSupported || pushPermission === 'denied' || pushBusy) ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <span
+          className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            pushEnabled ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+    </div>
+  )
+}
+
 export default function Settings() {
   const { settings, updateSettings } = useSettings()
   const [calConnected, setCalConnected] = useState(false)
@@ -116,6 +247,11 @@ export default function Settings() {
             checked={settings.soundEnabled}
             onChange={v => updateSettings({ soundEnabled: v })}
           />
+        </Section>
+
+        {/* Push Notifications */}
+        <Section title="Push Notifications">
+          <PushNotificationToggle />
         </Section>
 
         {/* Appearance */}
