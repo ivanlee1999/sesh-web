@@ -86,36 +86,19 @@
 
 html {
   height: 100%;
-  overflow: hidden;
   overscroll-behavior: none;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
 }
 
 body {
   height: 100%;
-  overflow: hidden;
+  margin: 0;
   overscroll-behavior: none;
-  -webkit-overflow-scrolling: touch;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  position: fixed;
-  width: 100%;
-  touch-action: manipulation;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 .font-mono {
@@ -127,23 +110,23 @@ body {
    ────────────────────────────────────────── */
 
 .app-shell {
-  display: flex;
-  flex-direction: column;
   height: 100vh;
   height: 100dvh;
+  display: flex;
+  flex-direction: column;
   max-width: 480px;
   margin: 0 auto;
   background: var(--bg-primary);
-  position: relative;
+  overflow: hidden;
 }
 
 .view-stack {
   flex: 1;
   overflow-y: auto;
-  overscroll-behavior-y: contain;
   overflow-x: hidden;
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(83px + env(safe-area-inset-bottom, 0px));
 }
 
 /* ──────────────────────────────────────────

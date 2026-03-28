@@ -83,27 +83,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
   if (configured === null || configured === false) return null
 
   return (
-    <div style={{ width: '100%' }} ref={dropdownRef}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <p className="section-label" style={{ marginBottom: 0 }}>TODAY&apos;S TASKS</p>
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={fetchTasks}
-          disabled={loading}
-          style={{
-            padding: 6,
-            borderRadius: 6,
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--text-tertiary)',
-            cursor: 'pointer',
-            opacity: loading ? 0.5 : 1,
-          }}
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </motion.button>
-      </div>
-
+    <div style={{ width: '100%', position: 'relative' }} ref={dropdownRef}>
       {error && (
         <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 8 }}>{error}</p>
       )}
@@ -117,7 +97,8 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 14px',
+          padding: '10px 14px',
+          minHeight: 44,
           borderRadius: 12,
           border: '1.5px solid',
           borderColor: selectedTask ? 'var(--accent)' : 'var(--border)',
@@ -138,6 +119,20 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
           {selectedTask ? selectedTask.content : tasks.length === 0 ? 'No tasks for today' : 'Select a task...'}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Refresh button */}
+          <motion.div
+            whileTap={{ scale: 0.85 }}
+            onClick={(e) => { e.stopPropagation(); fetchTasks() }}
+            style={{
+              padding: 2,
+              borderRadius: 6,
+              color: 'var(--text-tertiary)',
+              cursor: 'pointer',
+              opacity: loading ? 0.5 : 1,
+            }}
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </motion.div>
           {selectedTask && (
             <motion.div
               whileTap={{ scale: 0.85 }}

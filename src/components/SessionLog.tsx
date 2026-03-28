@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Check, RefreshCw, Trash2 } from 'lucide-react'
 import type { Session, SessionType } from '@/types'
@@ -75,7 +75,11 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 }
 
-export default function SessionLog() {
+interface SessionLogProps {
+  isVisible?: boolean
+}
+
+export default function SessionLog({ isVisible = true }: SessionLogProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +101,15 @@ export default function SessionLog() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Re-fetch when tab becomes visible (but not on initial mount)
+  const wasVisibleRef = useRef(isVisible)
+  useEffect(() => {
+    if (isVisible && !wasVisibleRef.current) {
+      load()
+    }
+    wasVisibleRef.current = isVisible
+  }, [isVisible, load])
 
   const handleDelete = async (ids: string[]) => {
     setDeletingIds(prev => {

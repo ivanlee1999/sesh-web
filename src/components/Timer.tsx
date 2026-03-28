@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, SkipForward, Square } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
@@ -515,10 +515,10 @@ export default function Timer() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      padding: '16px 20px',
-      paddingBottom: 96,
-      minHeight: '100%',
-      justifyContent: viewState === 'active' ? 'center' : undefined,
+      justifyContent: viewState === 'active' ? 'center' : 'flex-start',
+      padding: '16px 16px 0',
+      width: '100%',
+      position: 'relative',
     }}>
       {/* Sync indicator */}
       <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -529,267 +529,250 @@ export default function Timer() {
         }} />
       </div>
 
-      <AnimatePresence mode="wait" initial={false}>
-        {viewState === 'idle' ? (
-          <motion.div
-            key="idle"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 20,
-              width: '100%',
-              paddingTop: 8,
-            }}
-          >
-            {/* Todoist tasks — compact at top */}
-            <div style={{ width: '100%', maxWidth: 360 }}>
-              <TodoistTasks
-                selectedTaskId={todoistTaskId}
-                onSelectTask={handleTodoistTaskSelect}
+      {viewState === 'idle' ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16,
+            width: '100%',
+            paddingTop: 16,
+          }}
+        >
+          {/* Todoist tasks — compact at top */}
+          <div style={{ width: '100%', maxWidth: 361 }}>
+            <TodoistTasks
+              selectedTaskId={todoistTaskId}
+              onSelectTask={handleTodoistTaskSelect}
+            />
+          </div>
+
+          {/* Intention input — only when no Todoist task selected */}
+          {showIdleIntentionInput ? (
+            <div style={{ width: '100%', maxWidth: 361 }}>
+              <input
+                type="text"
+                value={intention}
+                onChange={e => handleIntentionChange(e.target.value)}
+                placeholder="What are you working on?"
+                maxLength={120}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 12,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: 15,
+                  outline: 'none',
+                  transition: 'border-color 0.2s ease',
+                  minHeight: 44,
+                }}
+                onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
+                onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
               />
             </div>
+          ) : null}
 
-            {/* Intention input — only when no Todoist task selected */}
-            {showIdleIntentionInput ? (
-              <div style={{ width: '100%', maxWidth: 360 }}>
-                <input
-                  type="text"
-                  value={intention}
-                  onChange={e => handleIntentionChange(e.target.value)}
-                  placeholder="What are you working on?"
-                  maxLength={120}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: 12,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 15,
-                    outline: 'none',
-                    transition: 'border-color 0.2s ease',
-                    minHeight: 44,
-                  }}
-                  onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
-                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
-                />
-              </div>
-            ) : null}
-
-            {/* THE HERO — Timer Ring */}
-            <ProgressRing
-              progress={progress}
-              color={ringColor}
-              size={220}
-              strokeWidth={5}
-              interactive={true}
-              onProgressChange={(p) => {
-                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-                const ms = minutes * 60 * 1000
-                setCustomDurationMs(ms)
-                setRemainingMs(ms)
-              }}
-              onDragEnd={(p) => {
-                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-                const ms = minutes * 60 * 1000
-                syncToServer({
-                  phase: 'idle', sessionType: sessionTypeRef.current,
-                  intention: intentionRef.current, category: categoryRef.current,
-                  targetMs: ms, remainingMs: ms, overflowMs: 0,
-                  startedAt: null, pausedAt: null,
-                })
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span className="font-mono" style={{ fontSize: 56, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {formatTime(displayMs)}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-                  DRAG TO SET
-                </span>
-              </div>
-            </ProgressRing>
-
-            {/* Session type pills — small, subtle, below ring */}
-            <div className="session-type-picker" style={{ width: '100%', maxWidth: 280 }}>
-              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setSessionType(t)}
-                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
-                >
-                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-                </button>
-              ))}
-            </div>
-
-            {/* Start button */}
-            <motion.button
-              whileTap={{ scale: 0.96 }}
-              onClick={startTimer}
-              className="primary-pill"
-              style={{ minWidth: 180, minHeight: 48 }}
-            >
-              <Play style={{ width: 18, height: 18, fill: '#fff' }} />
-              Start {sessionType === 'focus' ? 'Focus' : 'Break'}
-            </motion.button>
-          </motion.div>
-        ) : (
-          /* ═══════ ACTIVE STATE ═══════ */
-          <motion.div
-            key="active"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 20,
-              width: '100%',
+          {/* THE HERO — Timer Ring */}
+          <ProgressRing
+            progress={progress}
+            color={ringColor}
+            size={200}
+            strokeWidth={5}
+            interactive={true}
+            onProgressChange={(p) => {
+              const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+              const ms = minutes * 60 * 1000
+              setCustomDurationMs(ms)
+              setRemainingMs(ms)
+            }}
+            onDragEnd={(p) => {
+              const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+              const ms = minutes * 60 * 1000
+              syncToServer({
+                phase: 'idle', sessionType: sessionTypeRef.current,
+                intention: intentionRef.current, category: categoryRef.current,
+                targetMs: ms, remainingMs: ms, overflowMs: 0,
+                startedAt: null, pausedAt: null,
+              })
             }}
           >
-            {/* Intention + phase header */}
-            <div style={{ textAlign: 'center', maxWidth: 320 }}>
-              {displayIntention && (
-                <p style={{ fontSize: 22, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, lineHeight: 1.3 }}>
-                  {displayIntention}
-                </p>
-              )}
-              <p style={{
-                fontSize: 12, fontWeight: 600, letterSpacing: '1.5px', textTransform: 'uppercase',
-                color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
-              }}>
-                {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+            <span className="font-mono" style={{ fontSize: 44, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+              {formatTime(displayMs)}
+            </span>
+          </ProgressRing>
+
+          {/* Session type pills — small, subtle, below ring */}
+          <div className="session-type-picker" style={{ width: '100%', maxWidth: 280 }}>
+            {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setSessionType(t)}
+                className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+              >
+                {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+              </button>
+            ))}
+          </div>
+
+          {/* Start button */}
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={startTimer}
+            className="primary-pill"
+            style={{ minWidth: 180, minHeight: 48 }}
+          >
+            <Play style={{ width: 18, height: 18, fill: '#fff' }} />
+            Start {sessionType === 'focus' ? 'Focus' : 'Break'}
+          </motion.button>
+        </div>
+      ) : (
+        /* ═══════ ACTIVE STATE ═══════ */
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 12,
+            width: '100%',
+          }}
+        >
+          {/* Intention + phase header */}
+          <div style={{ textAlign: 'center', maxWidth: 320 }}>
+            {displayIntention && (
+              <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.3 }}>
+                {displayIntention}
               </p>
-            </div>
-
-            {/* Ring — THE HERO */}
-            <ProgressRing
-              progress={progress}
-              color={ringColor}
-              size={280}
-              strokeWidth={5}
-              interactive={false}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                {isOverflow && (
-                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warning)', marginBottom: 4 }}>+{formatTime(overflowMs)}</span>
-                )}
-                <span className="font-mono" style={{ fontSize: 64, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {formatTime(displayMs)}
-                </span>
-              </div>
-            </ProgressRing>
-
-            {/* Controls — simple text buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              {(phase === 'running' || phase === 'overflow') && (
-                <>
-                  <motion.button
-                    whileTap={{ scale: 0.96 }}
-                    onClick={pauseTimer}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '12px 24px',
-                      borderRadius: 12,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--text-secondary)',
-                      fontSize: 16,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      minHeight: 44,
-                    }}
-                  >
-                    <Pause style={{ width: 18, height: 18 }} />
-                    Pause
-                  </motion.button>
-                  <motion.button
-                    whileTap={{ scale: 0.96 }}
-                    onClick={finishSession}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '12px 24px',
-                      borderRadius: 12,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--accent)',
-                      fontSize: 16,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      minHeight: 44,
-                    }}
-                  >
-                    <SkipForward style={{ width: 18, height: 18 }} />
-                    Finish
-                  </motion.button>
-                </>
-              )}
-              {phase === 'paused' && (
-                <>
-                  <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '12px 28px', fontSize: 15, minHeight: 44 }}>
-                    <Play style={{ width: 16, height: 16, fill: '#fff' }} />
-                    Resume
-                  </motion.button>
-                  <motion.button
-                    whileTap={{ scale: 0.96 }}
-                    onClick={finishSession}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '12px 24px',
-                      borderRadius: 12,
-                      border: 'none',
-                      background: 'transparent',
-                      color: 'var(--accent)',
-                      fontSize: 16,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      minHeight: 44,
-                    }}
-                  >
-                    <SkipForward style={{ width: 18, height: 18 }} />
-                    Finish
-                  </motion.button>
-                </>
-              )}
-            </div>
-
-            {/* Abandon — minimal */}
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={abandonSession}
-              className="ghost-button ghost-button--danger"
-              style={{ minHeight: 44 }}
-            >
-              <Square style={{ width: 14, height: 14 }} />
-              Abandon
-            </motion.button>
-
-            {/* Save error */}
-            {saveError && (
-              <div style={{
-                padding: '10px 16px', borderRadius: 12,
-                background: 'rgba(255, 59, 48, 0.08)', color: 'var(--danger)', fontSize: 14,
-              }}>
-                {saveError}
-              </div>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <p style={{
+              fontSize: 11, fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase',
+              color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
+            }}>
+              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+            </p>
+          </div>
+
+          {/* Ring — THE HERO */}
+          <ProgressRing
+            progress={progress}
+            color={ringColor}
+            size={220}
+            strokeWidth={5}
+            interactive={false}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              {isOverflow && (
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warning)', marginBottom: 4 }}>+{formatTime(overflowMs)}</span>
+              )}
+              <span className="font-mono" style={{ fontSize: 52, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                {formatTime(displayMs)}
+              </span>
+            </div>
+          </ProgressRing>
+
+          {/* Controls — simple text buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {(phase === 'running' || phase === 'overflow') && (
+              <>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={pauseTimer}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '10px 20px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    fontSize: 15,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  <Pause style={{ width: 18, height: 18 }} />
+                  Pause
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={finishSession}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '10px 20px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    fontSize: 15,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  <SkipForward style={{ width: 18, height: 18 }} />
+                  Finish
+                </motion.button>
+              </>
+            )}
+            {phase === 'paused' && (
+              <>
+                <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 15, minHeight: 44 }}>
+                  <Play style={{ width: 16, height: 16, fill: '#fff' }} />
+                  Resume
+                </motion.button>
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={finishSession}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '10px 20px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--accent)',
+                    fontSize: 15,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    minHeight: 44,
+                  }}
+                >
+                  <SkipForward style={{ width: 18, height: 18 }} />
+                  Finish
+                </motion.button>
+              </>
+            )}
+          </div>
+
+          {/* Abandon — minimal */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={abandonSession}
+            className="ghost-button ghost-button--danger"
+            style={{ minHeight: 44 }}
+          >
+            <Square style={{ width: 14, height: 14 }} />
+            Abandon
+          </motion.button>
+
+          {/* Save error */}
+          {saveError && (
+            <div style={{
+              padding: '10px 16px', borderRadius: 12,
+              background: 'rgba(255, 59, 48, 0.08)', color: 'var(--danger)', fontSize: 14,
+            }}>
+              {saveError}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
