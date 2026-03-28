@@ -52,7 +52,7 @@ export interface TodoistTaskRaw {
 }
 
 export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
-  const url = `${TODOIST_BASE_URL}/tasks/filter?query=${encodeURIComponent('today')}`
+  const url = `${TODOIST_BASE_URL}/tasks/filter?query=${encodeURIComponent('today | overdue')}`
   const res = await fetch(url, {
     headers: authHeaders(),
   })
