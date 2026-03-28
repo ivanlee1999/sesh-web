@@ -10,6 +10,7 @@ interface ProgressRingProps {
   children?: React.ReactNode
   interactive?: boolean
   onProgressChange?: (progress: number) => void
+  onDragEnd?: (progress: number) => void
 }
 
 export default function ProgressRing({
@@ -20,6 +21,7 @@ export default function ProgressRing({
   children,
   interactive = false,
   onProgressChange,
+  onDragEnd,
 }: ProgressRingProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
@@ -27,6 +29,7 @@ export default function ProgressRing({
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const draggingRef = useRef(false)
+  const lastProgressRef = useRef(progress)
 
   const updateFromPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current || !onProgressChange) return
@@ -44,6 +47,7 @@ export default function ProgressRing({
     const raw = angle / (2 * Math.PI)
     // Snap to whole minutes (1/60 increments), clamp 1–60 min
     const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
+    lastProgressRef.current = snapped
     onProgressChange(snapped)
   }, [onProgressChange])
 
@@ -67,8 +71,11 @@ export default function ProgressRing({
   }, [updateFromPoint])
 
   const handleTouchEnd = useCallback(() => {
-    draggingRef.current = false
-  }, [])
+    if (draggingRef.current) {
+      draggingRef.current = false
+      onDragEnd?.(lastProgressRef.current)
+    }
+  }, [onDragEnd])
 
   // Window-level mouse listeners for desktop drag
   useEffect(() => {
@@ -80,7 +87,10 @@ export default function ProgressRing({
     }
 
     const onUp = () => {
-      draggingRef.current = false
+      if (draggingRef.current) {
+        draggingRef.current = false
+        onDragEnd?.(lastProgressRef.current)
+      }
     }
 
     window.addEventListener('mousemove', onMove)
@@ -89,7 +99,7 @@ export default function ProgressRing({
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [interactive, updateFromPoint])
+  }, [interactive, updateFromPoint, onDragEnd])
 
   // Compute thumb position — angle in standard SVG coordinates (no CSS rotation)
   // progress=0 is 12 o'clock. We map to angle where 0 is 3 o'clock in SVG.

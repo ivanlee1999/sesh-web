@@ -631,8 +631,13 @@ export default function Timer() {
           const ms = minutes * 60 * 1000
           setCustomDurationMs(ms)
           setRemainingMs(ms)
-          // Persist idle duration to server so it survives reload and syncs
-          // to other clients.
+        }}
+        onDragEnd={(p) => {
+          // Persist idle duration to server only on drag end so we send a
+          // single request with the final value instead of racing PUTs on
+          // every pointer move.
+          const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+          const ms = minutes * 60 * 1000
           syncToServer({
             phase: 'idle',
             sessionType: sessionTypeRef.current,
