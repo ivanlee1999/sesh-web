@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
+
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const db = getDb()
   
-  // Check server DB
-  const row = db.prepare('SELECT access_token, expires_at FROM google_oauth WHERE id = 1').get() as { access_token: string; expires_at: number } | undefined
-  if (row?.access_token && row.expires_at > Date.now()) {
+  // Check server DB — connected if we have a refresh_token (access_token can be refreshed)
+  const row = db.prepare('SELECT access_token, refresh_token, expires_at FROM google_oauth WHERE id = 1').get() as { access_token: string; refresh_token: string; expires_at: number } | undefined
+  if (row?.refresh_token) {
     return NextResponse.json({ connected: true })
   }
   
-  // Fallback: check cookie - if it has refresh_token, consider it connected (we can refresh)
+  // Fallback: check cookie
   const tokenCookie = req.cookies.get('google_tokens')
   if (tokenCookie) {
     try {
