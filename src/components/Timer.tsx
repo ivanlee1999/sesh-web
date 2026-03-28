@@ -202,7 +202,8 @@ export default function Timer() {
       setOverflowMs(newRemaining > 0 ? data.overflowMs : Math.abs(newRemaining))
       setStartedAt(data.startedAt)
       setActiveTargetMs(data.targetMs)
-      if (data.todoistTaskId) setTodoistTaskId(data.todoistTaskId)
+      setTodoistTaskId(data.todoistTaskId ?? null)
+      if (!data.todoistTaskId) setTodoistTaskContent('')
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
       if (intervalRef.current) {
@@ -217,7 +218,8 @@ export default function Timer() {
       setOverflowMs(data.overflowMs)
       setActiveTargetMs(data.targetMs)
       if (data.startedAt) setStartedAt(data.startedAt)
-      if (data.todoistTaskId) setTodoistTaskId(data.todoistTaskId)
+      setTodoistTaskId(data.todoistTaskId ?? null)
+      if (!data.todoistTaskId) setTodoistTaskContent('')
     }
   }, [tick])
 

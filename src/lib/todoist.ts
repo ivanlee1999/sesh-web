@@ -24,8 +24,11 @@ export interface TodoistTaskRaw {
 }
 
 export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
-  const res = await fetch(`${TODOIST_BASE_URL}/tasks?filter=today`, {
+  // Todoist API v1 moved filtered queries to POST /tasks/filter
+  const res = await fetch(`${TODOIST_BASE_URL}/tasks/filter`, {
+    method: 'POST',
     headers: authHeaders(),
+    body: JSON.stringify({ query: 'today' }),
   })
   if (!res.ok) {
     throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)

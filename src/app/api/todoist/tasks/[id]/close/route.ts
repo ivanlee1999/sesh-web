@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server'
 import { isTodoistConfigured, closeTask } from '@/lib/todoist'
+import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (isRateLimited(getClientIp(request))) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
   if (!isTodoistConfigured()) {
     return NextResponse.json({ error: 'Todoist not configured' }, { status: 503 })
   }
