@@ -19,12 +19,11 @@ import crypto from 'crypto'
 const COOKIE_NAME = 'todoist_proxy_auth'
 
 /**
- * Signing secret — prefer the explicit env var, fall back to a random value
- * that survives for the lifetime of the server process.
+ * Signing secret — must match the value used by the Edge middleware.
+ * If NEXTAUTH_SECRET is not set, auth will fail closed (empty secret
+ * means no valid tokens can be generated or verified).
  */
-const SECRET =
-  process.env.NEXTAUTH_SECRET ||
-  crypto.randomBytes(32).toString('hex')
+const SECRET = process.env.NEXTAUTH_SECRET || ''
 
 // ---------------------------------------------------------------------------
 // Token helpers

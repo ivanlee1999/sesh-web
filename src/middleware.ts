@@ -12,7 +12,7 @@ import type { NextRequest } from 'next/server'
 
 const COOKIE_NAME = 'todoist_proxy_auth'
 
-const SECRET = process.env.NEXTAUTH_SECRET || 'fallback-dev-secret-replace-me'
+const SECRET = process.env.NEXTAUTH_SECRET || ''
 
 // ---------------------------------------------------------------------------
 // Web Crypto HMAC helpers (Edge Runtime compatible)
