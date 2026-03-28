@@ -17,34 +17,37 @@ export default function AppLayout() {
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
 
   return (
-    <div className="app-shell">
-      <div className="view-stack">
-        {/* Timer is always mounted — hidden via CSS when not active */}
-        <section
-          style={{
-            display: activeTab === 'timer' ? 'block' : 'none',
-          }}
-          aria-hidden={activeTab !== 'timer'}
-        >
-          <Timer />
-        </section>
+    <>
+      <div className="app-shell">
+        <div className="view-stack">
+          {/* Timer is always mounted — hidden via CSS when not active */}
+          <section
+            style={{
+              display: activeTab === 'timer' ? 'block' : 'none',
+            }}
+            aria-hidden={activeTab !== 'timer'}
+          >
+            <Timer />
+          </section>
 
-        {/* Log and Settings mount/unmount with animation */}
-        <AnimatePresence mode="wait" initial={false}>
-          {activeTab === 'log' && (
-            <motion.section key="log" {...viewTransition}>
-              <SessionLog />
-            </motion.section>
-          )}
-          {activeTab === 'settings' && (
-            <motion.section key="settings" {...viewTransition}>
-              <Settings />
-            </motion.section>
-          )}
-        </AnimatePresence>
+          {/* Log and Settings mount/unmount with animation */}
+          <AnimatePresence mode="wait" initial={false}>
+            {activeTab === 'log' && (
+              <motion.section key="log" {...viewTransition}>
+                <SessionLog />
+              </motion.section>
+            )}
+            {activeTab === 'settings' && (
+              <motion.section key="settings" {...viewTransition}>
+                <Settings />
+              </motion.section>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
+      {/* TabBar is OUTSIDE app-shell to ensure position:fixed works */}
       <TabBar activeTab={activeTab} onChange={setActiveTab} />
-    </div>
+    </>
   )
 }

@@ -541,7 +541,7 @@ export default function Timer() {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 32,
+              gap: 20,
               width: '100%',
               paddingTop: 8,
             }}
@@ -628,7 +628,7 @@ export default function Timer() {
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={260}
+              size={220}
               strokeWidth={5}
               interactive={true}
               onProgressChange={(p) => {
@@ -694,7 +694,7 @@ export default function Timer() {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 32,
+              gap: 20,
               width: '100%',
             }}
           >
