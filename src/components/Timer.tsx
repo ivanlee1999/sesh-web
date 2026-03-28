@@ -515,7 +515,7 @@ export default function Timer() {
   const viewState = phase === 'idle' ? 'idle' : 'active'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 20px', gap: 20, minHeight: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 20px', paddingBottom: 96, gap: 20, minHeight: '100%' }}>
       {/* Sync indicator */}
       <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{
@@ -569,7 +569,7 @@ export default function Timer() {
               progress={progress}
               color={ringColor}
               size={220}
-              strokeWidth={6}
+              strokeWidth={5}
               interactive={true}
               onProgressChange={(p) => {
                 const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
@@ -589,10 +589,10 @@ export default function Timer() {
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span className="font-mono" style={{ fontSize: 44, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                <span className="font-mono" style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
                   {formatTime(displayMs)}
                 </span>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, letterSpacing: '0.5px' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                   DRAG TO SET
                 </span>
               </div>
@@ -642,14 +642,14 @@ export default function Timer() {
               progress={progress}
               color={ringColor}
               size={260}
-              strokeWidth={6}
+              strokeWidth={5}
               interactive={false}
             >
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 {isOverflow && (
                   <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--warning)', marginBottom: 2 }}>+{formatTime(overflowMs)}</span>
                 )}
-                <span className="font-mono" style={{ fontSize: 52, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+                <span className="font-mono" style={{ fontSize: 56, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
                   {formatTime(displayMs)}
                 </span>
               </div>
@@ -659,11 +659,11 @@ export default function Timer() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {(phase === 'running' || phase === 'overflow') && (
                 <>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={pauseTimer} className="ghost-button">
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={pauseTimer} className="ghost-button">
                     <Pause style={{ width: 16, height: 16 }} />
                     Pause
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={finishSession} className="ghost-button">
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={finishSession} className="ghost-button ghost-button--accent">
                     <SkipForward style={{ width: 16, height: 16 }} />
                     Finish
                   </motion.button>
@@ -671,11 +671,11 @@ export default function Timer() {
               )}
               {phase === 'paused' && (
                 <>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 14 }}>
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 14 }}>
                     <Play style={{ width: 16, height: 16, fill: '#fff' }} />
                     Resume
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.95 }} onClick={finishSession} className="ghost-button">
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={finishSession} className="ghost-button ghost-button--accent">
                     <SkipForward style={{ width: 16, height: 16 }} />
                     Finish
                   </motion.button>

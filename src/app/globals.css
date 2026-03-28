@@ -22,6 +22,7 @@
   /* Accent – Things blue */
   --accent: #2B79E5;
   --accent-light: rgba(43, 121, 229, 0.08);
+  --accent-glow: rgba(43, 121, 229, 0.2);
 
   /* Borders & shadows */
   --border: rgba(0, 0, 0, 0.06);
@@ -34,7 +35,29 @@
   --danger: #FF3B30;
 
   /* Ring */
-  --ring-track: #E5E5EA;
+  --ring-track: rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1C1C1E;
+    --bg-secondary: #2C2C2E;
+    --bg-elevated: #3A3A3C;
+
+    --text-primary: #FFFFFF;
+    --text-secondary: #8E8E93;
+    --text-tertiary: #48484A;
+
+    --accent: #2B79E5;
+    --accent-light: rgba(43, 121, 229, 0.15);
+    --accent-glow: rgba(43, 121, 229, 0.3);
+
+    --border: rgba(255, 255, 255, 0.08);
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+
+    --ring-track: rgba(255, 255, 255, 0.08);
+  }
 }
 
 .dark {
@@ -48,16 +71,13 @@
 
   --accent: #2B79E5;
   --accent-light: rgba(43, 121, 229, 0.15);
+  --accent-glow: rgba(43, 121, 229, 0.3);
 
   --border: rgba(255, 255, 255, 0.08);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
 
-  --success: #34C759;
-  --warning: #FF9500;
-  --danger: #FF3B30;
-
-  --ring-track: #3A3A3C;
+  --ring-track: rgba(255, 255, 255, 0.08);
 }
 
 /* ──────────────────────────────────────────
@@ -67,7 +87,7 @@
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  font-family: -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -152,7 +172,7 @@ body {
 
 .tabbar-item--inactive svg,
 .tabbar-item--inactive span {
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
 }
 
 .tabbar-item--active svg,
@@ -166,14 +186,15 @@ body {
 
 .surface-card {
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
 }
 
 .group-card {
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .group-card .settings-row:not(:last-child) {
@@ -185,10 +206,10 @@ body {
    ────────────────────────────────────────── */
 
 .section-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
   color: var(--text-secondary);
   margin-bottom: 8px;
   padding: 0 4px;
@@ -203,8 +224,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 32px;
-  border-radius: 14px;
+  padding: 14px 40px;
+  border-radius: 980px;
   border: none;
   background: var(--accent);
   color: #fff;
@@ -216,7 +237,7 @@ body {
 }
 
 .primary-pill:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
 .ghost-button {
@@ -226,29 +247,36 @@ body {
   gap: 6px;
   padding: 10px 20px;
   border-radius: 12px;
-  border: none;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease, transform 0.1s ease, border-color 0.15s ease;
 }
 
 .ghost-button:active {
   transform: scale(0.96);
 }
 
+.ghost-button--accent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .ghost-button--danger {
-  color: var(--danger);
+  color: var(--text-tertiary);
   font-size: 13px;
   padding: 8px 16px;
+  border: none;
   background: transparent;
 }
 
 .ghost-button--danger:hover {
-  background: rgba(255, 59, 48, 0.08);
+  color: var(--danger);
+  background: rgba(255, 59, 48, 0.06);
 }
 
 /* ──────────────────────────────────────────
@@ -400,7 +428,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 4px;
+  padding: 12px 4px;
   border: none;
   background: transparent;
   width: 100%;
@@ -430,7 +458,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .task-row__close-btn {

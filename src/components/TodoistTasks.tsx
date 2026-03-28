@@ -71,7 +71,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
   return (
     <div style={{ width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <p className="section-label" style={{ marginBottom: 0 }}>Today&apos;s Tasks</p>
+        <p className="section-label" style={{ marginBottom: 0 }}>TODAY&apos;S TASKS</p>
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={fetchTasks}

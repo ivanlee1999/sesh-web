@@ -7,7 +7,7 @@ interface ProgressRingProps {
   progress: number  // 0-1
   color: string
   size: number
-  strokeWidth?: number
+  strokeWidth?: number  // default 5
   children?: React.ReactNode
   interactive?: boolean
   onProgressChange?: (progress: number) => void
@@ -18,7 +18,7 @@ export default function ProgressRing({
   progress,
   color,
   size,
-  strokeWidth = 6,
+  strokeWidth = 5,
   children,
   interactive = false,
   onProgressChange,

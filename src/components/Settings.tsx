@@ -244,7 +244,7 @@ export default function Settings() {
   }, [])
 
   return (
-    <div style={{ padding: '24px 20px' }}>
+    <div style={{ padding: '24px 20px', paddingBottom: 96 }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 28 }}>Settings</h1>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
