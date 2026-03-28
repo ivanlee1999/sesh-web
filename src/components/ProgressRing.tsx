@@ -1,11 +1,15 @@
 'use client'
 
+import { useRef, useCallback, useEffect } from 'react'
+
 interface ProgressRingProps {
   progress: number  // 0-1
   color: string
   size: number
   strokeWidth?: number
   children?: React.ReactNode
+  interactive?: boolean
+  onProgressChange?: (progress: number) => void
 }
 
 export default function ProgressRing({
@@ -14,14 +18,121 @@ export default function ProgressRing({
   size,
   strokeWidth = 8,
   children,
+  interactive = false,
+  onProgressChange,
 }: ProgressRingProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
 
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const draggingRef = useRef(false)
+
+  const updateFromPoint = useCallback((clientX: number, clientY: number) => {
+    if (!svgRef.current || !onProgressChange) return
+
+    const rect = svgRef.current.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+    const dx = clientX - centerX
+    const dy = clientY - centerY
+
+    // Angle from 12 o'clock (top), clockwise
+    let angle = Math.atan2(dx, -dy)
+    if (angle < 0) angle += 2 * Math.PI
+
+    const raw = angle / (2 * Math.PI)
+    // Snap to whole minutes (1/60 increments), clamp 1–60 min
+    const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
+    onProgressChange(snapped)
+  }, [onProgressChange])
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!interactive) return
+    e.preventDefault()
+    draggingRef.current = true
+    updateFromPoint(e.clientX, e.clientY)
+  }, [interactive, updateFromPoint])
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
+    if (!interactive) return
+    draggingRef.current = true
+    updateFromPoint(e.touches[0].clientX, e.touches[0].clientY)
+  }, [interactive, updateFromPoint])
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
+    if (!draggingRef.current) return
+    e.preventDefault()
+    updateFromPoint(e.touches[0].clientX, e.touches[0].clientY)
+  }, [updateFromPoint])
+
+  const handleTouchEnd = useCallback(() => {
+    draggingRef.current = false
+  }, [])
+
+  // Window-level mouse listeners for desktop drag
+  useEffect(() => {
+    if (!interactive) return
+
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      updateFromPoint(e.clientX, e.clientY)
+    }
+
+    const onUp = () => {
+      draggingRef.current = false
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [interactive, updateFromPoint])
+
+  // Compute thumb position — angle in standard SVG coordinates (no CSS rotation)
+  // progress=0 is 12 o'clock. We map to angle where 0 is 3 o'clock in SVG.
+  // 12 o'clock in SVG = -π/2 radians from the positive x-axis
+  const thumbAngle = progress * 2 * Math.PI - Math.PI / 2
+  const thumbX = size / 2 + radius * Math.cos(thumbAngle)
+  const thumbY = size / 2 + radius * Math.sin(thumbAngle)
+
+  // Tick marks at 5-minute intervals (5, 10, 15, ... 60)
+  const ticks = interactive ? Array.from({ length: 12 }, (_, i) => {
+    const minuteFraction = ((i + 1) * 5) / 60
+    const tickAngle = minuteFraction * 2 * Math.PI - Math.PI / 2
+    const innerR = radius - strokeWidth * 0.8
+    const outerR = radius + strokeWidth * 0.8
+    return {
+      x1: size / 2 + innerR * Math.cos(tickAngle),
+      y1: size / 2 + innerR * Math.sin(tickAngle),
+      x2: size / 2 + outerR * Math.cos(tickAngle),
+      y2: size / 2 + outerR * Math.sin(tickAngle),
+      major: (i + 1) % 3 === 0, // 15, 30, 45, 60
+    }
+  }) : []
+
+  // Build the arc path for progress using stroke-dasharray (same approach as before)
+  // but without CSS rotation — we need to set the transform on the circle instead.
+  // Actually, stroke-dasharray with a rotation transform on the circle is simplest.
+
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
+    <div
+      className="relative inline-flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg
+        ref={svgRef}
+        width={size}
+        height={size}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={interactive ? { touchAction: 'none', cursor: 'pointer' } : undefined}
+      >
+        {/* Background circle */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -31,6 +142,23 @@ export default function ProgressRing({
           strokeWidth={strokeWidth}
           className="text-gray-200 dark:text-gray-700"
         />
+
+        {/* Tick marks (idle/interactive only) */}
+        {ticks.map((tick, i) => (
+          <line
+            key={i}
+            x1={tick.x1}
+            y1={tick.y1}
+            x2={tick.x2}
+            y2={tick.y2}
+            stroke="currentColor"
+            strokeWidth={tick.major ? 2 : 1}
+            className="text-gray-300 dark:text-gray-600"
+            strokeLinecap="round"
+          />
+        ))}
+
+        {/* Progress arc */}
         <circle
           cx={size / 2}
           cy={size / 2}
@@ -41,9 +169,25 @@ export default function ProgressRing({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className="transition-all duration-300"
+          className="transition-all duration-100"
+          // Rotate so dasharray starts from 12 o'clock (top)
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
+
+        {/* Thumb (interactive only) */}
+        {interactive && (
+          <circle
+            cx={thumbX}
+            cy={thumbY}
+            r={strokeWidth * 1.2}
+            fill={color}
+            stroke="white"
+            strokeWidth={2}
+            style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))' }}
+          />
+        )}
       </svg>
+
       <div className="absolute inset-0 flex items-center justify-center">
         {children}
       </div>

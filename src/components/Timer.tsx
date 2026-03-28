@@ -46,6 +46,9 @@ export default function Timer() {
   const [startedAt, setStartedAt] = useState<number>(0)
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Idle dial state — separate from active countdown target
+  const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
+  const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastPutRef = useRef<number>(0)
@@ -68,18 +71,28 @@ export default function Timer() {
   useEffect(() => { intentionRef.current = intention }, [intention])
   useEffect(() => { categoryRef.current = category }, [category])
 
-  const targetMs = sessionType === 'focus'
+  const customDurationMsRef = useRef(customDurationMs)
+  useEffect(() => { customDurationMsRef.current = customDurationMs }, [customDurationMs])
+  const activeTargetMsRef = useRef(activeTargetMs)
+  useEffect(() => { activeTargetMsRef.current = activeTargetMs }, [activeTargetMs])
+
+  const defaultDurationMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
     : sessionType === 'short-break'
     ? settings.shortBreakDuration * 60 * 1000
     : settings.longBreakDuration * 60 * 1000
 
-  // Sync remaining when settings or type changes and idle
+  // targetMs is kept for buildTimerPayload backward compat during active sessions
+  const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
+
+  // Sync idle dial when settings or session type changes
   useEffect(() => {
     if (phase === 'idle') {
-      setRemainingMs(targetMs)
+      setCustomDurationMs(defaultDurationMs)
+      setRemainingMs(defaultDurationMs)
+      setActiveTargetMs(defaultDurationMs)
     }
-  }, [settings.focusDuration, settings.shortBreakDuration, settings.longBreakDuration, sessionType, phase, targetMs])
+  }, [defaultDurationMs, sessionType, phase])
 
   // Post a message to the service worker (for background polling control)
   const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
@@ -171,6 +184,7 @@ export default function Timer() {
       setRemainingMs(newRemaining)
       setOverflowMs(newRemaining > 0 ? data.overflowMs : Math.abs(newRemaining))
       setStartedAt(data.startedAt)
+      setActiveTargetMs(data.targetMs)
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
       if (intervalRef.current) {
@@ -183,6 +197,7 @@ export default function Timer() {
       setCategory(data.category as Category)
       setRemainingMs(data.remainingMs)
       setOverflowMs(data.overflowMs)
+      setActiveTargetMs(data.targetMs)
       if (data.startedAt) setStartedAt(data.startedAt)
     }
   }, [tick])
@@ -330,10 +345,13 @@ export default function Timer() {
     const isIdle = phaseRef.current === 'idle'
     const now = Date.now()
     const newStartedAt = isIdle ? now : startedAtRef.current
+    const nextTargetMs = isIdle ? customDurationMsRef.current : activeTargetMsRef.current
 
     if (isIdle) {
       setStartedAt(now)
       setOverflowMs(0)
+      setActiveTargetMs(nextTargetMs)
+      setRemainingMs(nextTargetMs)
     }
     setPhase('running')
     intervalRef.current = setInterval(tick, 100)
@@ -343,15 +361,15 @@ export default function Timer() {
       sessionType,
       intention,
       category,
-      targetMs,
-      remainingMs,
+      targetMs: nextTargetMs,
+      remainingMs: isIdle ? nextTargetMs : remainingMs,
       overflowMs: isIdle ? 0 : overflowMs,
       startedAt: newStartedAt,
       pausedAt: null,
     })
 
     postSwMessage('TIMER_STARTED')
-  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs])
+  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, remainingMs, overflowMs])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
@@ -457,10 +475,11 @@ export default function Timer() {
     postSwMessage('TIMER_STOPPED')
 
     setPhase('idle')
-    setRemainingMs(targetMs)
+    setCustomDurationMs(defaultDurationMs)
+    setRemainingMs(defaultDurationMs)
     setOverflowMs(0)
     setIntention('')
-  }, [startedAt, intention, category, sessionType, targetMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
+  }, [startedAt, intention, category, sessionType, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) {
@@ -472,7 +491,8 @@ export default function Timer() {
       intervalRef.current = null
     }
     setPhase('idle')
-    setRemainingMs(targetMs)
+    setCustomDurationMs(defaultDurationMs)
+    setRemainingMs(defaultDurationMs)
     setOverflowMs(0)
     setIntention('')
     syncToServer({
@@ -480,15 +500,15 @@ export default function Timer() {
       sessionType,
       intention: '',
       category,
-      targetMs,
-      remainingMs: targetMs,
+      targetMs: defaultDurationMs,
+      remainingMs: defaultDurationMs,
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
     })
 
     postSwMessage('TIMER_STOPPED')
-  }, [targetMs, syncToServer, postSwMessage, sessionType, category])
+  }, [defaultDurationMs, syncToServer, postSwMessage, sessionType, category])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -513,11 +533,18 @@ export default function Timer() {
     }
   }, [])
 
-  const isOverflow = remainingMs < 0
-  const displayMs = isOverflow ? Math.abs(remainingMs) : remainingMs
-  const progress = isOverflow ? 1 : Math.max(0, remainingMs / targetMs)
-  const ringColor = isOverflow ? PHASE_COLORS.overflow : (CATEGORY_COLORS[category] || PHASE_COLORS[sessionType])
   const isActive = phase === 'running' || phase === 'paused' || phase === 'overflow'
+  const isOverflow = remainingMs < 0
+
+  const displayMs = phase === 'idle'
+    ? customDurationMs
+    : isOverflow ? Math.abs(remainingMs) : remainingMs
+
+  const progress = phase === 'idle'
+    ? customDurationMs / (60 * 60 * 1000)
+    : isOverflow ? 1 : Math.max(0, remainingMs / activeTargetMs)
+
+  const ringColor = isOverflow ? PHASE_COLORS.overflow : (CATEGORY_COLORS[category] || PHASE_COLORS[sessionType])
 
   return (
     <div className="flex flex-col items-center px-4 pt-16 md:pt-20 gap-6">
@@ -554,7 +581,19 @@ export default function Timer() {
       </div>
 
       {/* Progress ring */}
-      <ProgressRing progress={progress} color={ringColor} size={240} strokeWidth={10}>
+      <ProgressRing
+        progress={progress}
+        color={ringColor}
+        size={240}
+        strokeWidth={10}
+        interactive={phase === 'idle'}
+        onProgressChange={(p) => {
+          const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+          const ms = minutes * 60 * 1000
+          setCustomDurationMs(ms)
+          setRemainingMs(ms)
+        }}
+      >
         <div className="flex flex-col items-center">
           {isOverflow && (
             <span className="text-xs text-amber-500 font-medium mb-1">overflow</span>
@@ -636,7 +675,7 @@ export default function Timer() {
 
       {/* Keyboard hints */}
       {phase === 'idle' && (
-        <p className="text-xs text-gray-400">Press Enter to start</p>
+        <p className="text-xs text-gray-400">Drag ring to set duration · Enter to start</p>
       )}
       {isActive && (
         <p className="text-xs text-gray-400">Space to pause · Esc to abandon</p>
