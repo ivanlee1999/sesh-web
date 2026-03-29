@@ -17,6 +17,7 @@ interface TimerRow {
   paused_at: number | null
   updated_at: number
   todoist_task_id: string | null
+  notification_count: number
 }
 
 function rowToJson(row: TimerRow) {
@@ -50,79 +51,67 @@ async function syncTodoistDuration(todoistTaskId: string, actualMs: number) {
 }
 
 /**
- * Auto-complete an expired timer atomically.
- * Uses a deterministic session ID (`auto-{started_at}`) and compare-and-swap
- * on started_at so that concurrent callers never create duplicate sessions.
+ * Check if an overflow notification should be sent.
+ * The timer keeps running past target — notifications escalate at increasing intervals:
+ *   count=0 → at target time (0 min overflow)
+ *   count=1 → +5 min overflow
+ *   count=2 → +15 min overflow  (5 + 10)
+ *   count=3 → +30 min overflow  (5 + 10 + 15)
+ *   count=4 → +50 min overflow  (5 + 10 + 15 + 20)
+ *   Formula: threshold(N) = 5 * N*(N+1)/2 minutes for N >= 1, threshold(0) = 0
  */
-function tryAutoComplete(db: ReturnType<typeof getDb>) {
+function checkOverflowNotifications(db: ReturnType<typeof getDb>) {
   const selectTimer = db.prepare('SELECT * FROM timer_state WHERE id = 1')
+  const updateNotificationCount = db.prepare(
+    'UPDATE timer_state SET notification_count = ? WHERE id = 1 AND notification_count = ?'
+  )
 
-  const resetTimer = db.prepare(`
-    UPDATE timer_state
-    SET phase = 'idle', intention = '', remaining_ms = target_ms,
-        overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?,
-        todoist_task_id = NULL
-    WHERE id = 1 AND phase = 'running' AND started_at = ?
-  `)
+  const row = selectTimer.get() as TimerRow
+  if (!row || row.phase !== 'running' || !row.started_at || row.target_ms <= 0) {
+    return { notify: false, row }
+  }
 
-  const insertSession = db.prepare(`
-    INSERT OR IGNORE INTO sessions
-      (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, todoist_task_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
+  const elapsed = Date.now() - row.started_at
+  if (elapsed < row.target_ms) {
+    return { notify: false, row }
+  }
 
-  const run = db.transaction(() => {
-    const row = selectTimer.get() as TimerRow
-    if (!row || row.phase !== 'running' || !row.started_at || row.target_ms <= 0) {
-      return { completed: false, row }
-    }
+  const overflowMs = elapsed - row.target_ms
+  const overflowMinutes = overflowMs / 60000
+  const count = row.notification_count
 
-    const elapsed = Date.now() - row.started_at
-    if (elapsed < row.target_ms) {
-      return { completed: false, row }
-    }
+  // Compute next notification threshold in minutes
+  // count=0: threshold=0 (notify as soon as overflow starts)
+  // count=N (N>=1): threshold = 5 * N*(N+1)/2
+  const nextThresholdMinutes = count === 0 ? 0 : 5 * count * (count + 1) / 2
 
-    const endedAt = Date.now()
-    const actualMs = endedAt - row.started_at
-    const overflowMs = Math.max(0, actualMs - row.target_ms)
-    const sessionId = `auto-${row.started_at}`
-
-    // Compare-and-swap: only reset if started_at still matches
-    const result = resetTimer.run(endedAt, row.started_at)
+  if (overflowMinutes >= nextThresholdMinutes) {
+    // Compare-and-swap to avoid duplicate notifications from concurrent requests
+    const result = updateNotificationCount.run(count + 1, count)
     if (result.changes === 0) {
-      // Another request already completed it
-      return { completed: false, row: selectTimer.get() as TimerRow }
+      return { notify: false, row }
     }
 
-    insertSession.run(
-      sessionId,
-      row.intention,
-      row.category,
-      row.session_type,
-      row.target_ms,
-      actualMs,
-      overflowMs,
-      row.started_at,
-      endedAt,
-      'auto-completed',
-      row.todoist_task_id,
-    )
+    const isFirst = count === 0
+    const overflowMins = Math.round(overflowMinutes)
 
     return {
-      completed: true,
-      row: selectTimer.get() as TimerRow,
-      todoistTaskId: row.todoist_task_id,
-      actualMs,
+      notify: true,
+      row,
+      isFirst,
+      overflowMins,
       notification: {
         intention: row.intention,
         sessionType: row.session_type,
         targetMs: row.target_ms,
-        overflowMs,
+        overflowMs: Math.round(overflowMs),
+        isFirst,
+        overflowMins,
       },
     }
-  })
+  }
 
-  return run()
+  return { notify: false, row }
 }
 
 function sendDiscordNotification(notification: {
@@ -130,15 +119,33 @@ function sendDiscordNotification(notification: {
   sessionType: string
   targetMs: number
   overflowMs: number
+  isFirst?: boolean
+  overflowMins?: number
 }) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL
   if (!webhookUrl) return
 
   const duration = Math.round(notification.targetMs / 60000)
   const overflow = Math.round(notification.overflowMs / 60000)
-  const msg = notification.intention
-    ? `\u2705 **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
-    : `\u2705 **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+
+  let msg: string
+  if (notification.isFirst !== undefined) {
+    // Overflow notification (target reached or reminder)
+    if (notification.isFirst) {
+      msg = notification.intention
+        ? `⏰ **Target reached:** "${notification.intention}" (${duration}min ${notification.sessionType}) — timer still running`
+        : `⏰ **${notification.sessionType} target reached** (${duration}min) — timer still running`
+    } else {
+      msg = notification.intention
+        ? `⏰ **Still going:** "${notification.intention}" — +${notification.overflowMins}min overtime`
+        : `⏰ **Still going:** +${notification.overflowMins}min overtime on ${notification.sessionType}`
+    }
+  } else {
+    // Manual finish notification
+    msg = notification.intention
+      ? `✅ **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+      : `✅ **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
+  }
 
   void fetch(webhookUrl, {
     method: 'POST',
@@ -151,17 +158,24 @@ export async function GET() {
   try {
     const db = getDb()
 
-    // Always check for auto-complete on any GET (not just background)
-    const result = tryAutoComplete(db)
-    if (result.completed && result.notification) {
+    // Check if overflow notifications should be sent (timer keeps running)
+    const result = checkOverflowNotifications(db)
+    if (result.notify && result.notification) {
       sendDiscordNotification(result.notification)
-      await sendPushToAll(
-        'sesh \u2014 session complete',
-        result.notification.intention || `${result.notification.sessionType} session finished`
-      )
-      // Todoist sync outside transaction, non-fatal
-      if (result.todoistTaskId && result.actualMs) {
-        void syncTodoistDuration(result.todoistTaskId, result.actualMs)
+      if (result.isFirst) {
+        await sendPushToAll(
+          'sesh — session complete',
+          result.notification.intention
+            ? `"${result.notification.intention}" — target reached! Timer still running.`
+            : `${result.notification.sessionType} target reached! Timer still running.`
+        )
+      } else {
+        await sendPushToAll(
+          'sesh — still going',
+          result.notification.intention
+            ? `"${result.notification.intention}" — +${result.notification.overflowMins}min overtime`
+            : `+${result.notification.overflowMins}min overtime on ${result.notification.sessionType}`
+        )
       }
     }
     return NextResponse.json(rowToJson(result.row))
@@ -191,7 +205,7 @@ export async function POST(request: Request) {
       UPDATE timer_state
       SET phase = 'idle', intention = '', remaining_ms = target_ms,
           overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?,
-          todoist_task_id = NULL
+          todoist_task_id = NULL, notification_count = 0
       WHERE id = 1 AND started_at = ?
     `)
 
@@ -292,11 +306,15 @@ export async function PUT(request: Request) {
     const db = getDb()
     const body = await request.json()
     const now = Date.now()
+    // Reset notification_count when starting a new session or going idle
+    const resetNotifications = (body.phase === 'running' && (body.overflowMs ?? 0) === 0 && (body.remainingMs ?? 0) > 0)
+      || body.phase === 'idle'
     db.prepare(`
       UPDATE timer_state SET
         phase = ?, session_type = ?, intention = ?, category = ?,
         target_ms = ?, remaining_ms = ?, overflow_ms = ?,
-        started_at = ?, paused_at = ?, updated_at = ?, todoist_task_id = ?
+        started_at = ?, paused_at = ?, updated_at = ?, todoist_task_id = ?,
+        notification_count = CASE WHEN ? THEN 0 ELSE notification_count END
       WHERE id = 1
     `).run(
       body.phase ?? 'idle',
@@ -310,6 +328,7 @@ export async function PUT(request: Request) {
       body.pausedAt ?? null,
       now,
       body.todoistTaskId ?? null,
+      resetNotifications ? 1 : 0,
     )
     const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
     return NextResponse.json(rowToJson(row))

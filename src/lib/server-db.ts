@@ -81,4 +81,5 @@ function initSchema(d: Database.Database) {
   // Migrations: add todoist_task_id to sessions and timer_state
   ensureColumn(d, 'sessions', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
+  ensureColumn(d, 'timer_state', 'notification_count', 'notification_count INTEGER NOT NULL DEFAULT 0')
 }

@@ -37,10 +37,11 @@ self.addEventListener('fetch', event => {
 })
 
 // ── Background timer polling ─────────────────────────────────────────
-// Periodically pings /api/timer?background=1 so the server can auto-
-// complete expired timers even when the app tab is backgrounded.
+// Periodically pings /api/timer?background=1 so the server can send
+// overflow reminder notifications even when the app tab is backgrounded.
+// The timer never auto-completes — only manual finish stops it.
 // NOTE: This is best-effort — the browser may kill the worker when all
-// tabs are closed. Guaranteed completion requires a server-side scheduler.
+// tabs are closed.
 
 const TIMER_CHECK_INTERVAL = 30000 // 30 seconds
 let checkInterval = null
