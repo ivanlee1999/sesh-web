@@ -551,8 +551,11 @@ export default function Timer() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: viewState === 'active' ? 'center' : 'flex-start',
-      padding: '16px 16px 24px',
+      justifyContent: 'center',
+      padding: '16px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
+      paddingTop: 'env(safe-area-inset-top, 16px)',
+      minHeight: 'calc(100dvh - 56px)',
+      boxSizing: 'border-box' as const,
       width: '100%',
       position: 'relative',
     }}>
@@ -571,7 +574,7 @@ export default function Timer() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 6,
+            gap: 12,
             width: '100%',
             paddingTop: 0,
           }}
@@ -615,7 +618,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={160}
+            size={220}
             strokeWidth={5}
             interactive={true}
             onProgressChange={(p) => {
@@ -635,7 +638,7 @@ export default function Timer() {
               })
             }}
           >
-            <span className="font-mono" style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+            <span className="font-mono" style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
               {formatTime(displayMs)}
             </span>
           </ProgressRing>
@@ -668,8 +671,8 @@ export default function Timer() {
                 }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '4px 10px', borderRadius: 8, border: 'none',
-                  fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  padding: '5px 12px', borderRadius: 8, border: 'none',
+                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
                   background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
                   color: category === cat.name ? cat.color : 'var(--text-secondary)',
                   transition: 'all 0.15s ease',
@@ -758,7 +761,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={260}
+            size={280}
             strokeWidth={5}
             interactive={false}
           >
