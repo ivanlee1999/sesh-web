@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import AppLayout from '@/components/AppLayout'
 import { SettingsProvider } from '@/context/SettingsContext'
+import { CategoriesProvider } from '@/context/CategoriesContext'
 
 export default function Home() {
   useEffect(() => {
@@ -12,7 +13,9 @@ export default function Home() {
 
   return (
     <SettingsProvider>
-      <AppLayout />
+      <CategoriesProvider>
+        <AppLayout />
+      </CategoriesProvider>
     </SettingsProvider>
   )
 }

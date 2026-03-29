@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import type { Session } from '@/types'
-import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/types'
+import { useCategories } from '@/context/CategoriesContext'
+import { getCategoryMeta } from '@/lib/categories'
 import { Trash2 } from 'lucide-react'
 
 function formatDate(ts: number): string {
@@ -31,6 +32,7 @@ export default function History() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const { categories } = useCategories()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -93,38 +95,41 @@ export default function History() {
           <div key={date}>
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{date}</h2>
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
-              {sessions.map(s => (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                  <div
-                    className="w-1.5 h-10 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: CATEGORY_COLORS[s.category] }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        {s.intention || <span className="text-gray-400 italic capitalize">{s.type}</span>}
-                      </span>
+              {sessions.map(s => {
+                const meta = getCategoryMeta(s.category, categories)
+                return (
+                  <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                    <div
+                      className="w-1.5 h-10 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: meta.color }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          {s.intention || <span className="text-gray-400 italic capitalize">{s.type}</span>}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-gray-400">{formatTime(s.startedAt)}</span>
+                        <span className="text-xs text-gray-300">&middot;</span>
+                        <span className="text-xs text-gray-500">{meta.label}</span>
+                        <span className="text-xs text-gray-300">&middot;</span>
+                        <span className="text-xs text-gray-500 capitalize">{s.type}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-gray-400">{formatTime(s.startedAt)}</span>
-                      <span className="text-xs text-gray-300">&middot;</span>
-                      <span className="text-xs text-gray-500">{CATEGORY_LABELS[s.category]}</span>
-                      <span className="text-xs text-gray-300">&middot;</span>
-                      <span className="text-xs text-gray-500 capitalize">{s.type}</span>
-                    </div>
+                    <span className="font-mono text-sm text-gray-600 dark:text-gray-400 flex-shrink-0">
+                      {msToMin(s.actualMs)}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(s.id)}
+                      disabled={deletingId === s.id}
+                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <span className="font-mono text-sm text-gray-600 dark:text-gray-400 flex-shrink-0">
-                    {msToMin(s.actualMs)}
-                  </span>
-                  <button
-                    onClick={() => handleDelete(s.id)}
-                    disabled={deletingId === s.id}
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ))}

@@ -237,7 +237,7 @@ export async function POST(request: Request) {
       insertSession.run(
         sessionId,
         body.intention ?? row.intention,
-        body.category ?? row.category,
+        row.category,
         row.session_type,
         row.target_ms,
         actualMs,
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
         session: {
           id: sessionId,
           intention: body.intention ?? row.intention,
-          category: body.category ?? row.category,
+          category: row.category,
           type: row.session_type,
           targetMs: row.target_ms,
           actualMs,
@@ -306,6 +306,21 @@ export async function PUT(request: Request) {
     const db = getDb()
     const body = await request.json()
     const now = Date.now()
+
+    // Validate that the category exists in the categories table.
+    // If the provided category is missing or invalid, fall back to the
+    // default category (is_default=1) or the first available one.
+    let resolvedCategory: string = body.category ?? ''
+    if (resolvedCategory) {
+      const catRow = db.prepare('SELECT name FROM categories WHERE name = ?').get(resolvedCategory) as { name: string } | undefined
+      if (!catRow) resolvedCategory = ''
+    }
+    if (!resolvedCategory) {
+      const defaultCat = db.prepare('SELECT name FROM categories WHERE is_default = 1 LIMIT 1').get() as { name: string } | undefined
+        ?? db.prepare('SELECT name FROM categories ORDER BY sort_order LIMIT 1').get() as { name: string } | undefined
+      resolvedCategory = defaultCat?.name ?? 'development'
+    }
+
     // Reset notification_count when starting a new session or going idle
     const resetNotifications = (body.phase === 'running' && (body.overflowMs ?? 0) === 0 && (body.remainingMs ?? 0) > 0)
       || body.phase === 'idle'
@@ -320,7 +335,7 @@ export async function PUT(request: Request) {
       body.phase ?? 'idle',
       body.sessionType ?? 'focus',
       body.intention ?? '',
-      body.category ?? 'development',
+      resolvedCategory,
       body.targetMs ?? 0,
       body.remainingMs ?? 0,
       body.overflowMs ?? 0,

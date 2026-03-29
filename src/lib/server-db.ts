@@ -82,4 +82,36 @@ function initSchema(d: Database.Database) {
   ensureColumn(d, 'sessions', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'notification_count', 'notification_count INTEGER NOT NULL DEFAULT 0')
+
+  // Categories table
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      color TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_default INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_categories_sort_order ON categories(sort_order);
+  `)
+
+  // Seed default categories if table is empty
+  const count = d.prepare('SELECT COUNT(*) as cnt FROM categories').get() as { cnt: number }
+  if (count.cnt === 0) {
+    const insert = d.prepare(
+      'INSERT INTO categories (id, name, label, color, sort_order, is_default) VALUES (?, ?, ?, ?, ?, 1)'
+    )
+    const defaults = [
+      ['development', 'Development', '#3b82f6', 0],
+      ['writing', 'Writing', '#8b5cf6', 1],
+      ['design', 'Design', '#ec4899', 2],
+      ['learning', 'Learning', '#f59e0b', 3],
+      ['exercise', 'Exercise', '#10b981', 4],
+      ['other', 'Other', '#6b7280', 5],
+    ] as const
+    for (const [name, label, color, order] of defaults) {
+      insert.run(crypto.randomUUID(), name, label, color, order)
+    }
+  }
 }

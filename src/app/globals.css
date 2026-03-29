@@ -171,9 +171,9 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 6px 20px;
+  padding: 6px 8px;
   min-height: 44px;
-  min-width: 44px;
+  min-width: 36px;
   border: none;
   background: none;
   cursor: pointer;
@@ -182,13 +182,13 @@ body {
 }
 
 .tabbar-item svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   transition: color 0.15s ease;
 }
 
 .tabbar-item span {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.01em;
   transition: color 0.15s ease;
