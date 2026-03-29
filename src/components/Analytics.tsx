@@ -58,7 +58,7 @@ export default function Analytics() {
 
   if (loading) {
     return (
-      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
+      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6" style={{ height: "calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
         <div className="text-center py-16 text-gray-400">
           <p className="text-sm">Loading…</p>
@@ -69,7 +69,7 @@ export default function Analytics() {
 
   if (error) {
     return (
-      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
+      <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6" style={{ height: "calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-sm text-red-600 dark:text-red-400">
           {error}
@@ -100,7 +100,7 @@ export default function Analytics() {
     .sort((a, b) => b.ms - a.ms)
 
   return (
-    <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
+    <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6" style={{ height: "calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
       <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Analytics</h1>
 
       {/* Today summary */}

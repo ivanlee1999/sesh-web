@@ -72,7 +72,7 @@ export default function History() {
   const groups = groupByDate(sessions)
 
   return (
-    <div className="px-4 pt-16 md:pt-20 pb-4">
+    <div className="px-4 pt-16 md:pt-20 pb-4" style={{ height: "calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
       <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">History</h1>
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4 text-sm text-red-600 dark:text-red-400">
