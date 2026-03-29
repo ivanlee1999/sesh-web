@@ -561,9 +561,9 @@ export default function Timer() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 16,
+            gap: 10,
             width: '100%',
-            paddingTop: 16,
+            paddingTop: 8,
           }}
         >
           {/* Todoist tasks — compact at top */}
@@ -605,7 +605,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={220}
+            size={180}
             strokeWidth={5}
             interactive={true}
             onProgressChange={(p) => {
@@ -644,7 +644,7 @@ export default function Timer() {
           </div>
 
           {/* Category picker pills */}
-          <div className="session-type-picker" style={{ width: '100%', maxWidth: 360, overflowX: 'auto', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: 340 }}>
             {ALL_CATEGORIES.map(cat => (
               <button
                 key={cat}
@@ -656,14 +656,19 @@ export default function Timer() {
                     overflowMs: 0, startedAt: null, pausedAt: null,
                   })
                 }}
-                className={`session-type-pill ${category === cat ? 'session-type-pill--active' : ''}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '4px 10px', borderRadius: 8, border: 'none',
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  background: category === cat ? `${CATEGORY_COLORS[cat]}20` : 'var(--bg-secondary)',
+                  color: category === cat ? CATEGORY_COLORS[cat] : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease',
+                }}
               >
                 <span style={{
-                  width: 8, height: 8, borderRadius: '50%',
+                  width: 7, height: 7, borderRadius: '50%',
                   background: CATEGORY_COLORS[cat],
                   display: 'inline-block',
-                  flexShrink: 0,
                 }} />
                 {CATEGORY_LABELS[cat]}
               </button>
