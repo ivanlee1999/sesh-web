@@ -27,7 +27,6 @@ export async function PUT(
       return NextResponse.json({ error: 'Invalid label' }, { status: 400 })
     }
 
-    // Check for name collision with another category
     const collision = db.prepare('SELECT id FROM categories WHERE name = ? AND id != ?').get(name, id)
     if (collision) {
       return NextResponse.json({ error: 'A category with this name already exists' }, { status: 409 })
@@ -35,8 +34,6 @@ export async function PUT(
 
     const oldName = existing.name
 
-    // Use a transaction so that renaming a category also migrates all
-    // references in sessions and the active timer state atomically.
     db.transaction(() => {
       db.prepare('UPDATE categories SET name = ?, label = ?, color = ? WHERE id = ?').run(name, label, color, id)
 
@@ -75,20 +72,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
 
-    if (existing.is_default === 1) {
-      return NextResponse.json({ error: 'Cannot delete a default category' }, { status: 409 })
-    }
-
-    // If the active timer uses this category, switch it to 'other' (the default fallback)
     const timerRef = db.prepare('SELECT id FROM timer_state WHERE category = ?').get(existing.name) as { id: number } | undefined
 
     db.transaction(() => {
-      // Remap any timer referencing this category to 'other'
       if (timerRef) {
         db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run('other', Date.now(), existing.name)
       }
       db.prepare('DELETE FROM categories WHERE id = ?').run(id)
     })()
+
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })

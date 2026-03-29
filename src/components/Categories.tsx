@@ -292,9 +292,9 @@ export default function Categories() {
                 ) : (
                   <button
                     onClick={() => { setDeleteError(null); setConfirmDeleteId(cat.id) }}
-                    disabled={cat.isDefault}
+                    
                     className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={cat.isDefault ? 'Default categories cannot be deleted' : 'Delete'}
+                    title={'Delete'}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
