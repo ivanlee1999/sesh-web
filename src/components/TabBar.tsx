@@ -1,8 +1,8 @@
 'use client'
-import { Clock, List, Settings } from 'lucide-react'
+import { Clock, History, BarChart2, Tag, Settings } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export type AppTab = 'timer' | 'log' | 'settings'
+export type AppTab = 'timer' | 'history' | 'analytics' | 'categories' | 'settings'
 
 interface TabBarProps {
   activeTab: AppTab
@@ -11,7 +11,9 @@ interface TabBarProps {
 
 const tabs: { id: AppTab; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'timer', label: 'Timer', Icon: Clock },
-  { id: 'log', label: 'Log', Icon: List },
+  { id: 'history', label: 'History', Icon: History },
+  { id: 'analytics', label: 'Analytics', Icon: BarChart2 },
+  { id: 'categories', label: 'Categories', Icon: Tag },
   { id: 'settings', label: 'Settings', Icon: Settings },
 ]
 

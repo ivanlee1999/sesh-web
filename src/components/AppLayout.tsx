@@ -1,7 +1,9 @@
 'use client'
 import { useState } from 'react'
 import Timer from './Timer'
-import SessionLog from './SessionLog'
+import History from './History'
+import Analytics from './Analytics'
+import Categories from './Categories'
 import Settings from './Settings'
 import TabBar, { type AppTab } from './TabBar'
 
@@ -15,8 +17,14 @@ export default function AppLayout() {
           <div style={{ display: activeTab === 'timer' ? 'block' : 'none' }}>
             <Timer />
           </div>
-          <div style={{ display: activeTab === 'log' ? 'block' : 'none' }}>
-            <SessionLog isVisible={activeTab === 'log'} />
+          <div style={{ display: activeTab === 'history' ? 'block' : 'none' }}>
+            <History />
+          </div>
+          <div style={{ display: activeTab === 'analytics' ? 'block' : 'none' }}>
+            <Analytics />
+          </div>
+          <div style={{ display: activeTab === 'categories' ? 'block' : 'none' }}>
+            <Categories />
           </div>
           <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
             <Settings />

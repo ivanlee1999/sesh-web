@@ -1,6 +1,6 @@
 'use client'
 import type { Category } from '@/types'
-import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/types'
+import { useCategories } from '@/context/CategoriesContext'
 import { motion } from 'framer-motion'
 
 interface IntentionInputProps {
@@ -11,6 +11,8 @@ interface IntentionInputProps {
 }
 
 export default function IntentionInput({ intention, setIntention, category, setCategory }: IntentionInputProps) {
+  const { categories } = useCategories()
+
   return (
     <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <input
@@ -34,18 +36,18 @@ export default function IntentionInput({ intention, setIntention, category, setC
         onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {(Object.keys(CATEGORY_LABELS) as Category[]).map(cat => {
-          const isActive = category === cat
+        {categories.map(cat => {
+          const isActive = category === cat.name
           return (
             <motion.button
-              key={cat}
+              key={cat.name}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setCategory(cat)}
+              onClick={() => setCategory(cat.name)}
               style={{
                 padding: '5px 12px',
                 borderRadius: 8,
-                border: `1.5px solid ${isActive ? CATEGORY_COLORS[cat] : 'var(--border)'}`,
-                background: isActive ? CATEGORY_COLORS[cat] : 'transparent',
+                border: `1.5px solid ${isActive ? cat.color : 'var(--border)'}`,
+                background: isActive ? cat.color : 'transparent',
                 color: isActive ? '#fff' : 'var(--text-secondary)',
                 fontSize: 12,
                 fontWeight: 500,
@@ -53,7 +55,7 @@ export default function IntentionInput({ intention, setIntention, category, setC
                 transition: 'all 0.15s ease',
               }}
             >
-              {CATEGORY_LABELS[cat]}
+              {cat.label}
             </motion.button>
           )
         })}

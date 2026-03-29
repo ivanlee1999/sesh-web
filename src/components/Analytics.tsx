@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import type { Session } from '@/types'
-import { CATEGORY_COLORS, CATEGORY_LABELS, type Category } from '@/types'
+import { useCategories } from '@/context/CategoriesContext'
+import { getCategoryMeta } from '@/lib/categories'
 
 function msToHM(ms: number): string {
   const h = Math.floor(ms / 3600000)
@@ -28,6 +29,7 @@ export default function Analytics() {
   const [serverStats, setServerStats] = useState<ServerAnalytics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const { categories } = useCategories()
 
   useEffect(() => {
     const load = async () => {
@@ -83,13 +85,19 @@ export default function Analytics() {
 
   const maxMs = Math.max(...days.map(d => d.ms), 1)
 
-  // Category breakdown (all time, focus only)
+  // Category breakdown (all time, focus only) — built from actual session data
   const focusSessions = sessions.filter(s => s.type === 'focus')
   const totalFocusMs = focusSessions.reduce((a, s) => a + s.actualMs, 0)
-  const catBreakdown = (Object.keys(CATEGORY_LABELS) as Category[]).map(cat => {
-    const ms = focusSessions.filter(s => s.category === cat).reduce((a, s) => a + s.actualMs, 0)
-    return { cat, ms, pct: totalFocusMs ? Math.round((ms / totalFocusMs) * 100) : 0 }
-  }).filter(x => x.ms > 0).sort((a, b) => b.ms - a.ms)
+  const groupedByCategory: Record<string, number> = {}
+  for (const s of focusSessions) {
+    groupedByCategory[s.category] = (groupedByCategory[s.category] ?? 0) + s.actualMs
+  }
+  const catBreakdown = Object.entries(groupedByCategory)
+    .map(([name, ms]) => {
+      const meta = getCategoryMeta(name, categories)
+      return { name, ms, pct: totalFocusMs ? Math.round((ms / totalFocusMs) * 100) : 0, ...meta }
+    })
+    .sort((a, b) => b.ms - a.ms)
 
   return (
     <div className="px-4 pt-16 md:pt-20 pb-4 flex flex-col gap-6">
@@ -133,13 +141,13 @@ export default function Analytics() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Categories</h2>
           <div className="flex flex-col gap-2">
-            {catBreakdown.map(({ cat, ms, pct }) => (
-              <div key={cat} className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] }} />
-                <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{CATEGORY_LABELS[cat]}</span>
+            {catBreakdown.map(({ name, ms, pct, label, color }) => (
+              <div key={name} className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{label}</span>
                 <span className="text-xs text-gray-500">{msToHM(ms)}</span>
                 <div className="w-20 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5">
-                  <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: CATEGORY_COLORS[cat] }} />
+                  <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                 </div>
                 <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
               </div>
@@ -149,12 +157,12 @@ export default function Analytics() {
       )}
 
       {/* Daily timeline */}
-      <DailyTimeline sessions={sessions} />
+      <DailyTimeline sessions={sessions} categories={categories} />
     </div>
   )
 }
 
-function DailyTimeline({ sessions }: { sessions: Session[] }) {
+function DailyTimeline({ sessions, categories }: { sessions: Session[]; categories: import('@/types').CategoryRecord[] }) {
   const today = startOfDay(new Date())
   const todaySessions = sessions.filter(s => s.startedAt >= today && s.startedAt < today + 86400000)
 
@@ -169,6 +177,7 @@ function DailyTimeline({ sessions }: { sessions: Session[] }) {
       <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Today&apos;s Timeline</h2>
       <div className="relative h-12 bg-gray-50 dark:bg-gray-900 rounded-lg overflow-hidden">
         {todaySessions.map(s => {
+          const meta = getCategoryMeta(s.category, categories)
           const startMin = (new Date(s.startedAt).getHours() - START_HOUR) * 60 + new Date(s.startedAt).getMinutes()
           const durMin = s.actualMs / 60000
           const left = Math.max(0, (startMin / totalMinutes) * 100)
@@ -180,7 +189,7 @@ function DailyTimeline({ sessions }: { sessions: Session[] }) {
               style={{
                 left: `${left}%`,
                 width: `${Math.max(width, 0.5)}%`,
-                backgroundColor: CATEGORY_COLORS[s.category],
+                backgroundColor: meta.color,
               }}
               title={`${s.intention || s.type} — ${Math.round(s.actualMs / 60000)}m`}
             />

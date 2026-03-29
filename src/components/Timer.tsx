@@ -5,8 +5,8 @@ import { motion } from 'framer-motion'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
+import { useCategories } from '@/context/CategoriesContext'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
-import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/types'
 
 function interpolateColor(hex1: string, hex2: string, t: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
@@ -21,8 +21,6 @@ function interpolateColor(hex1: string, hex2: string, t: number): string {
   const b = clamp(b1 + (b2 - b1) * t)
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
-
-const ALL_CATEGORIES: Category[] = ['development', 'writing', 'design', 'learning', 'exercise', 'other']
 
 function formatTime(ms: number): string {
   const totalSec = Math.floor(Math.abs(ms) / 1000)
@@ -48,6 +46,7 @@ interface ServerTimerState {
 
 export default function Timer() {
   const { settings } = useSettings()
+  const { categories, byName } = useCategories()
   const [phase, setPhase] = useState<TimerPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
   const [intention, setIntention] = useState('')
@@ -518,7 +517,7 @@ export default function Timer() {
     }
     // Focus: category color, shifting to warning as time runs low
     if (isOverflow) return '#FF9500'
-    const categoryColor = CATEGORY_COLORS[category] || '#3b82f6'
+    const categoryColor = byName[category]?.color ?? '#6b7280'
     if (phase === 'idle') return categoryColor
     const timeRatio = remainingMs / activeTargetMs  // 1.0 = full, 0.0 = done
     if (timeRatio > 0.2) return categoryColor
@@ -645,13 +644,13 @@ export default function Timer() {
 
           {/* Category picker pills */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: 340 }}>
-            {ALL_CATEGORIES.map(cat => (
+            {categories.map(cat => (
               <button
-                key={cat}
+                key={cat.name}
                 onClick={() => {
-                  setCategory(cat)
+                  setCategory(cat.name)
                   syncToServer({
-                    phase: 'idle', sessionType, intention, category: cat,
+                    phase: 'idle', sessionType, intention, category: cat.name,
                     targetMs: customDurationMs, remainingMs: customDurationMs,
                     overflowMs: 0, startedAt: null, pausedAt: null,
                   })
@@ -660,17 +659,17 @@ export default function Timer() {
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '4px 10px', borderRadius: 8, border: 'none',
                   fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                  background: category === cat ? `${CATEGORY_COLORS[cat]}20` : 'var(--bg-secondary)',
-                  color: category === cat ? CATEGORY_COLORS[cat] : 'var(--text-secondary)',
+                  background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
+                  color: category === cat.name ? cat.color : 'var(--text-secondary)',
                   transition: 'all 0.15s ease',
                 }}
               >
                 <span style={{
                   width: 7, height: 7, borderRadius: '50%',
-                  background: CATEGORY_COLORS[cat],
+                  background: cat.color,
                   display: 'inline-block',
                 }} />
-                {CATEGORY_LABELS[cat]}
+                {cat.label}
               </button>
             ))}
           </div>
@@ -714,8 +713,9 @@ export default function Timer() {
               </p>
               <button
                 onClick={() => {
-                  const idx = ALL_CATEGORIES.indexOf(category)
-                  const next = ALL_CATEGORIES[(idx + 1) % ALL_CATEGORIES.length]
+                  const names = categories.map(c => c.name)
+                  const idx = names.indexOf(category)
+                  const next = names[(idx + 1) % names.length] || category
                   setCategory(next)
                   syncToServer(buildTimerPayload({
                     category: next,
@@ -726,8 +726,8 @@ export default function Timer() {
                   display: 'inline-flex', alignItems: 'center', gap: 4,
                   padding: '2px 8px', borderRadius: 10,
                   border: 'none', cursor: 'pointer',
-                  background: `${CATEGORY_COLORS[category]}22`,
-                  color: CATEGORY_COLORS[category],
+                  background: `${(byName[category]?.color ?? '#6b7280')}22`,
+                  color: byName[category]?.color ?? '#6b7280',
                   fontSize: 10, fontWeight: 600, letterSpacing: '0.5px',
                   textTransform: 'uppercase', lineHeight: 1,
                   minHeight: 20,
@@ -735,10 +735,10 @@ export default function Timer() {
               >
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%',
-                  background: CATEGORY_COLORS[category],
+                  background: byName[category]?.color ?? '#6b7280',
                   display: 'inline-block',
                 }} />
-                {CATEGORY_LABELS[category]}
+                {byName[category]?.label ?? category}
               </button>
             </div>
           </div>
