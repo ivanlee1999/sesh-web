@@ -79,25 +79,16 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete a default category' }, { status: 409 })
     }
 
-    const sessionCount = (db.prepare('SELECT COUNT(*) as cnt FROM sessions WHERE category = ?').get(existing.name) as { cnt: number }).cnt
-    if (sessionCount > 0) {
-      return NextResponse.json(
-        { error: 'Category has existing sessions', sessionCount },
-        { status: 409 }
-      )
-    }
-
-    // Block deletion if the active timer references this category — completing
-    // the timer would create an orphaned session against a non-existent category.
+    // If the active timer uses this category, switch it to 'other' (the default fallback)
     const timerRef = db.prepare('SELECT id FROM timer_state WHERE category = ?').get(existing.name) as { id: number } | undefined
-    if (timerRef) {
-      return NextResponse.json(
-        { error: 'Category is currently selected in the timer. Change the timer category before deleting.' },
-        { status: 409 }
-      )
-    }
 
-    db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    db.transaction(() => {
+      // Remap any timer referencing this category to 'other'
+      if (timerRef) {
+        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run('other', Date.now(), existing.name)
+      }
+      db.prepare('DELETE FROM categories WHERE id = ?').run(id)
+    })()
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })
