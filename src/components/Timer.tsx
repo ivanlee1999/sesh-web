@@ -542,7 +542,7 @@ export default function Timer() {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: viewState === 'active' ? 'center' : 'flex-start',
-      padding: '16px 16px 0',
+      padding: '16px 16px 24px',
       width: '100%',
       position: 'relative',
     }}>
@@ -563,7 +563,7 @@ export default function Timer() {
             alignItems: 'center',
             gap: 10,
             width: '100%',
-            paddingTop: 8,
+            paddingTop: 0,
           }}
         >
           {/* Todoist tasks — compact at top */}
