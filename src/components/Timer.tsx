@@ -50,7 +50,7 @@ export default function Timer() {
   const [phase, setPhase] = useState<TimerPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
   const [intention, setIntention] = useState('')
-  const [category, setCategory] = useState<Category>('development')
+  const [category, setCategory] = useState<Category>('')
   const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60 * 1000)
   const [overflowMs, setOverflowMs] = useState(0)
   const [startedAt, setStartedAt] = useState<number>(0)
@@ -80,6 +80,17 @@ export default function Timer() {
   useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
   useEffect(() => { intentionRef.current = intention }, [intention])
   useEffect(() => { categoryRef.current = category }, [category])
+
+  // Once categories are loaded, ensure the selected category actually exists.
+  // If it doesn't (e.g. initial empty string, or a renamed/deleted slug), fall
+  // back to the default category (is_default) or the first available one.
+  useEffect(() => {
+    if (categories.length === 0) return // still loading
+    if (category && byName[category]) return // already valid
+    const defaultCat = categories.find(c => c.isDefault) ?? categories[0]
+    if (defaultCat) setCategory(defaultCat.name)
+  }, [categories, byName, category])
+
   const todoistTaskIdRef = useRef<string | null>(null)
   useEffect(() => { todoistTaskIdRef.current = todoistTaskId }, [todoistTaskId])
 
