@@ -42,7 +42,7 @@ export async function PUT(
 
       if (oldName !== name) {
         db.prepare('UPDATE sessions SET category = ? WHERE category = ?').run(name, oldName)
-        db.prepare('UPDATE timer_state SET category = ? WHERE category = ?').run(name, oldName)
+        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run(name, Date.now(), oldName)
       }
     })()
 
