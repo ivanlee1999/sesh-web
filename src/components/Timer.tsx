@@ -575,130 +575,163 @@ export default function Timer() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 12,
+            justifyContent: 'space-between',
             width: '100%',
+            height: '100%',
             paddingTop: 0,
           }}
         >
-          {/* Todoist tasks — compact at top */}
-          <div style={{ width: '100%', maxWidth: 361 }}>
-            <TodoistTasks
-              selectedTaskId={todoistTaskId}
-              onSelectTask={handleTodoistTaskSelect}
-            />
-          </div>
-
-          {/* Intention input — only when no Todoist task selected */}
-          {showIdleIntentionInput ? (
+          {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: '100%' }}>
+            {/* Todoist tasks — compact at top */}
             <div style={{ width: '100%', maxWidth: 361 }}>
-              <input
-                type="text"
-                value={intention}
-                onChange={e => handleIntentionChange(e.target.value)}
-                placeholder="What are you working on?"
-                maxLength={120}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 12,
-                  border: '1px solid var(--border)',
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  fontSize: 15,
-                  outline: 'none',
-                  transition: 'border-color 0.2s ease',
-                  minHeight: 38,
-                }}
-                onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
-                onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
+              <TodoistTasks
+                selectedTaskId={todoistTaskId}
+                onSelectTask={handleTodoistTaskSelect}
               />
             </div>
-          ) : null}
 
-          {/* THE HERO — Timer Ring */}
-          <ProgressRing
-            progress={progress}
-            color={ringColor}
-            size={220}
-            strokeWidth={5}
-            interactive={true}
-            onProgressChange={(p) => {
-              const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-              const ms = minutes * 60 * 1000
-              setCustomDurationMs(ms)
-              setRemainingMs(ms)
-            }}
-            onDragEnd={(p) => {
-              const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-              const ms = minutes * 60 * 1000
-              syncToServer({
-                phase: 'idle', sessionType: sessionTypeRef.current,
-                intention: intentionRef.current, category: categoryRef.current,
-                targetMs: ms, remainingMs: ms, overflowMs: 0,
-                startedAt: null, pausedAt: null,
-              })
-            }}
-          >
-            <span className="font-mono" style={{ fontSize: 48, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+            {/* Intention input — only when no Todoist task selected */}
+            {showIdleIntentionInput ? (
+              <div style={{ width: '100%', maxWidth: 361 }}>
+                <input
+                  type="text"
+                  value={intention}
+                  onChange={e => handleIntentionChange(e.target.value)}
+                  placeholder="What are you working on?"
+                  maxLength={120}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 12,
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    fontSize: 15,
+                    outline: 'none',
+                    transition: 'border-color 0.2s ease',
+                    minHeight: 38,
+                  }}
+                  onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
+                />
+              </div>
+            ) : null}
+
+            {/* Category pills + Session type pills — inline row */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: 360 }}>
+              {categories.map(cat => (
+                <button
+                  key={cat.name}
+                  onClick={() => {
+                    setCategory(cat.name)
+                    syncToServer({
+                      phase: 'idle', sessionType, intention, category: cat.name,
+                      targetMs: customDurationMs, remainingMs: customDurationMs,
+                      overflowMs: 0, startedAt: null, pausedAt: null,
+                    })
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '5px 12px', borderRadius: 8, border: 'none',
+                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                    background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
+                    color: category === cat.name ? cat.color : 'var(--text-secondary)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{
+                    width: 7, height: 7, borderRadius: '50%',
+                    background: cat.color,
+                    display: 'inline-block',
+                  }} />
+                  {cat.label}
+                </button>
+              ))}
+              <span style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setSessionType(t)}
+                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+                >
+                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            {/* THE HERO — Timer Ring (large, empty center) */}
+            <ProgressRing
+              progress={progress}
+              color={ringColor}
+              size={280}
+              strokeWidth={5}
+              interactive={true}
+              onProgressChange={(p) => {
+                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+                const ms = minutes * 60 * 1000
+                setCustomDurationMs(ms)
+                setRemainingMs(ms)
+              }}
+              onDragEnd={(p) => {
+                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
+                const ms = minutes * 60 * 1000
+                syncToServer({
+                  phase: 'idle', sessionType: sessionTypeRef.current,
+                  intention: intentionRef.current, category: categoryRef.current,
+                  targetMs: ms, remainingMs: ms, overflowMs: 0,
+                  startedAt: null, pausedAt: null,
+                })
+              }}
+            >
+              <></>
+            </ProgressRing>
+
+            {/* Time display BELOW ring */}
+            <span className="font-mono" style={{ fontSize: 48, fontWeight: 300, color: 'var(--text-primary)', lineHeight: 1 }}>
               {formatTime(displayMs)}
             </span>
-          </ProgressRing>
 
-          {/* Session type pills — small, subtle, below ring */}
-          <div className="session-type-picker" style={{ width: '100%', maxWidth: 280 }}>
-            {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-              <button
-                key={t}
-                onClick={() => setSessionType(t)}
-                className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
-              >
-                {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-              </button>
-            ))}
+            {/* Time range label */}
+            <span style={{
+              fontSize: 14,
+              color: 'var(--text-secondary)',
+              background: 'var(--bg-secondary)',
+              padding: '4px 14px',
+              borderRadius: 20,
+              lineHeight: 1.4,
+            }}>
+              {(() => {
+                const now = new Date()
+                const end = new Date(now.getTime() + (customDurationMs || remainingMs))
+                const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
+                return `${fmt(now)} → ${fmt(end)}`
+              })()}
+            </span>
           </div>
 
-          {/* Category picker pills */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: 340 }}>
-            {categories.map(cat => (
-              <button
-                key={cat.name}
-                onClick={() => {
-                  setCategory(cat.name)
-                  syncToServer({
-                    phase: 'idle', sessionType, intention, category: cat.name,
-                    targetMs: customDurationMs, remainingMs: customDurationMs,
-                    overflowMs: 0, startedAt: null, pausedAt: null,
-                  })
-                }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '5px 12px', borderRadius: 8, border: 'none',
-                  fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                  background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
-                  color: category === cat.name ? cat.color : 'var(--text-secondary)',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span style={{
-                  width: 7, height: 7, borderRadius: '50%',
-                  background: cat.color,
-                  display: 'inline-block',
-                }} />
-                {cat.label}
-              </button>
-            ))}
+          {/* ═══ BOTTOM SECTION: Start button ═══ */}
+          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', paddingBottom: 4 }}>
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={startTimer}
+              className="primary-pill"
+              style={{
+                width: '100%',
+                maxWidth: 320,
+                minHeight: 52,
+                fontSize: 15,
+                fontWeight: 600,
+                letterSpacing: '1px',
+                textTransform: 'uppercase' as const,
+              }}
+            >
+              START SESSION
+            </motion.button>
           </div>
-
-          {/* Start button */}
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={startTimer}
-            className="primary-pill"
-            style={{ minWidth: 180, minHeight: 48 }}
-          >
-            <Play style={{ width: 18, height: 18, fill: '#fff' }} />
-            Start {sessionType === 'focus' ? 'Focus' : 'Break'}
-          </motion.button>
         </div>
       ) : (
         /* ═══════ ACTIVE STATE ═══════ */
