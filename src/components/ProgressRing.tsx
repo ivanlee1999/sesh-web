@@ -27,6 +27,8 @@ export default function ProgressRing({
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
+  const cx = size / 2
+  const cy = size / 2
 
   const svgRef = useRef<SVGSVGElement | null>(null)
   const draggingRef = useRef(false)
@@ -102,25 +104,74 @@ export default function ProgressRing({
     }
   }, [interactive, updateFromPoint, onDragEnd])
 
-  // Compute thumb position
-  const thumbAngle = progress * 2 * Math.PI - Math.PI / 2
-  const thumbX = size / 2 + radius * Math.cos(thumbAngle)
-  const thumbY = size / 2 + radius * Math.sin(thumbAngle)
+  // Helper: angle in radians from 12 o'clock for a given fraction (0-1)
+  const fractionToAngle = (frac: number) => frac * 2 * Math.PI - Math.PI / 2
 
-  // Tick marks at 5-minute intervals (interactive only)
-  const ticks = interactive ? Array.from({ length: 12 }, (_, i) => {
-    const minuteFraction = ((i + 1) * 5) / 60
-    const tickAngle = minuteFraction * 2 * Math.PI - Math.PI / 2
-    const innerR = radius - strokeWidth * 1.2
-    const outerR = radius + strokeWidth * 1.2
+  // Clock hand / thumb position
+  const thumbAngle = fractionToAngle(progress)
+  const thumbX = cx + radius * Math.cos(thumbAngle)
+  const thumbY = cy + radius * Math.sin(thumbAngle)
+
+  // --- Tick marks: 60 small + 12 large (always visible) ---
+  const tickMarkRadius = radius // ticks sit at the ring radius
+  const smallTickLen = 4
+  const largeTickLen = 8
+  const ticks = Array.from({ length: 60 }, (_, i) => {
+    const frac = i / 60
+    const angle = fractionToAngle(frac)
+    const isMajor = i % 5 === 0
+    const len = isMajor ? largeTickLen : smallTickLen
+    const outerR = tickMarkRadius
+    const innerR = tickMarkRadius - len
     return {
-      x1: size / 2 + innerR * Math.cos(tickAngle),
-      y1: size / 2 + innerR * Math.sin(tickAngle),
-      x2: size / 2 + outerR * Math.cos(tickAngle),
-      y2: size / 2 + outerR * Math.sin(tickAngle),
-      major: (i + 1) % 3 === 0,
+      x1: cx + innerR * Math.cos(angle),
+      y1: cy + innerR * Math.sin(angle),
+      x2: cx + outerR * Math.cos(angle),
+      y2: cy + outerR * Math.sin(angle),
+      isMajor,
     }
-  }) : []
+  })
+
+  // --- Minute numbers (interactive only) ---
+  const numberRadius = radius + 16 // outside the ticks
+  const minuteNumbers = Array.from({ length: 12 }, (_, i) => {
+    const minute = (i + 1) * 5
+    const frac = minute / 60
+    const angle = fractionToAngle(frac)
+    return {
+      minute,
+      x: cx + numberRadius * Math.cos(angle),
+      y: cy + numberRadius * Math.sin(angle),
+    }
+  })
+
+  // --- Filled wedge/sector path ---
+  const clampedProgress = Math.min(Math.max(progress, 0), 1)
+  const wedgePath = (() => {
+    if (clampedProgress <= 0) return ''
+    // Start at 12 o'clock
+    const startAngle = -Math.PI / 2
+    const endAngle = startAngle + clampedProgress * 2 * Math.PI
+    const startX = cx + radius * Math.cos(startAngle)
+    const startY = cy + radius * Math.sin(startAngle)
+    const endX = cx + radius * Math.cos(endAngle)
+    const endY = cy + radius * Math.sin(endAngle)
+    const largeArc = clampedProgress > 0.5 ? 1 : 0
+
+    // Full circle needs special handling
+    if (clampedProgress >= 1) {
+      // Draw full circle as two half-arcs
+      const midX = cx + radius * Math.cos(startAngle + Math.PI)
+      const midY = cy + radius * Math.sin(startAngle + Math.PI)
+      return `M ${cx},${cy} L ${startX},${startY} A ${radius},${radius} 0 0,1 ${midX},${midY} A ${radius},${radius} 0 0,1 ${startX},${startY} Z`
+    }
+
+    return `M ${cx},${cy} L ${startX},${startY} A ${radius},${radius} 0 ${largeArc},1 ${endX},${endY} Z`
+  })()
+
+  // Clock hand line: from center to the ring edge
+  const handEndX = cx + (radius - 2) * Math.cos(thumbAngle)
+  const handEndY = cy + (radius - 2) * Math.sin(thumbAngle)
 
   return (
     <div
@@ -148,34 +199,35 @@ export default function ProgressRing({
           </filter>
         </defs>
 
-        {/* Background track */}
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="var(--ring-track)"
-          strokeWidth={strokeWidth}
-        />
-
-        {/* Tick marks (idle/interactive only) */}
+        {/* Tick marks — always visible, clock-style */}
         {ticks.map((tick, i) => (
           <line
-            key={i}
+            key={`tick-${i}`}
             x1={tick.x1}
             y1={tick.y1}
             x2={tick.x2}
             y2={tick.y2}
-            stroke="var(--ring-track)"
-            strokeWidth={tick.major ? 1.5 : 0.75}
+            stroke={tick.isMajor ? 'var(--text-secondary)' : 'var(--text-tertiary)'}
+            strokeWidth={tick.isMajor ? 1.5 : 0.5}
             strokeLinecap="round"
           />
         ))}
 
-        {/* Progress arc */}
+        {/* Filled wedge/sector — semi-transparent category color */}
+        {clampedProgress > 0 && (
+          <motion.path
+            d={wedgePath}
+            fill={`${color}26`}
+            initial={false}
+            animate={{ d: wedgePath }}
+            transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+          />
+        )}
+
+        {/* Progress arc stroke on the outer edge */}
         <motion.circle
-          cx={size / 2}
-          cy={size / 2}
+          cx={cx}
+          cy={cy}
           r={radius}
           fill="none"
           stroke={color}
@@ -183,23 +235,47 @@ export default function ProgressRing({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          transform={`rotate(-90 ${cx} ${cy})`}
           filter={!interactive && progress > 0 ? 'url(#ring-glow)' : undefined}
           animate={{ strokeDashoffset: offset }}
           transition={{ type: 'spring', stiffness: 120, damping: 20 }}
         />
 
-        {/* Thumb (interactive only) */}
+        {/* Minute numbers — interactive/idle only */}
+        {interactive && minuteNumbers.map(({ minute, x, y }) => (
+          <text
+            key={`num-${minute}`}
+            x={x}
+            y={y}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fill="var(--text-tertiary)"
+            fontSize={10}
+            style={{ userSelect: 'none', pointerEvents: 'none' }}
+          >
+            {minute}
+          </text>
+        ))}
+
+        {/* Clock hand + tip (interactive only, replaces thumb) */}
         {interactive && (
-          <circle
-            cx={thumbX}
-            cy={thumbY}
-            r={strokeWidth * 1.6}
-            fill={color}
-            stroke="white"
-            strokeWidth={2.5}
-            style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }}
-          />
+          <>
+            <line
+              x1={cx}
+              y1={cy}
+              x2={handEndX}
+              y2={handEndY}
+              stroke={color}
+              strokeWidth={2}
+              strokeLinecap="round"
+            />
+            <circle
+              cx={thumbX}
+              cy={thumbY}
+              r={3}
+              fill={color}
+            />
+          </>
         )}
       </svg>
 
