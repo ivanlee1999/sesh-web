@@ -6,6 +6,8 @@ import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
+import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 
 function interpolateColor(hex1: string, hex2: string, t: number): string {
@@ -47,6 +49,7 @@ interface ServerTimerState {
 export default function Timer() {
   const { settings } = useSettings()
   const { categories, byName } = useCategories()
+  const online = useOnlineStatus()
   const [phase, setPhase] = useState<TimerPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
   const [intention, setIntention] = useState('')
@@ -80,6 +83,27 @@ export default function Timer() {
   useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
   useEffect(() => { intentionRef.current = intention }, [intention])
   useEffect(() => { categoryRef.current = category }, [category])
+
+  // ── Persist timer state to localStorage for offline resilience ──
+  useEffect(() => {
+    if (phase === 'idle') {
+      // Save idle config so it restores on reload
+      saveTimerState({
+        phase, sessionType, intention, category,
+        targetMs: customDurationMs, remainingMs: customDurationMs,
+        overflowMs: 0, startedAt: null, pausedAt: null,
+        todoistTaskId, savedAt: Date.now(),
+      })
+    } else {
+      saveTimerState({
+        phase, sessionType, intention, category,
+        targetMs: activeTargetMs, remainingMs,
+        overflowMs, startedAt: startedAt || null,
+        pausedAt: phase === 'paused' ? Date.now() : null,
+        todoistTaskId, savedAt: Date.now(),
+      })
+    }
+  }, [phase, sessionType, intention, category, customDurationMs, activeTargetMs, remainingMs, overflowMs, startedAt, todoistTaskId])
 
   // Once categories are loaded, ensure the selected category actually exists.
   // If it doesn't (e.g. initial empty string, or a renamed/deleted slug), fall
@@ -179,6 +203,7 @@ export default function Timer() {
   }, [])
 
   const syncToServer = useCallback(async (body: Record<string, unknown>) => {
+    if (!navigator.onLine) { setSynced(false); return }
     lastPutRef.current = Date.now()
     try {
       const res = await fetch('/api/timer', {
@@ -223,12 +248,49 @@ export default function Timer() {
     }
   }, [tick])
 
-  // On mount: fetch server state
+  // On mount: fetch server state, fall back to localStorage when offline
   useEffect(() => {
+    const restoreFromLocal = () => {
+      const local = loadTimerState()
+      if (!local) return
+      suppressIdleResetRef.current = true
+      if (local.sessionType) setSessionType(local.sessionType as SessionType)
+      if (local.category) setCategory(local.category as Category)
+      if (local.intention) setIntention(local.intention)
+      setTodoistTaskId(local.todoistTaskId ?? null)
+
+      if ((local.phase === 'running' || local.phase === 'overflow') && local.startedAt) {
+        // Recompute remaining from wall-clock elapsed
+        const elapsed = Date.now() - local.startedAt
+        const newRemaining = local.targetMs - elapsed
+        setActiveTargetMs(local.targetMs)
+        setStartedAt(local.startedAt)
+        setRemainingMs(newRemaining)
+        setOverflowMs(newRemaining > 0 ? 0 : Math.abs(newRemaining))
+        setPhase(newRemaining > 0 ? 'running' : 'overflow')
+        intervalRef.current = setInterval(tick, 100)
+        postSwMessage('TIMER_STARTED')
+      } else if (local.phase === 'paused') {
+        setActiveTargetMs(local.targetMs)
+        if (local.startedAt) setStartedAt(local.startedAt)
+        setRemainingMs(local.remainingMs)
+        setOverflowMs(local.overflowMs)
+        setPhase('paused')
+      } else {
+        // idle
+        if (local.remainingMs) {
+          setCustomDurationMs(local.remainingMs)
+          setActiveTargetMs(local.remainingMs)
+          setRemainingMs(local.remainingMs)
+        }
+        postSwMessage('TIMER_STOPPED')
+      }
+    }
+
     const init = async () => {
       try {
         const res = await fetch('/api/timer')
-        if (!res.ok) { setSynced(false); return }
+        if (!res.ok) { setSynced(false); restoreFromLocal(); return }
         const data: ServerTimerState = await res.json()
         setSynced(true)
         serverUpdatedAtRef.current = data.updatedAt
@@ -249,7 +311,10 @@ export default function Timer() {
           }
           postSwMessage('TIMER_STOPPED')
         }
-      } catch { setSynced(false) }
+      } catch {
+        setSynced(false)
+        restoreFromLocal()
+      }
     }
     init()
     return () => {
@@ -404,6 +469,25 @@ export default function Timer() {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
     if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
 
+    const now = Date.now()
+    const actualMs = startedAt ? now - startedAt : 0
+    const curOverflowMs = Math.max(0, overflowMs)
+
+    // Build the session record for offline queueing
+    const offlineSession: QueuedSession = {
+      intention,
+      category,
+      sessionType,
+      targetMs: activeTargetMs,
+      actualMs,
+      overflowMs: curOverflowMs,
+      startedAt: startedAt || now,
+      endedAt: now,
+      notes: '',
+      todoistTaskId: todoistTaskIdRef.current,
+      queuedAt: now,
+    }
+
     try {
       const res = await fetch('/api/timer', {
         method: 'POST',
@@ -412,7 +496,6 @@ export default function Timer() {
       })
       if (!res.ok) throw new Error('Failed to save session')
       const data = await res.json()
-
       setSaveError(null)
 
       if (data.completed && settings.calendarSync && data.session) {
@@ -434,9 +517,9 @@ export default function Timer() {
 
       if (data.timer?.updatedAt) serverUpdatedAtRef.current = data.timer.updatedAt
     } catch {
-      setSaveError('Failed to save session. Please try finishing again.')
-      intervalRef.current = setInterval(tick, 100)
-      return
+      // Offline: queue the session for later sync
+      enqueueSession(offlineSession)
+      setSaveError(null) // Don't show error — queued for later
     }
 
     if (settings.soundEnabled) playChime()
@@ -469,7 +552,8 @@ export default function Timer() {
     setIntention('')
     setTodoistTaskId(null)
     setTodoistTaskContent('')
-  }, [startedAt, intention, category, sessionType, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
+    clearTimerState()
+  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
@@ -560,11 +644,11 @@ export default function Timer() {
       width: '100%',
       position: 'relative',
     }}>
-      {/* Sync indicator */}
+      {/* Sync indicator: green=online+synced, orange=offline, grey=unknown */}
       <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
         <div style={{
           width: 7, height: 7, borderRadius: '50%',
-          background: synced === null ? 'var(--text-tertiary)' : synced ? 'var(--success)' : 'var(--text-tertiary)',
+          background: !online ? '#FF9500' : synced === null ? 'var(--text-tertiary)' : synced ? 'var(--success)' : '#FF9500',
           transition: 'background 0.3s ease',
         }} />
       </div>

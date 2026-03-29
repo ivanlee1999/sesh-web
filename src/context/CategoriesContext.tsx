@@ -1,6 +1,7 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import type { CategoryRecord } from '@/types'
+import { cacheCategories, getCachedCategories } from '@/lib/local-store'
 
 interface CreateCategoryInput {
   label: string
@@ -35,7 +36,10 @@ const CategoriesContext = createContext<CategoriesContextType>({
 })
 
 export function CategoriesProvider({ children }: { children: ReactNode }) {
-  const [categories, setCategories] = useState<CategoryRecord[]>([])
+  const [categories, setCategories] = useState<CategoryRecord[]>(() => {
+    // Seed from cache immediately so UI is never empty
+    return getCachedCategories<CategoryRecord>() ?? []
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -51,9 +55,17 @@ export function CategoriesProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error('Failed to fetch categories')
       const data = await res.json()
       setCategories(data)
+      cacheCategories(data)
       setError(null)
     } catch {
-      setError('Failed to load categories')
+      // Offline or server error — fall back to cached data
+      const cached = getCachedCategories<CategoryRecord>()
+      if (cached && cached.length > 0) {
+        setCategories(cached)
+        setError(null)
+      } else {
+        setError('Failed to load categories')
+      }
     } finally {
       setLoading(false)
     }

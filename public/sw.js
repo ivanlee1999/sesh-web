@@ -1,5 +1,8 @@
-// ── Offline cache (existing) ──────────────────────────────────────────
-const CACHE_NAME = 'sesh-v1'
+// ── Offline cache ────────────────────────────────────────────────────────
+const CACHE_NAME = 'sesh-v2'
+const API_CACHE_NAME = 'sesh-api-v1'
+
+// Static assets to precache on install
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -15,7 +18,11 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter(k => k !== CACHE_NAME && k !== API_CACHE_NAME)
+          .map(k => caches.delete(k))
+      )
     )
   )
   self.clients.claim()
@@ -23,16 +30,56 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return
-  if (event.request.url.includes('/api/')) return
 
-  event.respondWith(
-    fetch(event.request)
-      .then(res => {
-        const clone = res.clone()
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
-        return res
+  const url = new URL(event.request.url)
+
+  // ── API GET requests: stale-while-revalidate ──
+  if (url.pathname.startsWith('/api/')) {
+    // Skip background timer checks — those shouldn't be cached
+    if (url.searchParams.has('background')) return
+
+    event.respondWith(
+      caches.open(API_CACHE_NAME).then(async cache => {
+        const cached = await cache.match(event.request)
+        const fetchPromise = fetch(event.request)
+          .then(res => {
+            if (res.ok) {
+              cache.put(event.request, res.clone())
+            }
+            return res
+          })
+          .catch(() => cached)
+
+        // Return cached response immediately if available, otherwise wait
+        return cached || fetchPromise
       })
-      .catch(() => caches.match(event.request))
+    )
+    return
+  }
+
+  // ── Static assets: cache-first, update in background ──
+  event.respondWith(
+    caches.open(CACHE_NAME).then(async cache => {
+      const cached = await cache.match(event.request)
+      if (cached) {
+        // Update cache in background
+        fetch(event.request)
+          .then(res => {
+            if (res.ok) cache.put(event.request, res.clone())
+          })
+          .catch(() => {})
+        return cached
+      }
+      // Not cached yet — fetch, cache, return
+      try {
+        const res = await fetch(event.request)
+        if (res.ok) cache.put(event.request, res.clone())
+        return res
+      } catch {
+        // Completely offline and not cached
+        return new Response('Offline', { status: 503, statusText: 'Offline' })
+      }
+    })
   )
 })
 
