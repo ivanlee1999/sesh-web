@@ -561,7 +561,7 @@ export default function Timer() {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: 10,
+            gap: 6,
             width: '100%',
             paddingTop: 0,
           }}
@@ -585,7 +585,7 @@ export default function Timer() {
                 maxLength={120}
                 style={{
                   width: '100%',
-                  padding: '10px 14px',
+                  padding: '8px 12px',
                   borderRadius: 12,
                   border: '1px solid var(--border)',
                   background: 'var(--bg-secondary)',
@@ -593,7 +593,7 @@ export default function Timer() {
                   fontSize: 15,
                   outline: 'none',
                   transition: 'border-color 0.2s ease',
-                  minHeight: 44,
+                  minHeight: 38,
                 }}
                 onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
                 onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
@@ -605,7 +605,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={180}
+            size={160}
             strokeWidth={5}
             interactive={true}
             onProgressChange={(p) => {
