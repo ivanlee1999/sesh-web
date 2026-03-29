@@ -237,7 +237,7 @@ export async function POST(request: Request) {
       insertSession.run(
         sessionId,
         body.intention ?? row.intention,
-        body.category ?? row.category,
+        row.category,
         row.session_type,
         row.target_ms,
         actualMs,
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
         session: {
           id: sessionId,
           intention: body.intention ?? row.intention,
-          category: body.category ?? row.category,
+          category: row.category,
           type: row.session_type,
           targetMs: row.target_ms,
           actualMs,
