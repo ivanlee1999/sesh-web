@@ -33,7 +33,18 @@ export async function PUT(
       return NextResponse.json({ error: 'A category with this name already exists' }, { status: 409 })
     }
 
-    db.prepare('UPDATE categories SET name = ?, label = ?, color = ? WHERE id = ?').run(name, label, color, id)
+    const oldName = existing.name
+
+    // Use a transaction so that renaming a category also migrates all
+    // references in sessions and the active timer state atomically.
+    db.transaction(() => {
+      db.prepare('UPDATE categories SET name = ?, label = ?, color = ? WHERE id = ?').run(name, label, color, id)
+
+      if (oldName !== name) {
+        db.prepare('UPDATE sessions SET category = ? WHERE category = ?').run(name, oldName)
+        db.prepare('UPDATE timer_state SET category = ? WHERE category = ?').run(name, oldName)
+      }
+    })()
 
     return NextResponse.json({
       id,
@@ -72,6 +83,16 @@ export async function DELETE(
     if (sessionCount > 0) {
       return NextResponse.json(
         { error: 'Category has existing sessions', sessionCount },
+        { status: 409 }
+      )
+    }
+
+    // Block deletion if the active timer references this category — completing
+    // the timer would create an orphaned session against a non-existent category.
+    const timerRef = db.prepare('SELECT id FROM timer_state WHERE category = ?').get(existing.name) as { id: number } | undefined
+    if (timerRef) {
+      return NextResponse.json(
+        { error: 'Category is currently selected in the timer. Change the timer category before deleting.' },
         { status: 409 }
       )
     }
