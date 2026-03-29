@@ -6,7 +6,23 @@ import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
-import { CATEGORY_COLORS } from '@/types'
+import { CATEGORY_COLORS, CATEGORY_LABELS } from '@/types'
+
+function interpolateColor(hex1: string, hex2: string, t: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
+  const parse = (hex: string) => {
+    const h = hex.replace('#', '')
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
+  }
+  const [r1, g1, b1] = parse(hex1)
+  const [r2, g2, b2] = parse(hex2)
+  const r = clamp(r1 + (r2 - r1) * t)
+  const g = clamp(g1 + (g2 - g1) * t)
+  const b = clamp(b1 + (b2 - b1) * t)
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
+const ALL_CATEGORIES: Category[] = ['development', 'writing', 'design', 'learning', 'exercise', 'other']
 
 function formatTime(ms: number): string {
   const totalSec = Math.floor(Math.abs(ms) / 1000)
@@ -15,12 +31,6 @@ function formatTime(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-const PHASE_COLORS: Record<string, string> = {
-  focus: 'var(--accent)',
-  'short-break': '#FF9500',
-  'long-break': '#FF9500',
-  overflow: '#FF9500',
-}
 
 interface ServerTimerState {
   phase: string
@@ -500,7 +510,23 @@ export default function Timer() {
     ? customDurationMs / (60 * 60 * 1000)
     : isOverflow ? 1 : Math.max(0, remainingMs / activeTargetMs)
 
-  const ringColor = isOverflow ? PHASE_COLORS.overflow : (CATEGORY_COLORS[category] || PHASE_COLORS[sessionType])
+  const getRingColor = () => {
+    // Break sessions always green
+    if (sessionType !== 'focus') {
+      if (isOverflow) return '#FF9500'
+      return '#34C759'
+    }
+    // Focus: category color, shifting to warning as time runs low
+    if (isOverflow) return '#FF9500'
+    const categoryColor = CATEGORY_COLORS[category] || '#3b82f6'
+    if (phase === 'idle') return categoryColor
+    const timeRatio = remainingMs / activeTargetMs  // 1.0 = full, 0.0 = done
+    if (timeRatio > 0.2) return categoryColor
+    // Blend from category color to warning orange in last 20%
+    const urgencyRatio = timeRatio / 0.2  // 1.0 at 20%, 0.0 at 0%
+    return interpolateColor(categoryColor, '#FF9500', 1 - urgencyRatio)
+  }
+  const ringColor = getRingColor()
 
   const viewState = phase === 'idle' ? 'idle' : 'active'
 
@@ -579,7 +605,7 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={180}
+            size={220}
             strokeWidth={5}
             interactive={true}
             onProgressChange={(p) => {
@@ -617,6 +643,33 @@ export default function Timer() {
             ))}
           </div>
 
+          {/* Category picker pills */}
+          <div className="session-type-picker" style={{ width: '100%', maxWidth: 360, overflowX: 'auto', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch' }}>
+            {ALL_CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => {
+                  setCategory(cat)
+                  syncToServer({
+                    phase: 'idle', sessionType, intention, category: cat,
+                    targetMs: customDurationMs, remainingMs: customDurationMs,
+                    overflowMs: 0, startedAt: null, pausedAt: null,
+                  })
+                }}
+                className={`session-type-pill ${category === cat ? 'session-type-pill--active' : ''}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}
+              >
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: CATEGORY_COLORS[cat],
+                  display: 'inline-block',
+                  flexShrink: 0,
+                }} />
+                {CATEGORY_LABELS[cat]}
+              </button>
+            ))}
+          </div>
+
           {/* Start button */}
           <motion.button
             whileTap={{ scale: 0.96 }}
@@ -639,26 +692,57 @@ export default function Timer() {
             width: '100%',
           }}
         >
-          {/* Intention + phase header */}
+          {/* Intention + phase header + category badge */}
           <div style={{ textAlign: 'center', maxWidth: 320 }}>
             {displayIntention && (
               <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.3 }}>
                 {displayIntention}
               </p>
             )}
-            <p style={{
-              fontSize: 11, fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase',
-              color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
-            }}>
-              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <p style={{
+                fontSize: 11, fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase',
+                color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
+                margin: 0,
+              }}>
+                {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+              </p>
+              <button
+                onClick={() => {
+                  const idx = ALL_CATEGORIES.indexOf(category)
+                  const next = ALL_CATEGORIES[(idx + 1) % ALL_CATEGORIES.length]
+                  setCategory(next)
+                  syncToServer(buildTimerPayload({
+                    category: next,
+                    pausedAt: phase === 'paused' ? Date.now() : null,
+                  }))
+                }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px', borderRadius: 10,
+                  border: 'none', cursor: 'pointer',
+                  background: `${CATEGORY_COLORS[category]}22`,
+                  color: CATEGORY_COLORS[category],
+                  fontSize: 10, fontWeight: 600, letterSpacing: '0.5px',
+                  textTransform: 'uppercase', lineHeight: 1,
+                  minHeight: 20,
+                }}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: CATEGORY_COLORS[category],
+                  display: 'inline-block',
+                }} />
+                {CATEGORY_LABELS[category]}
+              </button>
+            </div>
           </div>
 
           {/* Ring — THE HERO */}
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={200}
+            size={260}
             strokeWidth={5}
             interactive={false}
           >
