@@ -673,7 +673,8 @@ export default function Timer() {
       height: 'calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))',
       overflow: 'hidden' as const,
       boxSizing: 'border-box' as const,
-      width: '100%',
+      marginTop: 8,
+                width: '100%',
       position: 'relative',
     }}>
       {/* Sync indicator: green=online+synced, orange=offline, grey=unknown */}
@@ -692,7 +693,8 @@ export default function Timer() {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'space-between',
-            width: '100%',
+            marginTop: 8,
+                width: '100%',
             height: '100%',
             paddingTop: 0,
           }}
@@ -717,7 +719,8 @@ export default function Timer() {
                   placeholder="What are you working on?"
                   maxLength={120}
                   style={{
-                    width: '100%',
+                    marginTop: 8,
+                width: '100%',
                     padding: '8px 12px',
                     borderRadius: 12,
                     border: '1px solid var(--border)',
@@ -743,7 +746,8 @@ export default function Timer() {
                   gap: 6,
                   justifyContent: 'flex-start',
                   alignItems: 'center',
-                  width: '100%',
+                  marginTop: 8,
+                width: '100%',
                   overflowX: 'auto',
                   flexWrap: 'nowrap',
                 }}
@@ -808,7 +812,7 @@ export default function Timer() {
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={280}
+              size={240}
               strokeWidth={5}
               interactive={true}
               onProgressChange={(p) => {
@@ -861,6 +865,7 @@ export default function Timer() {
               onClick={startTimer}
               className="primary-pill"
               style={{
+                marginTop: 8,
                 width: '100%',
                 maxWidth: 320,
                 minHeight: 52,
@@ -882,7 +887,8 @@ export default function Timer() {
             flexDirection: 'column',
             alignItems: 'center',
             gap: 12,
-            width: '100%',
+            marginTop: 8,
+                width: '100%',
           }}
         >
           {/* Intention + phase header + category badge */}
@@ -900,6 +906,7 @@ export default function Timer() {
               placeholder="Tap to add intention..."
               maxLength={120}
               style={{
+                marginTop: 8,
                 width: '100%',
                 fontSize: 20,
                 fontWeight: 600,
