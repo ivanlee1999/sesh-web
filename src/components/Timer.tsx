@@ -741,42 +741,51 @@ export default function Timer() {
                 style={{
                   display: 'flex',
                   gap: 6,
-                  justifyContent: 'center',
+                  justifyContent: 'flex-start',
                   alignItems: 'center',
                   width: '100%',
                   overflowX: 'auto',
                   flexWrap: 'nowrap',
                 }}
               >
-                {categories.map(cat => (
-                  <button
-                    key={cat.name}
-                    onClick={() => {
-                      setCategory(cat.name)
-                      syncToServer({
-                        phase: 'idle', sessionType, intention, category: cat.name,
-                        targetMs: customDurationMs, remainingMs: customDurationMs,
-                        overflowMs: 0, startedAt: null, pausedAt: null,
-                      })
-                    }}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      padding: '5px 12px', borderRadius: 8, border: 'none',
-                      fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                      background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
-                      color: category === cat.name ? cat.color : 'var(--text-secondary)',
-                      transition: 'all 0.15s ease',
-                      flex: '0 0 auto',
-                    }}
-                  >
-                    <span style={{
-                      width: 7, height: 7, borderRadius: '50%',
-                      background: cat.color,
-                      display: 'inline-block',
-                    }} />
-                    {cat.label}
-                  </button>
-                ))}
+                <div style={{
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                  flexWrap: 'nowrap',
+                  margin: '0 auto',
+                  flex: '0 0 auto',
+                }}>
+                  {categories.map(cat => (
+                    <button
+                      key={cat.name}
+                      onClick={() => {
+                        setCategory(cat.name)
+                        syncToServer({
+                          phase: 'idle', sessionType, intention, category: cat.name,
+                          targetMs: customDurationMs, remainingMs: customDurationMs,
+                          overflowMs: 0, startedAt: null, pausedAt: null,
+                        })
+                      }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '5px 12px', borderRadius: 8, border: 'none',
+                        fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                        background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
+                        color: category === cat.name ? cat.color : 'var(--text-secondary)',
+                        transition: 'all 0.15s ease',
+                        flex: '0 0 auto',
+                      }}
+                    >
+                      <span style={{
+                        width: 7, height: 7, borderRadius: '50%',
+                        background: cat.color,
+                        display: 'inline-block',
+                      }} />
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
