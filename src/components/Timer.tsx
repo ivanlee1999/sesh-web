@@ -698,7 +698,7 @@ export default function Timer() {
           }}
         >
           {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, width: '100%' }}>
             {/* Todoist tasks — compact at top */}
             <div style={{ width: '100%', maxWidth: 361 }}>
               <TodoistTasks
@@ -735,7 +735,7 @@ export default function Timer() {
             ) : null}
 
             {/* Category pills + Session type pills — two-row layout */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 360 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 360 }}>
               <div
                 className="hide-scrollbar"
                 style={{
@@ -803,7 +803,7 @@ export default function Timer() {
           </div>
 
           {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             {/* THE HERO — Timer Ring (large, empty center) */}
             <ProgressRing
               progress={progress}
