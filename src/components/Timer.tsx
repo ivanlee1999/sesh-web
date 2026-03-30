@@ -813,7 +813,7 @@ export default function Timer() {
               progress={progress}
               color={ringColor}
               size={240}
-              strokeWidth={5}
+              strokeWidth={8}
               interactive={true}
               onProgressChange={(p) => {
                 const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
@@ -969,7 +969,7 @@ export default function Timer() {
             progress={progress}
             color={ringColor}
             size={280}
-            strokeWidth={5}
+            strokeWidth={8}
             interactive={false}
           >
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
