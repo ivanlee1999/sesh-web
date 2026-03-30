@@ -658,7 +658,6 @@ export default function Timer() {
   const viewState = phase === 'idle' ? 'idle' : 'active'
 
   // Determine the display intention for the active state
-  const displayIntention = intention || todoistTaskContent
 
   // Whether to show the text input in idle (only when no Todoist task selected)
   const showIdleIntentionInput = !todoistTaskId
@@ -862,12 +861,37 @@ export default function Timer() {
           }}
         >
           {/* Intention + phase header + category badge */}
-          <div style={{ textAlign: 'center', maxWidth: 320 }}>
-            {displayIntention && (
-              <p style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.3 }}>
-                {displayIntention}
-              </p>
-            )}
+          <div style={{ textAlign: 'center', maxWidth: 320, width: '100%' }}>
+            <input
+              type="text"
+              value={intention || todoistTaskContent}
+              onChange={e => {
+                handleIntentionChange(e.target.value)
+                syncToServer(buildTimerPayload({
+                  intention: e.target.value,
+                  pausedAt: phase === 'paused' ? Date.now() : null,
+                }))
+              }}
+              placeholder="Tap to add intention..."
+              maxLength={120}
+              style={{
+                width: '100%',
+                fontSize: 20,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 4,
+                lineHeight: 1.3,
+                textAlign: 'center',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid transparent',
+                outline: 'none',
+                padding: '4px 0',
+                transition: 'border-color 0.2s ease',
+              }}
+              onFocus={e => { e.target.style.borderBottomColor = 'var(--accent)' }}
+              onBlur={e => { e.target.style.borderBottomColor = 'transparent' }}
+            />
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <p style={{
                 fontSize: 11, fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase',
