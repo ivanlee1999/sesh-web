@@ -45,6 +45,12 @@ function toEpochMs(value: unknown): number | null {
   return null
 }
 
+/** Coerce any value to a finite number, preserving numeric strings like "1500000" */
+function toFiniteNumber(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
 export function loadTimerState(): LocalTimerState | null {
   try {
     const raw = localStorage.getItem(TIMER_KEY)
@@ -53,9 +59,9 @@ export function loadTimerState(): LocalTimerState | null {
     // Normalize timestamps that might be ISO strings from old state
     state.startedAt = toEpochMs(state.startedAt)
     state.pausedAt = toEpochMs(state.pausedAt)
-    state.targetMs = Number.isFinite(state.targetMs) ? state.targetMs : 0
-    state.remainingMs = Number.isFinite(state.remainingMs) ? state.remainingMs : 0
-    state.overflowMs = Number.isFinite(state.overflowMs) ? state.overflowMs : 0
+    state.targetMs = toFiniteNumber(state.targetMs)
+    state.remainingMs = toFiniteNumber(state.remainingMs)
+    state.overflowMs = toFiniteNumber(state.overflowMs)
     return state
   } catch {
     return null

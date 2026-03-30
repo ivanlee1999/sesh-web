@@ -11,22 +11,55 @@ interface SessionRow {
 
 const USER_TZ = 'America/Los_Angeles'
 
-// Get the start of day (midnight) in user timezone as a UTC timestamp
+/**
+ * Get the start of day (midnight) in user timezone as a UTC timestamp.
+ * Uses Intl to find the true offset for that specific date, avoiding
+ * DST-related errors when probing at noon.
+ */
 function startOfDayInTZ(date: Date): number {
   // Get the date string in user's timezone (YYYY-MM-DD)
   const dateStr = date.toLocaleDateString('en-CA', { timeZone: USER_TZ })
-  // Parse year/month/day
+  return midnightTsForDateStr(dateStr)
+}
+
+/**
+ * Convert a YYYY-MM-DD string to the UTC timestamp of midnight in USER_TZ.
+ * Uses a noon probe for an initial offset estimate, then corrects for DST
+ * transitions where the offset at midnight differs from the offset at noon.
+ */
+function midnightTsForDateStr(dateStr: string): number {
   const [y, m, d] = dateStr.split('-').map(Number)
-  // Get the UTC offset for that date in the user's timezone
-  // by comparing UTC midnight vs local midnight
-  const probe = new Date(Date.UTC(y, m - 1, d, 12, 0, 0)) // noon UTC to avoid DST edge
+  // Get approximate offset using noon probe
+  const probe = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
   const utcStr = probe.toLocaleString('en-US', { timeZone: 'UTC' })
   const tzStr = probe.toLocaleString('en-US', { timeZone: USER_TZ })
-  const utcTime = new Date(utcStr).getTime()
-  const tzTime = new Date(tzStr).getTime()
-  const offsetMs = utcTime - tzTime
-  // Midnight local = midnight UTC + offset
-  return Date.UTC(y, m - 1, d) + offsetMs
+  const offsetMs = new Date(utcStr).getTime() - new Date(tzStr).getTime()
+  const estimate = Date.UTC(y, m - 1, d) + offsetMs
+
+  // Verify: the noon offset might differ from the midnight offset on DST days.
+  // Check that `estimate` is actually midnight of the target date.
+  const checkDate = new Date(estimate).toLocaleDateString('en-CA', { timeZone: USER_TZ })
+  if (checkDate === dateStr) {
+    // Confirm we're at the start of the day, not 1 hour into it
+    const beforeDate = new Date(estimate - 1).toLocaleDateString('en-CA', { timeZone: USER_TZ })
+    if (beforeDate !== dateStr) return estimate
+    // Off by +1 hour (e.g., fall-back day: noon offset is larger than midnight offset)
+    return estimate - 3600000
+  }
+  // Off by -1 hour (e.g., spring-forward day: noon offset is smaller than midnight offset)
+  if (checkDate < dateStr) return estimate + 3600000
+  return estimate - 3600000
+}
+
+/**
+ * Get the UTC timestamp of the *next* day's midnight in USER_TZ.
+ * This avoids the `+ 86400000` assumption which breaks on DST boundaries.
+ */
+function nextDayMidnightTs(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const next = new Date(Date.UTC(y, m - 1, d + 1, 12, 0, 0))
+  const nextDateStr = next.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+  return midnightTsForDateStr(nextDateStr)
 }
 
 export async function GET() {
@@ -48,8 +81,9 @@ export async function GET() {
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date()
       d.setDate(d.getDate() - (6 - i))
-      const start = startOfDayInTZ(d)
-      const end = start + 86400000
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+      const start = midnightTsForDateStr(dateStr)
+      const end = nextDayMidnightTs(dateStr)
       const ms = focusSessions
         .filter(s => s.started_at >= start && s.started_at < end)
         .reduce((a, s) => a + s.actual_ms, 0)
@@ -59,8 +93,10 @@ export async function GET() {
     let streak = 0
     const d = new Date()
     while (true) {
-      const start = startOfDayInTZ(d)
-      const has = focusSessions.some(s => s.started_at >= start && s.started_at < start + 86400000)
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+      const start = midnightTsForDateStr(dateStr)
+      const end = nextDayMidnightTs(dateStr)
+      const has = focusSessions.some(s => s.started_at >= start && s.started_at < end)
       if (!has) break
       streak++
       d.setDate(d.getDate() - 1)

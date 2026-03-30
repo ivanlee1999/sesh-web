@@ -85,14 +85,10 @@ describe('loadTimerState — NaN coercion prevention', () => {
       savedAt: Date.now(),
     }))
     const loaded = loadTimerState()
-    // String "1500000" should not survive — but Number.isFinite("1500000") is false for strings
-    // So they'll be coerced to 0 by the NaN guard
-    expect(typeof loaded!.targetMs).toBe('number')
-    expect(typeof loaded!.remainingMs).toBe('number')
-    expect(typeof loaded!.overflowMs).toBe('number')
-    expect(Number.isFinite(loaded!.targetMs)).toBe(true)
-    expect(Number.isFinite(loaded!.remainingMs)).toBe(true)
-    expect(Number.isFinite(loaded!.overflowMs)).toBe(true)
+    // String "1500000" should be coerced to 1500000, not lost as 0
+    expect(loaded!.targetMs).toBe(1500000)
+    expect(loaded!.remainingMs).toBe(900000)
+    expect(loaded!.overflowMs).toBe(0)
   })
 
   it('coerces NaN/Infinity to 0', () => {

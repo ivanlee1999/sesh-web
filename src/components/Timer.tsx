@@ -247,7 +247,11 @@ export default function Timer() {
   const applyServerState = useCallback((rawData: ServerTimerState) => {
     const data = normalizeTimerState(rawData)
     if (data.phase === 'running' && data.startedAt) {
-      const newRemaining = data.targetMs - (Date.now() - data.startedAt)
+      // Use remainingMs at updatedAt as the authoritative countdown state.
+      // This is consistent with Raycast's timer-state.ts and handles
+      // pause/resume correctly (startedAt doesn't account for paused time).
+      const elapsedSinceUpdate = Date.now() - data.updatedAt
+      const newRemaining = data.remainingMs - elapsedSinceUpdate
       if (intervalRef.current) clearInterval(intervalRef.current)
       setPhase(newRemaining > 0 ? 'running' : 'overflow')
       setSessionType(data.sessionType as SessionType)
@@ -287,9 +291,9 @@ export default function Timer() {
       setTodoistTaskId(local.todoistTaskId ?? null)
 
       if ((local.phase === 'running' || local.phase === 'overflow') && local.startedAt) {
-        // Recompute remaining from wall-clock elapsed
-        const elapsed = Date.now() - local.startedAt
-        const newRemaining = local.targetMs - elapsed
+        // Recompute remaining from savedAt + remainingMs (handles pause/resume correctly)
+        const elapsedSinceSave = Date.now() - local.savedAt
+        const newRemaining = local.remainingMs - elapsedSinceSave
         setActiveTargetMs(local.targetMs)
         setStartedAt(local.startedAt)
         setRemainingMs(newRemaining)

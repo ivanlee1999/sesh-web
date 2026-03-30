@@ -1,6 +1,6 @@
 // ── Offline cache ────────────────────────────────────────────────────────
-const CACHE_NAME = 'sesh-v2'
-const API_CACHE_NAME = 'sesh-api-v2'
+const CACHE_NAME = 'sesh-v3'
+const API_CACHE_NAME = 'sesh-api-v3'
 
 // Static assets to precache on install
 const STATIC_ASSETS = [
@@ -42,6 +42,9 @@ self.addEventListener('fetch', event => {
     if (url.pathname === '/api/timer') return
     if (url.pathname.startsWith('/api/sessions')) return
     if (url.pathname.startsWith('/api/analytics')) return
+    // Categories are mutable (CRUD) — stale-while-revalidate causes immediate
+    // post-mutation reads to return old data, appearing broken
+    if (url.pathname.startsWith('/api/categories')) return
 
     event.respondWith(
       caches.open(API_CACHE_NAME).then(async cache => {

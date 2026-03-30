@@ -24,7 +24,7 @@ describe('ProgressRing', () => {
     expect(container.querySelector('svg')).toBeTruthy()
   })
 
-  it('renders 72 tick marks (60 minor + 12 major, all as <line> elements)', () => {
+  it('renders 60 tick marks (48 minor + 12 major, all as <line> elements)', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const lines = container.querySelectorAll('svg line')
     expect(lines.length).toBe(60)

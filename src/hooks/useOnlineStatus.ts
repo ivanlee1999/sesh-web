@@ -20,23 +20,28 @@ export function useOnlineStatus() {
       if (queue.length === 0) break
 
       const session = queue[0]
-      // Normalize: ensure `type` is set (legacy entries may only have `sessionType`)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const legacy = session as any
-      const payload = {
-        ...session,
-        type: session.type || legacy.sessionType || 'focus',
-      }
       try {
-        const res = await fetch('/api/sessions', {
+        // Replay as a timer completion (POST /api/timer) so the server
+        // atomically resets timer_state and inserts the session with
+        // compare-and-swap on startedAt. This prevents duplicates if
+        // another client already completed the same timer.
+        const res = await fetch('/api/timer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            startedAt: session.startedAt,
+            intention: session.intention,
+            category: session.category,
+            notes: session.notes ?? '',
+          }),
         })
         if (res.ok) {
           removeQueuedSession(0)
+        } else if (res.status >= 400 && res.status < 500) {
+          // Client error (e.g. timer already completed) — discard and move on
+          removeQueuedSession(0)
         } else {
-          // Server rejected — stop trying
+          // Server error — stop trying, will retry on next reconnect
           break
         }
       } catch {

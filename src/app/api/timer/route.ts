@@ -71,12 +71,15 @@ function checkOverflowNotifications(db: ReturnType<typeof getDb>) {
     return { notify: false, row }
   }
 
-  const elapsed = Date.now() - row.started_at
-  if (elapsed < row.target_ms) {
+  // Use remainingMs at updatedAt to compute effective remaining time.
+  // This correctly handles pause/resume (startedAt doesn't account for paused time).
+  const elapsedSinceUpdate = Date.now() - row.updated_at
+  const effectiveRemaining = row.remaining_ms - elapsedSinceUpdate
+  if (effectiveRemaining > 0) {
     return { notify: false, row }
   }
 
-  const overflowMs = elapsed - row.target_ms
+  const overflowMs = Math.abs(effectiveRemaining)
   const overflowMinutes = overflowMs / 60000
   const count = row.notification_count
 

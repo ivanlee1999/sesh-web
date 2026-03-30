@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 /**
  * Tests for analytics logic — timezone-aware day boundaries, streak calculation,
@@ -7,17 +7,40 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const USER_TZ = 'America/Los_Angeles'
 
-// Replicate the exact startOfDayInTZ function from the route
-function startOfDayInTZ(date: Date): number {
-  const dateStr = date.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+// Replicate the exact helpers from analytics/route.ts
+function midnightTsForDateStr(dateStr: string): number {
   const [y, m, d] = dateStr.split('-').map(Number)
   const probe = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
   const utcStr = probe.toLocaleString('en-US', { timeZone: 'UTC' })
   const tzStr = probe.toLocaleString('en-US', { timeZone: USER_TZ })
-  const utcTime = new Date(utcStr).getTime()
-  const tzTime = new Date(tzStr).getTime()
-  const offsetMs = utcTime - tzTime
-  return Date.UTC(y, m - 1, d) + offsetMs
+  const offsetMs = new Date(utcStr).getTime() - new Date(tzStr).getTime()
+  const estimate = Date.UTC(y, m - 1, d) + offsetMs
+
+  const checkDate = new Date(estimate).toLocaleDateString('en-CA', { timeZone: USER_TZ })
+  if (checkDate === dateStr) {
+    const beforeDate = new Date(estimate - 1).toLocaleDateString('en-CA', { timeZone: USER_TZ })
+    if (beforeDate !== dateStr) return estimate
+    return estimate - 3600000
+  }
+  if (checkDate < dateStr) return estimate + 3600000
+  return estimate - 3600000
+}
+
+function startOfDayInTZ(date: Date): number {
+  const dateStr = date.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+  return midnightTsForDateStr(dateStr)
+}
+
+function nextDayMidnightTs(dateStr: string): number {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const next = new Date(Date.UTC(y, m - 1, d + 1, 12, 0, 0))
+  const nextDateStr = next.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+  return midnightTsForDateStr(nextDateStr)
+}
+
+/** Day length in ms for a given date string — accounts for DST transitions */
+function dayLengthMs(dateStr: string): number {
+  return nextDayMidnightTs(dateStr) - midnightTsForDateStr(dateStr)
 }
 
 // ── startOfDayInTZ ──────────────────────────────────────────────────────
@@ -67,7 +90,7 @@ describe('startOfDayInTZ', () => {
 // ── Streak calculation ──────────────────────────────────────────────────
 
 describe('streak calculation', () => {
-  // Replicate streak logic
+  // Replicate streak logic — uses proper day boundaries, not +86400000
   function calculateStreak(
     focusSessions: Array<{ started_at: number }>,
     referenceDate: Date
@@ -75,9 +98,11 @@ describe('streak calculation', () => {
     let streak = 0
     const d = new Date(referenceDate)
     while (true) {
-      const start = startOfDayInTZ(d)
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+      const start = midnightTsForDateStr(dateStr)
+      const end = nextDayMidnightTs(dateStr)
       const has = focusSessions.some(
-        s => s.started_at >= start && s.started_at < start + 86400000
+        s => s.started_at >= start && s.started_at < end
       )
       if (!has) break
       streak++
@@ -132,8 +157,9 @@ describe('7-day aggregation', () => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(referenceDate)
       d.setDate(d.getDate() - (6 - i))
-      const start = startOfDayInTZ(d)
-      const end = start + 86400000
+      const dateStr = d.toLocaleDateString('en-CA', { timeZone: USER_TZ })
+      const start = midnightTsForDateStr(dateStr)
+      const end = nextDayMidnightTs(dateStr)
       const ms = focusSessions
         .filter(s => s.started_at >= start && s.started_at < end)
         .reduce((a, s) => a + s.actual_ms, 0)
@@ -175,5 +201,44 @@ describe('7-day aggregation', () => {
     ]
     const days = aggregate7Days(sessions, new Date('2024-01-15T23:00:00Z'))
     expect(days.every(d => d.ms === 0)).toBe(true)
+  })
+})
+
+// ── DST boundary tests ──────────────────────────────────────────────────
+
+describe('DST transitions (America/Los_Angeles)', () => {
+  it('spring forward: March 10, 2024 is 23 hours long', () => {
+    // DST springs forward at 2am on March 10, 2024 in America/Los_Angeles
+    const length = dayLengthMs('2024-03-10')
+    expect(length).toBe(23 * 3600000) // 23 hours, not 24
+  })
+
+  it('fall back: November 3, 2024 is 25 hours long', () => {
+    // DST falls back at 2am on November 3, 2024 in America/Los_Angeles
+    const length = dayLengthMs('2024-11-03')
+    expect(length).toBe(25 * 3600000) // 25 hours, not 24
+  })
+
+  it('normal day is 24 hours long', () => {
+    const length = dayLengthMs('2024-01-15')
+    expect(length).toBe(24 * 3600000)
+  })
+
+  it('session at 1am on spring-forward day is correctly bucketed', () => {
+    // March 10, 2024, 1:30am PST = 9:30am UTC (before clocks spring forward)
+    const sessionTs = Date.UTC(2024, 2, 10, 9, 30, 0)
+    const start = midnightTsForDateStr('2024-03-10')
+    const end = nextDayMidnightTs('2024-03-10')
+    expect(sessionTs).toBeGreaterThanOrEqual(start)
+    expect(sessionTs).toBeLessThan(end)
+  })
+
+  it('midnight boundaries are correct across spring-forward', () => {
+    const mar10Start = midnightTsForDateStr('2024-03-10')
+    const mar11Start = nextDayMidnightTs('2024-03-10')
+    // Mar 10 midnight PST = 08:00 UTC (PST = UTC-8)
+    expect(mar10Start).toBe(Date.UTC(2024, 2, 10, 8, 0, 0))
+    // Mar 11 midnight PDT = 07:00 UTC (PDT = UTC-7, clocks sprang forward)
+    expect(mar11Start).toBe(Date.UTC(2024, 2, 11, 7, 0, 0))
   })
 })
