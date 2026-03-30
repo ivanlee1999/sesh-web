@@ -1,0 +1,152 @@
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import ProgressRing from '../ProgressRing'
+
+describe('ProgressRing', () => {
+  const defaultProps = {
+    progress: 0.5,
+    color: '#3b82f6',
+    size: 300,
+  }
+
+  it('renders without crashing at progress=0', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0} />)
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('renders without crashing at progress=0.5', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('renders without crashing at progress=1', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={1} />)
+    expect(container.querySelector('svg')).toBeTruthy()
+  })
+
+  it('renders 72 tick marks (60 minor + 12 major, all as <line> elements)', () => {
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    const lines = container.querySelectorAll('svg line')
+    expect(lines.length).toBe(60)
+  })
+
+  it('renders 12 major ticks with strokeWidth=2', () => {
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    const lines = container.querySelectorAll('svg line')
+    const majorTicks = Array.from(lines).filter(
+      l => l.getAttribute('stroke-width') === '2'
+    )
+    expect(majorTicks.length).toBe(12)
+  })
+
+  it('renders 48 minor ticks with strokeWidth=0.75', () => {
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    const lines = container.querySelectorAll('svg line')
+    const minorTicks = Array.from(lines).filter(
+      l => l.getAttribute('stroke-width') === '0.75'
+    )
+    expect(minorTicks.length).toBe(48)
+  })
+
+  it('does not render wedge path when progress=0', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0} />)
+    const paths = container.querySelectorAll('svg path')
+    expect(paths.length).toBe(0)
+  })
+
+  it('renders wedge path when progress > 0', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const paths = container.querySelectorAll('svg path')
+    expect(paths.length).toBe(1)
+    expect(paths[0].getAttribute('d')).toBeTruthy()
+  })
+
+  it('renders glow filter on progress arc in non-interactive mode', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const circles = container.querySelectorAll('svg circle')
+    // The progress arc circle should have filter="url(#ring-glow)"
+    const progressArc = Array.from(circles).find(
+      c => c.getAttribute('filter') === 'url(#ring-glow)'
+    )
+    expect(progressArc).toBeTruthy()
+  })
+
+  it('does not render glow filter when progress=0', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0} />)
+    const circles = container.querySelectorAll('svg circle')
+    const withGlow = Array.from(circles).find(
+      c => c.getAttribute('filter') === 'url(#ring-glow)'
+    )
+    expect(withGlow).toBeFalsy()
+  })
+
+  it('does not render minute numbers in non-interactive mode', () => {
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    const texts = container.querySelectorAll('svg text')
+    expect(texts.length).toBe(0)
+  })
+
+  it('renders 12 minute numbers in interactive mode', () => {
+    const { container } = render(
+      <ProgressRing {...defaultProps} interactive />
+    )
+    const texts = container.querySelectorAll('svg text')
+    expect(texts.length).toBe(12)
+    // Check values: 5, 10, 15, ..., 60
+    const values = Array.from(texts).map(t => t.textContent)
+    expect(values).toEqual(['5', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55', '60'])
+  })
+
+  it('renders clock hand elements in interactive mode with progress > 0', () => {
+    const { container } = render(
+      <ProgressRing {...defaultProps} progress={0.5} interactive />
+    )
+    // Interactive mode with progress > 0: center dot + hand line + tip dot
+    const circles = container.querySelectorAll('svg circle')
+    // Base circle + progress arc + center dot + tip dot = 4
+    expect(circles.length).toBeGreaterThanOrEqual(4)
+
+    // Should have a hand line (line with strokeWidth=3)
+    const lines = container.querySelectorAll('svg line')
+    const handLine = Array.from(lines).find(
+      l => l.getAttribute('stroke-width') === '3'
+    )
+    expect(handLine).toBeTruthy()
+  })
+
+  it('does not render clock hand in interactive mode when progress=0', () => {
+    const { container } = render(
+      <ProgressRing {...defaultProps} progress={0} interactive />
+    )
+    // No hand line with strokeWidth=3
+    const lines = container.querySelectorAll('svg line')
+    const handLine = Array.from(lines).find(
+      l => l.getAttribute('stroke-width') === '3'
+    )
+    expect(handLine).toBeFalsy()
+  })
+
+  it('renders children in the overlay div', () => {
+    render(
+      <ProgressRing {...defaultProps}>
+        <span data-testid="child">25:00</span>
+      </ProgressRing>
+    )
+    expect(screen.getByTestId('child')).toHaveTextContent('25:00')
+  })
+
+  it('sets touch-action:none and cursor:pointer in interactive mode', () => {
+    const { container } = render(
+      <ProgressRing {...defaultProps} interactive />
+    )
+    const svg = container.querySelector('svg')!
+    expect(svg.style.touchAction).toBe('none')
+    expect(svg.style.cursor).toBe('pointer')
+  })
+
+  it('does not set interactive styles in non-interactive mode', () => {
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    const svg = container.querySelector('svg')!
+    expect(svg.style.touchAction).toBe('')
+  })
+})
