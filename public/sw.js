@@ -1,6 +1,6 @@
 // ── Offline cache ────────────────────────────────────────────────────────
 const CACHE_NAME = 'sesh-v2'
-const API_CACHE_NAME = 'sesh-api-v1'
+const API_CACHE_NAME = 'sesh-api-v2'
 
 // Static assets to precache on install
 const STATIC_ASSETS = [
@@ -37,6 +37,11 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/api/')) {
     // Skip background timer checks — those shouldn't be cached
     if (url.searchParams.has('background')) return
+
+    // Never cache volatile/mutable API endpoints — stale data causes NaN bugs
+    if (url.pathname === '/api/timer') return
+    if (url.pathname.startsWith('/api/sessions')) return
+    if (url.pathname.startsWith('/api/analytics')) return
 
     event.respondWith(
       caches.open(API_CACHE_NAME).then(async cache => {

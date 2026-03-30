@@ -76,7 +76,12 @@ export async function DELETE(
 
     db.transaction(() => {
       if (timerRef) {
-        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run('other', Date.now(), existing.name)
+        // Fall back to first remaining category, or empty string if none remain
+        const fallback = db.prepare(
+          'SELECT name FROM categories WHERE id != ? ORDER BY sort_order LIMIT 1'
+        ).get(id) as { name: string } | undefined
+        const fallbackName = fallback?.name ?? ''
+        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run(fallbackName, Date.now(), existing.name)
       }
       db.prepare('DELETE FROM categories WHERE id = ?').run(id)
     })()

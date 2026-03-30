@@ -32,11 +32,31 @@ export function saveTimerState(state: LocalTimerState): void {
   } catch {}
 }
 
+/** Coerce a value to epoch-ms number, handling ISO strings from legacy state */
+function toEpochMs(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+    const t = Date.parse(value)
+    if (Number.isFinite(t)) return t
+  }
+  return null
+}
+
 export function loadTimerState(): LocalTimerState | null {
   try {
     const raw = localStorage.getItem(TIMER_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as LocalTimerState
+    const state = JSON.parse(raw) as LocalTimerState
+    // Normalize timestamps that might be ISO strings from old state
+    state.startedAt = toEpochMs(state.startedAt)
+    state.pausedAt = toEpochMs(state.pausedAt)
+    state.targetMs = Number.isFinite(state.targetMs) ? state.targetMs : 0
+    state.remainingMs = Number.isFinite(state.remainingMs) ? state.remainingMs : 0
+    state.overflowMs = Number.isFinite(state.overflowMs) ? state.overflowMs : 0
+    return state
   } catch {
     return null
   }
@@ -50,9 +70,11 @@ export function clearTimerState(): void {
 
 // ── Offline session queue ───────────────────────────────────────────────
 export interface QueuedSession {
+  id: string
   intention: string
   category: string
-  sessionType: string
+  type: string
+  sessionType?: string // legacy compat — prefer `type`
   targetMs: number
   actualMs: number
   overflowMs: number

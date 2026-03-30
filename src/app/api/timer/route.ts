@@ -193,7 +193,7 @@ export async function POST(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
-    const startedAt: number | undefined = body.startedAt
+    const startedAt: number | null = toEpochMs(body.startedAt)
 
     if (!startedAt) {
       return NextResponse.json({ error: 'startedAt is required' }, { status: 400 })
@@ -301,11 +301,33 @@ export async function POST(request: Request) {
   }
 }
 
+/** Coerce a value to epoch-ms number, handling ISO strings from legacy/Raycast clients */
+function toEpochMs(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+    const t = Date.parse(value)
+    if (Number.isFinite(t)) return t
+  }
+  return null
+}
+
 export async function PUT(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
     const now = Date.now()
+
+    // Normalize timestamps — Raycast may send ISO strings or numbers
+    body.startedAt = body.startedAt != null ? toEpochMs(body.startedAt) : null
+    body.pausedAt = body.pausedAt != null ? toEpochMs(body.pausedAt) : null
+
+    // Coerce all numeric fields — clients may send strings (e.g. from form inputs)
+    body.targetMs = Number(body.targetMs) || 0
+    body.remainingMs = Number(body.remainingMs) || 0
+    body.overflowMs = Number(body.overflowMs) || 0
 
     // Validate that the category exists in the categories table.
     // If the provided category is missing or invalid, fall back to the
@@ -318,7 +340,7 @@ export async function PUT(request: Request) {
     if (!resolvedCategory) {
       const defaultCat = db.prepare('SELECT name FROM categories WHERE is_default = 1 LIMIT 1').get() as { name: string } | undefined
         ?? db.prepare('SELECT name FROM categories ORDER BY sort_order LIMIT 1').get() as { name: string } | undefined
-      resolvedCategory = defaultCat?.name ?? 'development'
+      resolvedCategory = defaultCat?.name ?? ''
     }
 
     // Reset notification_count when starting a new session or going idle

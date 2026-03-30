@@ -25,10 +25,36 @@ function interpolateColor(hex1: string, hex2: string, t: number): string {
 }
 
 function formatTime(ms: number): string {
-  const totalSec = Math.floor(Math.abs(ms) / 1000)
+  const safe = Number.isFinite(ms) ? ms : 0
+  const totalSec = Math.floor(Math.abs(safe) / 1000)
   const m = Math.floor(totalSec / 60)
   const s = totalSec % 60
   return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** Coerce a value to epoch-ms number, handling ISO strings from legacy clients */
+function toEpochMs(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+    const t = Date.parse(value)
+    if (Number.isFinite(t)) return t
+  }
+  return null
+}
+
+/** Ensure all numeric timer fields are valid numbers */
+function normalizeTimerState(data: ServerTimerState): ServerTimerState {
+  return {
+    ...data,
+    targetMs: Number.isFinite(data.targetMs) ? data.targetMs : 0,
+    remainingMs: Number.isFinite(data.remainingMs) ? data.remainingMs : 0,
+    overflowMs: Number.isFinite(data.overflowMs) ? data.overflowMs : 0,
+    startedAt: toEpochMs(data.startedAt),
+    pausedAt: toEpochMs(data.pausedAt),
+    updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
+  }
 }
 
 
@@ -218,7 +244,8 @@ export default function Timer() {
     } catch { setSynced(false) }
   }, [])
 
-  const applyServerState = useCallback((data: ServerTimerState) => {
+  const applyServerState = useCallback((rawData: ServerTimerState) => {
+    const data = normalizeTimerState(rawData)
     if (data.phase === 'running' && data.startedAt) {
       const newRemaining = data.targetMs - (Date.now() - data.startedAt)
       if (intervalRef.current) clearInterval(intervalRef.current)
@@ -291,7 +318,7 @@ export default function Timer() {
       try {
         const res = await fetch('/api/timer')
         if (!res.ok) { setSynced(false); restoreFromLocal(); return }
-        const data: ServerTimerState = await res.json()
+        const data: ServerTimerState = normalizeTimerState(await res.json())
         setSynced(true)
         serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
@@ -330,7 +357,7 @@ export default function Timer() {
       try {
         const res = await fetch('/api/timer')
         if (!res.ok) { setSynced(false); return }
-        const data: ServerTimerState = await res.json()
+        const data: ServerTimerState = normalizeTimerState(await res.json())
         setSynced(true)
         if (data.updatedAt <= serverUpdatedAtRef.current) return
         serverUpdatedAtRef.current = data.updatedAt
@@ -378,7 +405,7 @@ export default function Timer() {
       try {
         const res = await fetch('/api/timer', { cache: 'no-store' })
         if (!res.ok) return
-        const data: ServerTimerState = await res.json()
+        const data: ServerTimerState = normalizeTimerState(await res.json())
         setSynced(true)
         serverUpdatedAtRef.current = data.updatedAt
         if (data.phase === 'running' || data.phase === 'paused') {
@@ -474,14 +501,16 @@ export default function Timer() {
     const curOverflowMs = Math.max(0, overflowMs)
 
     // Build the session record for offline queueing
+    const effectiveStartedAt = startedAt || now
     const offlineSession: QueuedSession = {
+      id: `offline-${effectiveStartedAt}`,
       intention,
       category,
-      sessionType,
+      type: sessionType,
       targetMs: activeTargetMs,
       actualMs,
       overflowMs: curOverflowMs,
-      startedAt: startedAt || now,
+      startedAt: effectiveStartedAt,
       endedAt: now,
       notes: '',
       todoistTaskId: todoistTaskIdRef.current,

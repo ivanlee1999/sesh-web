@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       body.id,
       body.intention ?? '',
       body.category ?? 'other',
-      body.type ?? 'focus',
+      body.type ?? body.sessionType ?? 'focus',
       body.targetMs ?? 0,
       body.actualMs ?? 0,
       body.overflowMs ?? 0,
