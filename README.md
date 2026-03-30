@@ -42,3 +42,38 @@ When a timer expires while no client tab is actively running, the server can aut
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Testing
+
+```bash
+# Run all tests
+npm test
+
+# Watch mode (re-runs on file changes)
+npm run test:watch
+```
+
+### Test Structure
+Tests live in `__tests__/` directories next to the source files they test:
+
+```
+src/
+├── lib/__tests__/
+│   ├── categories.test.ts     # slugifyLabel, getCategoryMeta
+│   └── local-store.test.ts    # localStorage ops, NaN coercion, session queue
+├── app/api/__tests__/
+│   ├── timer.test.ts          # toEpochMs, PUT coercion, notifications
+│   ├── categories-api.test.ts # CRUD, rename migration, delete fallback
+│   └── analytics.test.ts      # timezone boundaries, streaks, aggregation
+├── components/__tests__/
+│   └── ProgressRing.test.tsx   # rendering, tick marks, wedge, clock hand
+├── hooks/__tests__/
+│   └── useOnlineStatus.test.ts # online/offline events
+└── context/__tests__/
+    └── CategoriesContext.test.tsx # fetch, cache, CRUD operations
+```
+
+### Contributing
+- Every new function must have unit tests
+- Bug fixes must include a regression test
+- Run `npm test` before committing
