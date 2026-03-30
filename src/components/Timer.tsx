@@ -734,46 +734,62 @@ export default function Timer() {
               </div>
             ) : null}
 
-            {/* Category pills + Session type pills — inline row */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', width: '100%', maxWidth: 360 }}>
-              {categories.map(cat => (
-                <button
-                  key={cat.name}
-                  onClick={() => {
-                    setCategory(cat.name)
-                    syncToServer({
-                      phase: 'idle', sessionType, intention, category: cat.name,
-                      targetMs: customDurationMs, remainingMs: customDurationMs,
-                      overflowMs: 0, startedAt: null, pausedAt: null,
-                    })
-                  }}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '5px 12px', borderRadius: 8, border: 'none',
-                    fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                    background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
-                    color: category === cat.name ? cat.color : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <span style={{
-                    width: 7, height: 7, borderRadius: '50%',
-                    background: cat.color,
-                    display: 'inline-block',
-                  }} />
-                  {cat.label}
-                </button>
-              ))}
-              <span style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
-              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setSessionType(t)}
-                  className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
-                >
-                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-                </button>
-              ))}
+            {/* Category pills + Session type pills — two-row layout */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 360 }}>
+              <div
+                className="hide-scrollbar"
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  width: '100%',
+                  overflowX: 'auto',
+                  flexWrap: 'nowrap',
+                }}
+              >
+                {categories.map(cat => (
+                  <button
+                    key={cat.name}
+                    onClick={() => {
+                      setCategory(cat.name)
+                      syncToServer({
+                        phase: 'idle', sessionType, intention, category: cat.name,
+                        targetMs: customDurationMs, remainingMs: customDurationMs,
+                        overflowMs: 0, startedAt: null, pausedAt: null,
+                      })
+                    }}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '5px 12px', borderRadius: 8, border: 'none',
+                      fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                      background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
+                      color: category === cat.name ? cat.color : 'var(--text-secondary)',
+                      transition: 'all 0.15s ease',
+                      flex: '0 0 auto',
+                    }}
+                  >
+                    <span style={{
+                      width: 7, height: 7, borderRadius: '50%',
+                      background: cat.color,
+                      display: 'inline-block',
+                    }} />
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
+                {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setSessionType(t)}
+                    className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
+                  >
+                    {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

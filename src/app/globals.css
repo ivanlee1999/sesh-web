@@ -548,6 +548,19 @@ body {
    Motion helpers
    ────────────────────────────────────────── */
 
+/* ──────────────────────────────────────────
+   Hidden scrollbar utility
+   ────────────────────────────────────────── */
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
