@@ -94,7 +94,6 @@ export default function Timer() {
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [todoistTaskContent, setTodoistTaskContent] = useState<string>('')
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
@@ -270,7 +269,6 @@ export default function Timer() {
       setStartedAt(data.startedAt)
       setActiveTargetMs(data.targetMs)
       setTodoistTaskId(data.todoistTaskId ?? null)
-      if (!data.todoistTaskId) setTodoistTaskContent('')
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
@@ -283,7 +281,6 @@ export default function Timer() {
       setActiveTargetMs(data.targetMs)
       if (data.startedAt) setStartedAt(data.startedAt)
       setTodoistTaskId(data.todoistTaskId ?? null)
-      if (!data.todoistTaskId) setTodoistTaskContent('')
     }
   }, [tick])
 
@@ -390,7 +387,6 @@ export default function Timer() {
           setStartedAt(0)
           setIntention(data.intention)
           setTodoistTaskId(null)
-          setTodoistTaskContent('')
           postSwMessage('TIMER_STOPPED')
         } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
           const idleDuration = data.remainingMs || data.targetMs
@@ -592,7 +588,6 @@ export default function Timer() {
     setOverflowMs(0)
     setIntention('')
     setTodoistTaskId(null)
-    setTodoistTaskContent('')
     clearTimerState()
   }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
@@ -605,7 +600,6 @@ export default function Timer() {
     setOverflowMs(0)
     setIntention('')
     setTodoistTaskId(null)
-    setTodoistTaskContent('')
     syncToServer({
       phase: 'idle', sessionType, intention: '', category,
       targetMs: defaultDurationMs, remainingMs: defaultDurationMs,
@@ -632,7 +626,10 @@ export default function Timer() {
 
   const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
     setTodoistTaskId(task?.id ?? null)
-    setTodoistTaskContent(task?.content ?? '')
+    // Copy task content into intention so the input has a single source of truth
+    if (task?.content) {
+      setIntention(task.content)
+    }
   }, [])
 
   const isOverflow = remainingMs < 0
@@ -817,7 +814,7 @@ export default function Timer() {
             <ListInput
               type="text"
               placeholder="Tap to add intention..."
-              value={intention || todoistTaskContent}
+              value={intention}
               onInput={(e: React.FormEvent<HTMLInputElement>) => {
                 const value = (e.target as HTMLInputElement).value
                 handleIntentionChange(value)
