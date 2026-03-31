@@ -130,7 +130,7 @@ describe('Timer', () => {
   })
 
   it('renders category pills with border-based styling', () => {
-    const { container } = render(<Timer />)
+    render(<Timer />)
 
     // Find category pill buttons by their label text
     const workButton = screen.getByText('Work').closest('button')
@@ -154,7 +154,7 @@ describe('Timer', () => {
   })
 
   it('renders time display with theme-aware text classes', () => {
-    const { container } = render(<Timer />)
+    render(<Timer />)
 
     // Find the time display span: it should show "25:00" and use theme-aware text
     const timeDisplay = screen.getByText('25:00')
@@ -167,7 +167,7 @@ describe('Timer', () => {
   })
 
   it('renders category dot indicators inside pills', () => {
-    const { container } = render(<Timer />)
+    render(<Timer />)
 
     // Each category pill has a small colored dot (span with rounded-full and h-[7px])
     const workButton = screen.getByText('Work').closest('button')!
