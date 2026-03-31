@@ -815,7 +815,7 @@ export default function Timer() {
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={240}
+              size={180}
               strokeWidth={8}
               interactive={true}
               onProgressChange={(p) => {
