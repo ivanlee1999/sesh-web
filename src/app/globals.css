@@ -35,7 +35,7 @@
   --danger: #FF3B30;
 
   /* Ring */
-  --ring-track: rgba(0, 0, 0, 0.06);
+  --ring-track: rgba(0, 0, 0, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {

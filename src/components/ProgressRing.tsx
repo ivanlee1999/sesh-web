@@ -170,9 +170,9 @@ export default function ProgressRing({
           </filter>
           {/* Gradient for the wedge fill — radial fade from center */}
           <radialGradient id="wedge-gradient" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.05" />
-            <stop offset="60%" stopColor={color} stopOpacity="0.15" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.25" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.08" />
+            <stop offset="60%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.35" />
           </radialGradient>
         </defs>
 
@@ -184,7 +184,7 @@ export default function ProgressRing({
           fill="none"
           stroke="var(--ring-track)"
           strokeWidth={1}
-          opacity={0.5}
+          opacity={0.8}
         />
 
         {/* Tick marks */}
