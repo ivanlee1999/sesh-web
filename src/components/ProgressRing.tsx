@@ -28,7 +28,7 @@ export default function ProgressRing({
   const isDark = settings.darkMode
 
   // Theme-aware colors
-  const baseStroke = isDark ? '#555555' : '#999999'
+  const baseStroke = isDark ? '#555555' : '#CCCCCC'
   const majorTickColor = isDark ? '#FFFFFF' : '#000000'
   const minorTickColor = isDark ? '#AAAAAA' : '#666666'
   const minuteLabelColor = isDark ? '#FFFFFF' : '#000000'
@@ -174,9 +174,9 @@ export default function ProgressRing({
         <defs>
 {/* Gradient for the wedge fill — radial fade from center */}
           <radialGradient id="wedge-gradient" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.08" />
-            <stop offset="60%" stopColor={color} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.15" />
+            <stop offset="60%" stopColor={color} stopOpacity="0.45" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.45" />
           </radialGradient>
         </defs>
 

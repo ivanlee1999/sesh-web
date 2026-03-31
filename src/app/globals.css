@@ -36,6 +36,19 @@
   --ring-track: rgba(0, 0, 0, 0.3);
 }
 
+.dark {
+  --bg-primary: #1c1c1e;
+  --bg-secondary: #2c2c2e;
+  --bg-elevated: #2c2c2e;
+  --text-primary: #FFFFFF;
+  --text-secondary: #8E8E93;
+  --text-tertiary: #636366;
+  --border: rgba(255, 255, 255, 0.15);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+  --ring-track: rgba(255, 255, 255, 0.15);
+}
+
 /* prefers-color-scheme removed — theme controlled by .dark class */
 
 /* dark mode removed */

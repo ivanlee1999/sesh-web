@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { App } from 'konsta/react'
+import { useSettings } from '@/context/SettingsContext'
 import Timer from './Timer'
 import History from './History'
 import Analytics from './Analytics'
@@ -10,10 +11,10 @@ import TabBar, { type AppTab } from './TabBar'
 
 export default function AppLayout() {
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
+  const { settings } = useSettings()
 
-  // Theme is settings-driven only; system preference must not drive Konsta
   return (
-    <App theme="ios" dark={false} safeAreas>
+    <App theme="ios" dark={settings.darkMode} safeAreas>
       <div className="app-shell">
         <div className="view-stack">
           <div style={{ display: activeTab === 'timer' ? 'block' : 'none' }}>
