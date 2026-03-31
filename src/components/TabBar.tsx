@@ -19,7 +19,7 @@ const tabs: { id: AppTab; label: string; Icon: React.ComponentType<{ className?:
 
 export default function TabBar({ activeTab, onChange }: TabBarProps) {
   return (
-    <Tabbar labels icons className="tabbar-fixed">
+    <Tabbar labels icons className="tabbar-fixed app-tabbar">
       {tabs.map(({ id, label, Icon }) => (
         <TabbarLink
           key={id}
