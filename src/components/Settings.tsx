@@ -36,15 +36,15 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
     return (
       <ListItem
         title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)', display: 'inline-block' }} />
-            Connected
+          <span className="flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-black dark:text-white">Connected</span>
           </span>
         }
         after={
           <a
             href="/api/auth/google/disconnect"
-            style={{ fontSize: 13, color: 'var(--danger)', textDecoration: 'none' }}
+            className="text-sm text-red-500 no-underline dark:text-red-400"
           >
             Disconnect
           </a>
@@ -55,24 +55,29 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
 
   if (step === 'pending') {
     return (
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Go to this URL and enter the code:</p>
-        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: 'var(--accent)' }}>{verifyUrl}</a>
-        <div style={{
-          background: 'var(--bg-elevated)', borderRadius: 12, padding: '16px', textAlign: 'center',
-        }}>
-          <span className="font-mono" style={{ fontSize: 24, fontWeight: 700, letterSpacing: '0.2em', color: 'var(--text-primary)' }}>
+      <div className="flex flex-col gap-3 p-4">
+        <p className="text-sm text-gray-600 dark:text-gray-300">Go to this URL and enter the code:</p>
+        <a
+          href={verifyUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-blue-600 underline dark:text-blue-400"
+        >
+          {verifyUrl}
+        </a>
+        <div className="rounded-xl bg-gray-50 p-4 text-center dark:bg-gray-900">
+          <span className="font-mono text-2xl font-bold tracking-[0.2em] text-black dark:text-white">
             {userCode}
           </span>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center' }}>Waiting for authorization...</p>
+        <p className="text-center text-xs text-gray-400">Waiting for authorization...</p>
       </div>
     )
   }
 
   return (
     <ListItem
-      title="Google Calendar"
+      title={<span className="text-black dark:text-white">Google Calendar</span>}
       subtitle="Not connected"
       after={
         <Button small rounded onClick={startAuth}>
@@ -201,7 +206,7 @@ function PushNotificationToggle() {
 
   return (
     <ListItem
-      title="Session alerts"
+      title={<span className="text-black dark:text-white">Session alerts</span>}
       subtitle={statusText}
       after={
         <Toggle
@@ -226,13 +231,13 @@ export default function Settings() {
   }, [])
 
   return (
-    <div style={{ padding: '24px 20px', paddingBottom: 96 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 28 }}>Settings</h1>
+    <div className="px-5 pb-24 pt-6">
+      <h1 className="mb-7 text-3xl font-bold text-black dark:text-white">Settings</h1>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <div className="flex flex-col gap-6">
         {/* Timer Durations */}
         <div>
-          <BlockTitle>Timer Durations</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Timer Durations</BlockTitle>
           <List strong inset>
             <NumberRow
               label="Focus"
@@ -257,10 +262,10 @@ export default function Settings() {
 
         {/* Notifications */}
         <div>
-          <BlockTitle>Notifications</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Notifications</BlockTitle>
           <List strong inset>
             <ListItem
-              title="Sound on completion"
+              title={<span className="text-black dark:text-white">Sound on completion</span>}
               after={
                 <Toggle
                   checked={settings.soundEnabled}
@@ -272,11 +277,9 @@ export default function Settings() {
           </List>
         </div>
 
-        {/* Appearance section removed — dark mode deleted */}
-
         {/* Google Calendar */}
         <div>
-          <BlockTitle>Google Calendar</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Google Calendar</BlockTitle>
           <List strong inset>
             <DeviceFlowAuth connected={calConnected} onConnected={() => {
               setCalConnected(true)
@@ -284,7 +287,7 @@ export default function Settings() {
             }} />
             {calConnected && (
               <ListItem
-                title="Auto-sync sessions"
+                title={<span className="text-black dark:text-white">Auto-sync sessions</span>}
                 after={
                   <Toggle
                     checked={settings.calendarSync}
@@ -298,10 +301,10 @@ export default function Settings() {
 
         {/* About */}
         <div>
-          <BlockTitle>About</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">About</BlockTitle>
           <List strong inset>
             <ListItem
-              title="sesh-web v0.1.0"
+              title={<span className="text-black dark:text-white">sesh-web v0.1.0</span>}
               subtitle="PWA Pomodoro timer"
             />
           </List>
@@ -319,19 +322,19 @@ function NumberRow({
 }) {
   return (
     <ListItem
-      title={label}
+      title={<span className="text-black dark:text-white">{label}</span>}
       after={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           <Button
             small
             outline
             rounded
             onClick={() => onChange(Math.max(min, value - 1))}
-            className="!w-8 !h-8 !p-0"
+            className="!h-8 !w-8 !p-0"
           >
             −
           </Button>
-          <span className="font-mono" style={{ fontSize: 15, color: 'var(--text-primary)', width: 48, textAlign: 'center' }}>
+          <span className="w-12 text-center font-mono text-sm text-black dark:text-white">
             {value}m
           </span>
           <Button
@@ -339,7 +342,7 @@ function NumberRow({
             outline
             rounded
             onClick={() => onChange(Math.min(max, value + 1))}
-            className="!w-8 !h-8 !p-0"
+            className="!h-8 !w-8 !p-0"
           >
             +
           </Button>

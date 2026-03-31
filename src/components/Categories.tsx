@@ -1,9 +1,70 @@
 'use client'
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
-import { Button } from 'konsta/react'
+import { List, ListItem, Button, Chip } from 'konsta/react'
 import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
+
+function CategoryForm({
+  formLabel,
+  setFormLabel,
+  formColor,
+  setFormColor,
+  formError,
+  onSubmit,
+  onCancel,
+  submitting,
+  submitLabel,
+}: {
+  formLabel: string
+  setFormLabel: (v: string) => void
+  formColor: string
+  setFormColor: (v: string) => void
+  formError: string | null
+  onSubmit: () => void
+  onCancel: () => void
+  submitting: boolean
+  submitLabel: string
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <input
+        type="text"
+        value={formLabel}
+        onChange={e => setFormLabel(e.target.value)}
+        placeholder="Category name"
+        maxLength={40}
+        autoFocus
+        onKeyDown={e => { if (e.key === 'Enter') onSubmit() }}
+        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-black outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+      />
+      <div className="grid grid-cols-6 gap-2">
+        {CATEGORY_PALETTE.map(c => (
+          <button
+            key={c}
+            onClick={() => setFormColor(c)}
+            className={`h-8 w-8 rounded-lg border-2 transition-all ${formColor === c ? 'border-black ring-2 ring-gray-300 dark:border-white dark:ring-gray-600' : 'border-transparent'}`}
+            style={{ backgroundColor: c }}
+            aria-label={`Color ${c}`}
+          />
+        ))}
+      </div>
+      {formError && (
+        <p className="text-sm text-red-500 dark:text-red-400">{formError}</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button outline rounded small onClick={onCancel}>
+          <X className="mr-1 h-3.5 w-3.5" />
+          Cancel
+        </Button>
+        <Button rounded small onClick={onSubmit} disabled={submitting}>
+          <Check className="mr-1 h-3.5 w-3.5" />
+          {submitLabel}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 export default function Categories() {
   const { categories, loading, createCategory, updateCategory, deleteCategory } = useCategories()
@@ -80,205 +141,139 @@ export default function Categories() {
     setSubmitting(false)
   }
 
-  const renderColorGrid = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
-      {CATEGORY_PALETTE.map(c => (
-        <button
-          key={c}
-          onClick={() => setFormColor(c)}
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            border: formColor === c ? '2.5px solid var(--text-primary)' : '2px solid transparent',
-            background: c,
-            cursor: 'pointer',
-            transition: 'border-color 0.15s ease, transform 0.1s ease',
-            outline: 'none',
-          }}
-          aria-label={`Color ${c}`}
-        />
-      ))}
-    </div>
-  )
-
-  const renderForm = () => (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 mb-4">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <input
-          type="text"
-          value={formLabel}
-          onChange={e => setFormLabel(e.target.value)}
-          placeholder="Category name"
-          maxLength={40}
-          autoFocus
-          onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
-          style={{
-            width: '100%',
-            padding: '10px 12px',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-            background: 'var(--bg-secondary)',
-            color: 'var(--text-primary)',
-            fontSize: 15,
-            outline: 'none',
-          }}
-        />
-        {renderColorGrid()}
-        {formError && (
-          <p style={{ fontSize: 13, color: 'var(--danger)', margin: 0 }}>{formError}</p>
-        )}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Button outline rounded small onClick={cancelForm}>
-            <X style={{ width: 14, height: 14, marginRight: 4 }} />
-            Cancel
-          </Button>
-          <Button rounded small onClick={handleSubmit} disabled={submitting}>
-            <Check style={{ width: 14, height: 14, marginRight: 4 }} />
-            {editingId ? 'Save' : 'Add'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-
   return (
-    <div className="px-4 pt-16 md:pt-20 pb-4">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Categories</h1>
+    <div className="px-4 pb-4 pt-16 md:pt-20">
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-black dark:text-white">Categories</h1>
         {!showForm && !editingId && (
           <Button outline rounded small onClick={startCreate}>
-            <Plus style={{ width: 14, height: 14, marginRight: 4 }} />
+            <Plus className="mr-1 h-3.5 w-3.5" />
             Add
           </Button>
         )}
       </div>
 
-      {showForm && renderForm()}
+      {showForm && (
+        <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <CategoryForm
+            formLabel={formLabel}
+            setFormLabel={setFormLabel}
+            formColor={formColor}
+            setFormColor={setFormColor}
+            formError={formError}
+            onSubmit={handleSubmit}
+            onCancel={cancelForm}
+            submitting={submitting}
+            submitLabel="Add"
+          />
+        </div>
+      )}
 
       {loading && categories.length === 0 && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="py-16 text-center text-gray-400">
           <p className="text-sm">Loading…</p>
         </div>
       )}
 
       {deleteError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4 text-sm text-red-600 dark:text-red-400">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
           {deleteError}
           <button
             onClick={() => setDeleteError(null)}
-            style={{ marginLeft: 8, textDecoration: 'underline', background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 'inherit' }}
+            className="ml-2 border-none bg-transparent text-sm text-red-600 underline dark:text-red-400"
           >
             Dismiss
           </button>
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
+      <List strong inset className="!my-0 !rounded-2xl">
         {categories.map(cat => {
           if (editingId === cat.id) {
             return (
-              <div key={cat.id} className="p-4">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <input
-                    type="text"
-                    value={formLabel}
-                    onChange={e => setFormLabel(e.target.value)}
-                    placeholder="Category name"
-                    maxLength={40}
-                    autoFocus
-                    onKeyDown={e => { if (e.key === 'Enter') handleSubmit() }}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      borderRadius: 12,
-                      border: '1px solid var(--border)',
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      fontSize: 15,
-                      outline: 'none',
-                    }}
+              <ListItem
+                key={cat.id}
+                title={
+                  <CategoryForm
+                    formLabel={formLabel}
+                    setFormLabel={setFormLabel}
+                    formColor={formColor}
+                    setFormColor={setFormColor}
+                    formError={formError}
+                    onSubmit={handleSubmit}
+                    onCancel={cancelForm}
+                    submitting={submitting}
+                    submitLabel="Save"
                   />
-                  {renderColorGrid()}
-                  {formError && (
-                    <p style={{ fontSize: 13, color: 'var(--danger)', margin: 0 }}>{formError}</p>
-                  )}
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <Button outline rounded small onClick={cancelForm}>
-                      <X style={{ width: 14, height: 14, marginRight: 4 }} />
-                      Cancel
-                    </Button>
-                    <Button rounded small onClick={handleSubmit} disabled={submitting}>
-                      <Check style={{ width: 14, height: 14, marginRight: 4 }} />
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                }
+              />
             )
           }
 
           return (
-            <div key={cat.id} className="flex items-center gap-3 px-4 py-3">
-              <div
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: '50%',
-                  backgroundColor: cat.color,
-                  flexShrink: 0,
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {cat.label}
-                </span>
-                {cat.isDefault && (
-                  <span className="text-xs text-gray-400 ml-2">default</span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                <button
-                  onClick={() => startEdit(cat)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
-                  title="Edit"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                {confirmDeleteId === cat.id ? (
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <span className="text-xs text-gray-400">Delete?</span>
-                    <button
-                      onClick={() => handleDelete(cat.id)}
-                      disabled={submitting}
-                      className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
-                      title="Confirm delete"
-                    >
-                      <Check className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => { setConfirmDeleteId(null); setDeleteError(null) }}
-                      className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
-                      title="Cancel"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ) : (
+            <ListItem
+              key={cat.id}
+              media={
+                <div
+                  className="h-3 w-3 flex-shrink-0 rounded-full"
+                  style={{ backgroundColor: cat.color }}
+                />
+              }
+              title={
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-black dark:text-white">
+                    {cat.label}
+                  </span>
+                  {cat.isDefault && (
+                    <Chip className="!text-xs" outline>
+                      default
+                    </Chip>
+                  )}
+                </div>
+              }
+              after={
+                <div className="flex flex-shrink-0 items-center gap-1">
                   <button
-                    onClick={() => { setDeleteError(null); setConfirmDeleteId(cat.id) }}
-                    
-                    className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    title={'Delete'}
+                    onClick={() => startEdit(cat)}
+                    className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-500 dark:hover:bg-blue-900/20"
+                    title="Edit"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Pencil className="h-4 w-4" />
                   </button>
-                )}
-              </div>
-            </div>
+                  {confirmDeleteId === cat.id ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-400">Delete?</span>
+                      <button
+                        onClick={() => handleDelete(cat.id)}
+                        disabled={submitting}
+                        className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-900/20"
+                        title="Confirm delete"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => { setConfirmDeleteId(null); setDeleteError(null) }}
+                        className="rounded-lg p-1.5 text-gray-400 transition-colors hover:text-gray-600"
+                        title="Cancel"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setDeleteError(null); setConfirmDeleteId(cat.id) }}
+                      className="rounded-lg p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-900/20"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              }
+            />
           )
         })}
-      </div>
+      </List>
     </div>
   )
 }

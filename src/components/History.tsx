@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { List, ListItem, ListGroup } from 'konsta/react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
@@ -72,66 +73,71 @@ export default function History() {
   const groups = groupByDate(sessions)
 
   return (
-    <div className="px-4 pt-16 md:pt-20 pb-4" style={{ height: "calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))", overflowY: "auto", overflowX: "hidden", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}>
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">History</h1>
+    <div className="h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+      <h1 className="mb-4 text-xl font-semibold text-black dark:text-white">History</h1>
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 mb-4 text-sm text-red-600 dark:text-red-400">
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
           {error}
         </div>
       )}
       {loading && groups.length === 0 && !error && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="py-16 text-center text-gray-400">
           <p className="text-sm">Loading…</p>
         </div>
       )}
       {!loading && !error && groups.length === 0 && (
-        <div className="text-center py-16 text-gray-400">
+        <div className="py-16 text-center text-gray-400">
           <p className="text-lg">No sessions yet</p>
-          <p className="text-sm mt-1">Complete a session to see your history</p>
+          <p className="mt-1 text-sm">Complete a session to see your history</p>
         </div>
       )}
       <div className="flex flex-col gap-6">
         {groups.map(({ date, sessions }) => (
-          <div key={date}>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{date}</h2>
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden divide-y divide-gray-100 dark:divide-gray-700">
+          <ListGroup key={date}>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">{date}</div>
+            <List strong inset className="!my-0 !rounded-2xl">
               {sessions.map(s => {
                 const meta = getCategoryMeta(s.category, categories)
                 return (
-                  <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                    <div
-                      className="w-1.5 h-10 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: meta.color }}
-                    />
-                    <div className="flex-1 min-w-0">
+                  <ListItem
+                    key={s.id}
+                    title={
+                      <span className="truncate text-sm font-medium text-black dark:text-white">
+                        {s.intention || <span className="capitalize italic text-gray-400">{s.type}</span>}
+                      </span>
+                    }
+                    subtitle={
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-300">{formatTime(s.startedAt)}</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-300">{meta.label}</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-500 dark:bg-gray-700 dark:text-gray-300">{s.type}</span>
+                      </div>
+                    }
+                    after={
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                          {s.intention || <span className="text-gray-400 italic capitalize">{s.type}</span>}
+                        <span className="rounded-full bg-gray-100 px-2 py-1 font-mono text-xs font-semibold text-black dark:bg-gray-700 dark:text-white">
+                          {msToMin(s.actualMs)}
                         </span>
+                        <button
+                          onClick={() => handleDelete(s.id)}
+                          disabled={deletingId === s.id}
+                          className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-900/20"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-400">{formatTime(s.startedAt)}</span>
-                        <span className="text-xs text-gray-300">&middot;</span>
-                        <span className="text-xs text-gray-500">{meta.label}</span>
-                        <span className="text-xs text-gray-300">&middot;</span>
-                        <span className="text-xs text-gray-500 capitalize">{s.type}</span>
-                      </div>
-                    </div>
-                    <span className="font-mono text-sm text-gray-600 dark:text-gray-400 flex-shrink-0">
-                      {msToMin(s.actualMs)}
-                    </span>
-                    <button
-                      onClick={() => handleDelete(s.id)}
-                      disabled={deletingId === s.id}
-                      className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                    }
+                    media={
+                      <div
+                        className="h-10 w-1.5 flex-shrink-0 rounded-full"
+                        style={{ backgroundColor: meta.color }}
+                      />
+                    }
+                  />
                 )
               })}
-            </div>
-          </div>
+            </List>
+          </ListGroup>
         ))}
       </div>
     </div>
