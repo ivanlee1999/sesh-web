@@ -96,7 +96,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
           title={triggerText}
           after={
             <span
-              className="cursor-pointer p-1 text-black"
+              className="cursor-pointer p-1 text-black dark:text-white"
               onClick={(e) => { e.stopPropagation(); fetchTasks() }}
               style={{ opacity: loading ? 0.5 : 1 }}
             >
@@ -104,7 +104,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
             </span>
           }
           onClick={() => setSheetOpened(true)}
-          className={selectedTask ? '!bg-blue-50' : ''}
+          className={selectedTask ? '!bg-blue-50 dark:!bg-blue-950' : ''}
         />
       </List>
 
@@ -128,7 +128,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
               <RefreshCw className={`mr-1 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <span className="text-sm font-semibold text-black">Tasks</span>
+            <span className="text-sm font-semibold text-black dark:text-white">Tasks</span>
             <Button clear small onClick={() => setSheetOpened(false)}>
               Done
             </Button>
@@ -150,7 +150,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                 <ListItem
                   key={task.id}
                   title={
-                    <span className={`text-black ${isCompleted ? 'line-through opacity-50' : ''}`}>
+                    <span className={`text-black dark:text-white ${isCompleted ? 'line-through opacity-50' : ''}`}>
                       {task.content}
                     </span>
                   }
@@ -171,7 +171,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                         </Badge>
                       )}
                       <span
-                        className="cursor-pointer rounded-md p-1 text-black"
+                        className="cursor-pointer rounded-md p-1 text-black dark:text-white"
                         onClick={(e) => handleClose(task.id, e)}
                         style={{
                           opacity: isClosing ? 0.5 : 1,
@@ -206,7 +206,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                     onSelectTask(isSelected ? null : task)
                     setSheetOpened(false)
                   }}
-                  className={isSelected ? '!bg-blue-50' : ''}
+                  className={isSelected ? '!bg-blue-50 dark:!bg-blue-950' : ''}
                 />
               )
             })}

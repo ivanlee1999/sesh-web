@@ -122,13 +122,14 @@ describe('Timer', () => {
     expect(screen.getByText('Study')).toBeTruthy()
   })
 
-  it('renders time display with bold black text', () => {
+  it('renders time display with bold theme-aware text', () => {
     render(<Timer />)
 
     // Find the time display: it should show "25:00"
     const timeDisplay = screen.getByText('25:00')
     expect(timeDisplay).toBeTruthy()
     expect(timeDisplay.className).toContain('text-black')
+    expect(timeDisplay.className).toContain('dark:text-white')
     expect(timeDisplay.className).toContain('text-4xl')
     expect(timeDisplay.className).toContain('font-bold')
   })

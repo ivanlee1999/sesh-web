@@ -722,8 +722,8 @@ export default function Timer() {
                   }}
                   className={
                     category === cat.name
-                      ? '!bg-black !text-white !border-black'
-                      : '!border-[#666666] !text-black'
+                      ? '!bg-black dark:!bg-white !text-white dark:!text-black !border-black dark:!border-white'
+                      : '!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white'
                   }
                 >
                   <span
@@ -782,12 +782,12 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="text-4xl font-bold text-black">
+            <span className="text-4xl font-bold text-black dark:text-white">
               {formatTime(displayMs)}
             </span>
 
             {/* Time range label */}
-            <Chip outline className="!border-[#666666] !text-black">
+            <Chip outline className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
@@ -831,7 +831,7 @@ export default function Timer() {
           </List>
 
           <div className="flex items-center justify-center gap-2">
-            <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black'}`}>
+            <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
               {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
             </p>
             <Chip
@@ -846,7 +846,7 @@ export default function Timer() {
                   pausedAt: phase === 'paused' ? Date.now() : null,
                 }))
               }}
-              className="!border-[#666666] !text-black"
+              className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white"
             >
               <span
                 slot="media"
@@ -869,7 +869,7 @@ export default function Timer() {
               {isOverflow && (
                 <span className="mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono text-[52px] font-bold leading-none text-black">
+              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-white">
                 {formatTime(displayMs)}
               </span>
             </div>
