@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, SkipForward, Square } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { Button, Segmented, SegmentedButton } from 'konsta/react'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
@@ -792,17 +792,19 @@ export default function Timer() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
+              <Segmented strong rounded>
                 {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-                  <button
+                  <SegmentedButton
                     key={t}
+                    strong
+                    rounded
+                    active={sessionType === t}
                     onClick={() => setSessionType(t)}
-                    className={`session-type-pill ${sessionType === t ? 'session-type-pill--active' : ''}`}
                   >
                     {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-                  </button>
+                  </SegmentedButton>
                 ))}
-              </div>
+              </Segmented>
             </div>
           </div>
 
@@ -860,23 +862,14 @@ export default function Timer() {
 
           {/* ═══ BOTTOM SECTION: Start button ═══ */}
           <div style={{ width: '100%', display: 'flex', justifyContent: 'center', paddingBottom: 4 }}>
-            <motion.button
-              whileTap={{ scale: 0.96 }}
+            <Button
+              large
+              rounded
               onClick={startTimer}
-              className="primary-pill"
-              style={{
-                marginTop: 8,
-                width: '100%',
-                maxWidth: 320,
-                minHeight: 52,
-                fontSize: 15,
-                fontWeight: 600,
-                letterSpacing: '1px',
-                textTransform: 'uppercase' as const,
-              }}
+              className="!w-full !max-w-[320px] !mt-2 !min-h-[52px] !text-[15px] !font-semibold !tracking-wider !uppercase"
             >
               START SESSION
-            </motion.button>
+            </Button>
           </div>
         </div>
       ) : (
@@ -982,95 +975,39 @@ export default function Timer() {
             </div>
           </ProgressRing>
 
-          {/* Controls — simple text buttons */}
+          {/* Controls — Konsta buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {(phase === 'running' || phase === 'overflow') && (
               <>
-                <motion.button
-                  whileTap={{ scale: 0.96 }}
-                  onClick={pauseTimer}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '10px 20px',
-                    borderRadius: 12,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--text-secondary)',
-                    fontSize: 15,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    minHeight: 44,
-                  }}
-                >
-                  <Pause style={{ width: 18, height: 18 }} />
+                <Button clear rounded onClick={pauseTimer} className="!min-h-[44px]">
+                  <Pause style={{ width: 18, height: 18, marginRight: 6 }} />
                   Pause
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.96 }}
-                  onClick={finishSession}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '10px 20px',
-                    borderRadius: 12,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--accent)',
-                    fontSize: 15,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    minHeight: 44,
-                  }}
-                >
-                  <SkipForward style={{ width: 18, height: 18 }} />
+                </Button>
+                <Button clear rounded onClick={finishSession} className="!min-h-[44px]">
+                  <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
                   Finish
-                </motion.button>
+                </Button>
               </>
             )}
             {phase === 'paused' && (
               <>
-                <motion.button whileTap={{ scale: 0.96 }} onClick={startTimer} className="primary-pill" style={{ padding: '10px 24px', fontSize: 15, minHeight: 44 }}>
-                  <Play style={{ width: 16, height: 16, fill: '#fff' }} />
+                <Button rounded onClick={startTimer} className="!min-h-[44px]">
+                  <Play style={{ width: 16, height: 16, fill: '#fff', marginRight: 6 }} />
                   Resume
-                </motion.button>
-                <motion.button
-                  whileTap={{ scale: 0.96 }}
-                  onClick={finishSession}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '10px 20px',
-                    borderRadius: 12,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--accent)',
-                    fontSize: 15,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    minHeight: 44,
-                  }}
-                >
-                  <SkipForward style={{ width: 18, height: 18 }} />
+                </Button>
+                <Button clear rounded onClick={finishSession} className="!min-h-[44px]">
+                  <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
                   Finish
-                </motion.button>
+                </Button>
               </>
             )}
           </div>
 
           {/* Abandon — minimal */}
-          <motion.button
-            whileTap={{ scale: 0.95 }}
-            onClick={abandonSession}
-            className="ghost-button ghost-button--danger"
-            style={{ minHeight: 44 }}
-          >
-            <Square style={{ width: 14, height: 14 }} />
+          <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-400 hover:!text-red-500">
+            <Square style={{ width: 14, height: 14, marginRight: 6 }} />
             Abandon
-          </motion.button>
+          </Button>
 
           {/* Save error */}
           {saveError && (

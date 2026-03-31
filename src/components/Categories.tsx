@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { Button } from 'konsta/react'
 import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
 
@@ -129,24 +129,14 @@ export default function Categories() {
           <p style={{ fontSize: 13, color: 'var(--danger)', margin: 0 }}>{formError}</p>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={cancelForm}
-            className="ghost-button"
-            style={{ padding: '8px 16px', fontSize: 14 }}
-          >
-            <X style={{ width: 14, height: 14 }} />
+          <Button outline rounded small onClick={cancelForm}>
+            <X style={{ width: 14, height: 14, marginRight: 4 }} />
             Cancel
-          </button>
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="primary-pill"
-            style={{ padding: '8px 20px', fontSize: 14, opacity: submitting ? 0.6 : 1 }}
-          >
-            <Check style={{ width: 14, height: 14 }} />
+          </Button>
+          <Button rounded small onClick={handleSubmit} disabled={submitting}>
+            <Check style={{ width: 14, height: 14, marginRight: 4 }} />
             {editingId ? 'Save' : 'Add'}
-          </motion.button>
+          </Button>
         </div>
       </div>
     </div>
@@ -157,15 +147,10 @@ export default function Categories() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Categories</h1>
         {!showForm && !editingId && (
-          <motion.button
-            whileTap={{ scale: 0.96 }}
-            onClick={startCreate}
-            className="ghost-button ghost-button--accent"
-            style={{ padding: '6px 14px', fontSize: 13 }}
-          >
-            <Plus style={{ width: 14, height: 14 }} />
+          <Button outline rounded small onClick={startCreate}>
+            <Plus style={{ width: 14, height: 14, marginRight: 4 }} />
             Add
-          </motion.button>
+          </Button>
         )}
       </div>
 
@@ -219,24 +204,14 @@ export default function Categories() {
                     <p style={{ fontSize: 13, color: 'var(--danger)', margin: 0 }}>{formError}</p>
                   )}
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button
-                      onClick={cancelForm}
-                      className="ghost-button"
-                      style={{ padding: '8px 16px', fontSize: 14 }}
-                    >
-                      <X style={{ width: 14, height: 14 }} />
+                    <Button outline rounded small onClick={cancelForm}>
+                      <X style={{ width: 14, height: 14, marginRight: 4 }} />
                       Cancel
-                    </button>
-                    <motion.button
-                      whileTap={{ scale: 0.96 }}
-                      onClick={handleSubmit}
-                      disabled={submitting}
-                      className="primary-pill"
-                      style={{ padding: '8px 20px', fontSize: 14, opacity: submitting ? 0.6 : 1 }}
-                    >
-                      <Check style={{ width: 14, height: 14 }} />
+                    </Button>
+                    <Button rounded small onClick={handleSubmit} disabled={submitting}>
+                      <Check style={{ width: 14, height: 14, marginRight: 4 }} />
                       Save
-                    </motion.button>
+                    </Button>
                   </div>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
+import konstaConfig from "konsta/config";
 
-const config: Config = {
+const config: Config = konstaConfig({
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -15,5 +16,5 @@ const config: Config = {
     },
   },
   plugins: [],
-};
+}) as Config;
 export default config;
