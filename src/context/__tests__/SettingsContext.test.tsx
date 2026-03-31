@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { SettingsProvider, useSettings } from '../SettingsContext'
+import { SettingsProvider, useSettings, THEME_COLOR_LIGHT, THEME_COLOR_DARK } from '../SettingsContext'
 import type { ReactNode } from 'react'
 
 // Mock fetch
@@ -16,6 +16,8 @@ beforeEach(() => {
   // Reset document state
   document.documentElement.classList.remove('dark')
   document.documentElement.style.colorScheme = ''
+  // Remove any existing theme-color meta tag
+  document.querySelector('meta[name="theme-color"]')?.remove()
 })
 
 afterEach(() => {
@@ -104,6 +106,44 @@ describe('SettingsContext – theme synchronization', () => {
     await waitFor(() => {
       expect(document.documentElement.classList.contains('dark')).toBe(false)
       expect(document.documentElement.style.colorScheme).toBe('light')
+    })
+  })
+
+  it('initializes React state from localStorage synchronously (no flash)', () => {
+    localStorage.setItem('sesh-settings', JSON.stringify({ darkMode: true }))
+
+    const { result } = renderHook(() => useSettings(), { wrapper })
+
+    // The very first render should already have darkMode: true
+    expect(result.current.settings.darkMode).toBe(true)
+  })
+
+  it('updates theme-color meta tag when dark mode is toggled on', async () => {
+    const { result } = renderHook(() => useSettings(), { wrapper })
+
+    await waitFor(() => {
+      const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+      expect(meta?.content).toBe(THEME_COLOR_LIGHT)
+    })
+
+    act(() => {
+      result.current.updateSettings({ darkMode: true })
+    })
+
+    await waitFor(() => {
+      const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+      expect(meta?.content).toBe(THEME_COLOR_DARK)
+    })
+  })
+
+  it('sets dark theme-color on initial render when localStorage has darkMode', async () => {
+    localStorage.setItem('sesh-settings', JSON.stringify({ darkMode: true }))
+
+    renderHook(() => useSettings(), { wrapper })
+
+    await waitFor(() => {
+      const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+      expect(meta?.content).toBe(THEME_COLOR_DARK)
     })
   })
 })

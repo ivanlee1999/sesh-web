@@ -34,6 +34,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 var dark = raw ? !!JSON.parse(raw).darkMode : false;
                 document.documentElement.classList.toggle('dark', dark);
                 document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+                var tc = dark ? '#1c1c1e' : '#FFFFFF';
+                var m = document.querySelector('meta[name="theme-color"]');
+                if (m) m.content = tc;
               } catch(e) {}
             `,
           }}
