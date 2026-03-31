@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
+import { useSettings } from '@/context/SettingsContext'
 
 interface ProgressRingProps {
   progress: number  // 0-1
@@ -23,6 +24,16 @@ export default function ProgressRing({
   onProgressChange,
   onDragEnd,
 }: ProgressRingProps) {
+  const { settings } = useSettings()
+  const isDark = settings.darkMode
+
+  // Theme-aware neutral colors
+  const baseStroke = isDark ? '#666666' : '#999999'
+  const majorTickColor = isDark ? '#cccccc' : '#333333'
+  const minorTickColor = isDark ? '#999999' : '#666666'
+  const minuteLabelColor = isDark ? '#999999' : '#666666'
+  const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
+
   const radius = (size - 40) / 2  // leave room for numbers outside
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
@@ -182,7 +193,7 @@ export default function ProgressRing({
           cy={cy}
           r={radius}
           fill="none"
-          stroke="#999999"
+          stroke={baseStroke}
           strokeWidth={3}
           opacity={0.8}
         />
@@ -193,7 +204,7 @@ export default function ProgressRing({
             key={i}
             x1={tick.x1} y1={tick.y1}
             x2={tick.x2} y2={tick.y2}
-            stroke={tick.isMajor ? '#333333' : '#666666'}
+            stroke={tick.isMajor ? majorTickColor : minorTickColor}
             strokeWidth={tick.isMajor ? 3 : 1.5}
             strokeLinecap="round"
             opacity={1}
@@ -234,7 +245,7 @@ export default function ProgressRing({
             x={x} y={y}
             textAnchor="middle"
             dominantBaseline="central"
-            fill="#666666"
+            fill={minuteLabelColor}
             fontSize={11}
             fontWeight={500}
             style={{ userSelect: 'none', pointerEvents: 'none' }}
@@ -261,7 +272,7 @@ export default function ProgressRing({
               cx={tipX} cy={tipY}
               r={5}
               fill={color}
-              stroke="#FFFFFF"
+              stroke={tipBorderColor}
               strokeWidth={3}
             />
           </>

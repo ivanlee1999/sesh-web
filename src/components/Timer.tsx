@@ -695,7 +695,7 @@ export default function Timer() {
                   onChange={e => handleIntentionChange(e.target.value)}
                   placeholder="What are you working on?"
                   maxLength={120}
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-blue-500"
+                  className="mt-2 w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-[15px] text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
                   style={{ minHeight: 38 }}
                 />
               </div>
@@ -779,12 +779,12 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="font-mono text-4xl font-semibold leading-none text-black">
+            <span className="font-mono text-4xl font-semibold leading-none text-black dark:text-gray-100">
               {formatTime(displayMs)}
             </span>
 
             {/* Time range label */}
-            <span className="rounded-full bg-gray-100 px-4 py-1 text-sm leading-6 text-gray-600">
+            <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-4 py-1 text-sm leading-6 text-gray-600 dark:text-gray-400">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
@@ -823,7 +823,7 @@ export default function Timer() {
               }}
               placeholder="Tap to add intention..."
               maxLength={120}
-              className="mt-2 mb-1 w-full border-b border-transparent bg-transparent px-0 py-1 text-center text-xl font-semibold leading-snug text-black outline-none transition-colors focus:border-blue-500"
+              className="mt-2 mb-1 w-full border-b border-transparent bg-transparent px-0 py-1 text-center text-xl font-semibold leading-snug text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
             />
             <div className="flex items-center justify-center gap-2">
               <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-gray-500'}`}>
@@ -867,7 +867,7 @@ export default function Timer() {
               {isOverflow && (
                 <span className="mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono text-[52px] font-bold leading-none text-black">
+              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-gray-100">
                 {formatTime(displayMs)}
               </span>
             </div>

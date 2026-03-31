@@ -1,6 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import ProgressRing from '../ProgressRing'
+
+// Mock useSettings to provide darkMode setting
+const mockSettings = { darkMode: false }
+vi.mock('@/context/SettingsContext', () => ({
+  useSettings: () => ({
+    settings: mockSettings,
+    updateSettings: vi.fn(),
+  }),
+}))
 
 describe('ProgressRing', () => {
   const defaultProps = {
@@ -46,6 +55,35 @@ describe('ProgressRing', () => {
       l => l.getAttribute('stroke-width') === '1.5'
     )
     expect(minorTicks.length).toBe(48)
+  })
+
+  it('uses light-theme colors for strokes in light mode', () => {
+    mockSettings.darkMode = false
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    // Base circle should use light-mode track color
+    const baseCircle = container.querySelector('svg circle')!
+    expect(baseCircle.getAttribute('stroke')).toBe('#999999')
+
+    // Major ticks should use dark stroke in light mode
+    const lines = container.querySelectorAll('svg line')
+    const majorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '3')!
+    expect(majorTick.getAttribute('stroke')).toBe('#333333')
+  })
+
+  it('uses dark-theme colors for strokes in dark mode', () => {
+    mockSettings.darkMode = true
+    const { container } = render(<ProgressRing {...defaultProps} />)
+    // Base circle should use dark-mode track color
+    const baseCircle = container.querySelector('svg circle')!
+    expect(baseCircle.getAttribute('stroke')).toBe('#666666')
+
+    // Major ticks should use lighter stroke in dark mode
+    const lines = container.querySelectorAll('svg line')
+    const majorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '3')!
+    expect(majorTick.getAttribute('stroke')).toBe('#cccccc')
+
+    // Reset for other tests
+    mockSettings.darkMode = false
   })
 
   it('does not render wedge path when progress=0', () => {
@@ -142,5 +180,19 @@ describe('ProgressRing', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const svg = container.querySelector('svg')!
     expect(svg.style.touchAction).toBe('')
+  })
+
+  it('uses theme-appropriate tip border color in dark mode', () => {
+    mockSettings.darkMode = true
+    const { container } = render(
+      <ProgressRing {...defaultProps} progress={0.5} interactive />
+    )
+    const circles = container.querySelectorAll('svg circle')
+    // The tip dot should have dark background as its border
+    const tipCircle = Array.from(circles).find(
+      c => c.getAttribute('stroke') === '#1c1c1e'
+    )
+    expect(tipCircle).toBeTruthy()
+    mockSettings.darkMode = false
   })
 })

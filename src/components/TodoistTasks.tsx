@@ -94,13 +94,13 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
         onClick={() => setIsOpen(!isOpen)}
         className={`flex min-h-[44px] w-full items-center justify-between rounded-xl border-[1.5px] px-3.5 py-2.5 text-left transition-all ${
           selectedTask
-            ? 'border-blue-500 bg-blue-50'
-            : 'border-gray-300 bg-white'
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
         }`}
         style={{ cursor: 'pointer' }}
       >
         <span className={`flex-1 truncate text-[15px] ${
-          selectedTask ? 'text-black' : 'text-gray-500'
+          selectedTask ? 'text-black dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
         }`}>
           {selectedTask ? selectedTask.content : tasks.length === 0 ? 'No tasks for today' : 'Select a task...'}
         </span>
@@ -137,7 +137,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
             animate={{ opacity: 1, y: 0, scaleY: 1 }}
             exit={{ opacity: 0, y: -8, scaleY: 0.95 }}
             transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
-            className="mt-1.5 max-h-[280px] origin-top overflow-hidden overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-md"
+            className="mt-1.5 max-h-[280px] origin-top overflow-hidden overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md"
           >
             {tasks.map((task, i) => {
               const isSelected = selectedTaskId === task.id
@@ -153,8 +153,8 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                     setIsOpen(false)
                   }}
                   className={`flex w-full items-center gap-2.5 border-none px-3.5 py-3 text-left transition-colors ${
-                    isSelected ? 'bg-blue-50' : 'bg-white'
-                  } ${i < tasks.length - 1 ? 'border-b border-gray-100' : ''}`}
+                    isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-gray-800'
+                  } ${i < tasks.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
                   style={{ cursor: 'pointer' }}
                 >
                   {/* Checkbox */}
@@ -175,7 +175,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
 
                   {/* Content */}
                   <div className="min-w-0 flex-1">
-                    <p className={`m-0 truncate text-[15px] text-black ${
+                    <p className={`m-0 truncate text-[15px] text-black dark:text-gray-100 ${
                       isCompleted ? 'line-through opacity-50' : ''
                     }`}>
                       {task.content}

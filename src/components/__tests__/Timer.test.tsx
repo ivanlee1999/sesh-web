@@ -107,21 +107,24 @@ describe('Timer', () => {
     expect(style).not.toMatch(/--[\w-]+-color/)
   })
 
-  it('renders the intention input with proper Tailwind classes for visibility', () => {
+  it('renders the intention input with theme-aware Tailwind classes', () => {
     render(<Timer />)
 
     const input = screen.getByPlaceholderText('What are you working on?')
     expect(input).toBeTruthy()
 
-    // Should have text-black for visible text
+    // Should have light-mode text color with dark-mode variant
     expect(input.className).toContain('text-black')
+    expect(input.className).toContain('dark:text-gray-100')
     // Should have text-[15px] for readable size
     expect(input.className).toContain('text-[15px]')
-    // Should have border styling via Tailwind
+    // Should have border styling via Tailwind with dark variant
     expect(input.className).toContain('border')
     expect(input.className).toContain('border-gray-300')
-    // Should have bg-white for visible background
+    expect(input.className).toContain('dark:border-gray-600')
+    // Should have theme-aware background
     expect(input.className).toContain('bg-white')
+    expect(input.className).toContain('dark:bg-gray-800')
     // Should have rounded corners
     expect(input.className).toContain('rounded-xl')
   })
@@ -150,13 +153,14 @@ describe('Timer', () => {
     expect(studyButton!.style.borderColor).toBeTruthy()
   })
 
-  it('renders time display with Tailwind text-black class', () => {
+  it('renders time display with theme-aware text classes', () => {
     const { container } = render(<Timer />)
 
-    // Find the time display span: it should show "25:00" and use text-black
+    // Find the time display span: it should show "25:00" and use theme-aware text
     const timeDisplay = screen.getByText('25:00')
     expect(timeDisplay).toBeTruthy()
     expect(timeDisplay.className).toContain('text-black')
+    expect(timeDisplay.className).toContain('dark:text-gray-100')
     expect(timeDisplay.className).toContain('font-mono')
     expect(timeDisplay.className).toContain('text-4xl')
     expect(timeDisplay.className).toContain('font-semibold')

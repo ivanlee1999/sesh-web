@@ -51,7 +51,7 @@ describe('TodoistTasks', () => {
     })
   })
 
-  it('renders dropdown trigger with proper Tailwind classes when configured with tasks', async () => {
+  it('renders dropdown trigger with theme-aware Tailwind classes when configured with tasks', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
@@ -61,20 +61,23 @@ describe('TodoistTasks', () => {
     const trigger = await screen.findByText('Select a task...')
     expect(trigger).toBeTruthy()
 
-    // The trigger span should use Tailwind text classes
+    // The trigger span should use Tailwind text classes with dark variants
     expect(trigger.className).toContain('text-gray-500')
+    expect(trigger.className).toContain('dark:text-gray-400')
     expect(trigger.className).toContain('text-[15px]')
     expect(trigger.className).toContain('truncate')
 
-    // The trigger button (parent) should have Tailwind border/bg classes
+    // The trigger button (parent) should have theme-aware Tailwind border/bg classes
     const button = trigger.closest('button')!
     expect(button.className).toContain('rounded-xl')
     expect(button.className).toContain('border-gray-300')
+    expect(button.className).toContain('dark:border-gray-600')
     expect(button.className).toContain('bg-white')
+    expect(button.className).toContain('dark:bg-gray-800')
     expect(button.className).toContain('min-h-[44px]')
   })
 
-  it('shows selected task with text-black and blue styling', async () => {
+  it('shows selected task with theme-aware text and blue styling', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId="t1" onSelectTask={vi.fn()} />
@@ -83,8 +86,9 @@ describe('TodoistTasks', () => {
     const taskText = await screen.findByText('Write unit tests')
     expect(taskText).toBeTruthy()
 
-    // When a task is selected, the text span uses text-black
+    // When a task is selected, the text span uses theme-aware text
     expect(taskText.className).toContain('text-black')
+    expect(taskText.className).toContain('dark:text-gray-100')
 
     // The trigger button should have selected styling (blue border, blue bg)
     const button = taskText.closest('button')!
@@ -92,7 +96,7 @@ describe('TodoistTasks', () => {
     expect(button.className).toContain('bg-blue-50')
   })
 
-  it('renders task items with Tailwind text classes when dropdown is open', async () => {
+  it('renders task items with theme-aware Tailwind text classes when dropdown is open', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
@@ -108,9 +112,10 @@ describe('TodoistTasks', () => {
     const taskItem = await screen.findByText('Write unit tests')
     expect(taskItem).toBeTruthy()
 
-    // Task content should use text-black
+    // Task content should use theme-aware text
     const taskParagraph = taskItem.closest('p')!
     expect(taskParagraph.className).toContain('text-black')
+    expect(taskParagraph.className).toContain('dark:text-gray-100')
     expect(taskParagraph.className).toContain('text-[15px]')
 
     // Duration text should use Tailwind color
@@ -139,7 +144,7 @@ describe('TodoistTasks', () => {
     expect(p2Label.className).toContain('text-orange-500')
   })
 
-  it('renders the dropdown container with proper Tailwind classes', async () => {
+  it('renders the dropdown container with theme-aware Tailwind classes', async () => {
     mockFetchConfiguredWithTasks()
 
     const { container } = render(
@@ -152,9 +157,10 @@ describe('TodoistTasks', () => {
     // Wait for dropdown menu to render
     await screen.findByText('Write unit tests')
 
-    // The dropdown menu should have Tailwind border/bg/shadow classes
-    // Find the dropdown container (it has rounded-xl, border, bg-white, shadow-md)
-    const dropdownMenu = container.querySelector('.rounded-xl.border.border-gray-200.bg-white.shadow-md')
+    // The dropdown menu should have Tailwind border/bg/shadow classes with dark variants
+    const dropdownMenu = container.querySelector('.rounded-xl.border.bg-white.shadow-md')
     expect(dropdownMenu).toBeTruthy()
+    expect(dropdownMenu!.className).toContain('dark:bg-gray-800')
+    expect(dropdownMenu!.className).toContain('dark:border-gray-700')
   })
 })
