@@ -162,8 +162,9 @@ export default function ProgressRing({
     >
       <svg
         ref={svgRef}
-        width={size}
-        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        width="100%"
+        height="100%"
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -171,15 +172,7 @@ export default function ProgressRing({
         style={interactive ? { touchAction: 'none', cursor: 'pointer' } : undefined}
       >
         <defs>
-          {/* Glow for active state */}
-          <filter id="ring-glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          {/* Gradient for the wedge fill — radial fade from center */}
+{/* Gradient for the wedge fill — radial fade from center */}
           <radialGradient id="wedge-gradient" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={color} stopOpacity="0.08" />
             <stop offset="60%" stopColor={color} stopOpacity="0.35" />
@@ -232,22 +225,22 @@ export default function ProgressRing({
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${cx} ${cy})`}
-          filter={!interactive && progress > 0 ? 'url(#ring-glow)' : undefined}
+          /* no blur filter — keeps ring sharp on retina */
           style={{
             transition: interactive ? 'none' : 'stroke-dashoffset 0.5s ease',
           }}
         />
 
         {/* Minute numbers (interactive only) */}
-        {interactive && minuteNumbers.map(({ minute, x, y }) => (
+        {minuteNumbers.map(({ minute, x, y }) => (
           <text
             key={minute}
             x={x} y={y}
             textAnchor="middle"
             dominantBaseline="central"
             fill={minuteLabelColor}
-            fontSize={12}
-            fontWeight={600}
+            fontSize={14}
+            fontWeight={700}
             style={{ userSelect: 'none', pointerEvents: 'none' }}
           >
             {minute}
