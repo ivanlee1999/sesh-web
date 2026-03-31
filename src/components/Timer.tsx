@@ -696,7 +696,7 @@ export default function Timer() {
             justifyContent: 'flex-start',
             marginTop: 8,
                 width: '100%',
-            height: '100%',
+            
             paddingTop: 0,
           }}
         >
