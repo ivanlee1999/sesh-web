@@ -95,7 +95,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
         className={`flex min-h-[44px] w-full items-center justify-between rounded-xl border-[1.5px] px-3.5 py-2.5 text-left transition-all ${
           selectedTask
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
+            : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'
         }`}
         style={{ cursor: 'pointer' }}
       >

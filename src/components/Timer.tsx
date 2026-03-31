@@ -695,7 +695,7 @@ export default function Timer() {
                   onChange={e => handleIntentionChange(e.target.value)}
                   placeholder="What are you working on?"
                   maxLength={120}
-                  className="mt-2 w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-[15px] text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
+                  className="mt-2 w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-[15px] text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
                   style={{ minHeight: 38 }}
                 />
               </div>
