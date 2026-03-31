@@ -182,7 +182,7 @@ export default function ProgressRing({
           cy={cy}
           r={radius}
           fill="none"
-          stroke="rgba(0,0,0,0.25)"
+          stroke="#999999"
           strokeWidth={3}
           opacity={0.8}
         />
@@ -193,7 +193,7 @@ export default function ProgressRing({
             key={i}
             x1={tick.x1} y1={tick.y1}
             x2={tick.x2} y2={tick.y2}
-            stroke={tick.isMajor ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.5)'}
+            stroke={tick.isMajor ? '#333333' : '#666666'}
             strokeWidth={tick.isMajor ? 3 : 1.5}
             strokeLinecap="round"
             opacity={1}
@@ -234,7 +234,7 @@ export default function ProgressRing({
             x={x} y={y}
             textAnchor="middle"
             dominantBaseline="central"
-            fill="rgba(0,0,0,0.5)"
+            fill="#666666"
             fontSize={11}
             fontWeight={500}
             style={{ userSelect: 'none', pointerEvents: 'none' }}
