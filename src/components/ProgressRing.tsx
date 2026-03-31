@@ -28,13 +28,13 @@ export default function ProgressRing({
   const isDark = settings.darkMode
 
   // Theme-aware colors
-  const baseStroke = isDark ? '#555555' : '#CCCCCC'
+  const baseStroke = isDark ? '#555555' : '#999999'
   const majorTickColor = isDark ? '#FFFFFF' : '#000000'
   const minorTickColor = isDark ? '#AAAAAA' : '#666666'
   const minuteLabelColor = isDark ? '#FFFFFF' : '#000000'
   const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
 
-  const radius = (size - 40) / 2  // leave room for numbers outside
+  const radius = (size - 44) / 2  // leave room for numbers outside
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
   const cx = size / 2
@@ -124,7 +124,7 @@ export default function ProgressRing({
   const minuteNumbers = useMemo(() => Array.from({ length: 12 }, (_, i) => {
     const minute = (i + 1) * 5
     const angle = fractionToAngle(minute / 60)
-    const r = radius + 18
+    const r = radius + 20
     return { minute, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }), [radius, cx, cy])
 
@@ -187,7 +187,7 @@ export default function ProgressRing({
           r={radius}
           fill="none"
           stroke={baseStroke}
-          strokeWidth={4}
+          strokeWidth={6}
           opacity={1}
         />
 
@@ -198,7 +198,7 @@ export default function ProgressRing({
             x1={tick.x1} y1={tick.y1}
             x2={tick.x2} y2={tick.y2}
             stroke={tick.isMajor ? majorTickColor : minorTickColor}
-            strokeWidth={tick.isMajor ? 2.5 : 1.5}
+            strokeWidth={tick.isMajor ? 3 : 2}
             strokeLinecap="round"
             opacity={1}
           />
