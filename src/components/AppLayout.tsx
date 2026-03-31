@@ -13,6 +13,7 @@ export default function AppLayout() {
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
   const { settings } = useSettings()
 
+  // Theme is settings-driven only; system preference must not drive Konsta
   return (
     <App theme="ios" dark={settings.darkMode} safeAreas>
       <div className="app-shell">

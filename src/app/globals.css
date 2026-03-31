@@ -7,8 +7,6 @@
    ────────────────────────────────────────── */
 
 :root {
-  color-scheme: light dark;
-
   /* Backgrounds */
   --bg-primary: #FFFFFF;
   --bg-secondary: #F5F5F7;
@@ -67,6 +65,11 @@
 html {
   height: 100%;
   overscroll-behavior: none;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -127,13 +130,16 @@ body {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-@media (prefers-color-scheme: dark) {
-  .tabbar {
-    background: rgba(28, 28, 30, 0.85);
-  }
+.dark .tabbar {
+  background: rgba(28, 28, 30, 0.85);
 }
 
-.dark .tabbar {
+.app-tabbar {
+  background: rgba(255, 255, 255, 0.85);
+  border-top: 0.5px solid var(--border);
+}
+
+.dark .app-tabbar {
   background: rgba(28, 28, 30, 0.85);
 }
 
