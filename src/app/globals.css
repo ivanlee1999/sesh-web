@@ -15,7 +15,7 @@
   /* Text */
   --text-primary: #1C1C1E;
   --text-secondary: #8E8E93;
-  --text-tertiary: #C7C7CC;
+  --text-tertiary: #8E8E93;
 
   /* Accent – Things blue */
   --accent: #2B79E5;
@@ -23,7 +23,7 @@
   --accent-glow: rgba(43, 121, 229, 0.2);
 
   /* Borders & shadows */
-  --border: rgba(0, 0, 0, 0.06);
+  --border: rgba(0, 0, 0, 0.12);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
 
@@ -33,7 +33,7 @@
   --danger: #FF3B30;
 
   /* Ring */
-  --ring-track: rgba(0, 0, 0, 0.12);
+  --ring-track: rgba(0, 0, 0, 0.2);
 }
 
 /* prefers-color-scheme removed — theme controlled by .dark class */

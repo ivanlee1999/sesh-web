@@ -196,7 +196,7 @@ export default function ProgressRing({
             stroke={tick.isMajor ? 'var(--text-secondary)' : 'var(--text-tertiary)'}
             strokeWidth={tick.isMajor ? 2 : 0.75}
             strokeLinecap="round"
-            opacity={tick.isMajor ? 0.8 : 0.4}
+            opacity={tick.isMajor ? 0.8 : 0.6}
           />
         ))}
 
