@@ -701,7 +701,7 @@ export default function Timer() {
           }}
         >
           {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, width: '100%' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
             {/* Todoist tasks — compact at top */}
             <div style={{ width: '100%', maxWidth: 361 }}>
               <TodoistTasks
@@ -739,7 +739,7 @@ export default function Timer() {
             ) : null}
 
             {/* Category pills + Session type pills — two-row layout */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', maxWidth: 360 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 360 }}>
               <div
                 className="hide-scrollbar"
                 style={{
@@ -815,7 +815,7 @@ export default function Timer() {
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={180}
+              size={140}
               strokeWidth={8}
               interactive={true}
               onProgressChange={(p) => {
@@ -839,7 +839,7 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="font-mono" style={{ fontSize: 48, fontWeight: 300, color: 'var(--text-primary)', lineHeight: 1 }}>
+            <span className="font-mono" style={{ fontSize: 36, fontWeight: 300, color: 'var(--text-primary)', lineHeight: 1 }}>
               {formatTime(displayMs)}
             </span>
 
