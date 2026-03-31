@@ -670,8 +670,8 @@ export default function Timer() {
       justifyContent: 'center',
       padding: '16px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
       paddingTop: 'env(safe-area-inset-top, 16px)',
-      height: 'calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))',
-      overflow: 'auto' as const,
+      minHeight: 'calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))',
+      
       overscrollBehavior: 'contain' as const,
       boxSizing: 'border-box' as const,
       marginTop: 8,
@@ -839,14 +839,14 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="font-mono" style={{ fontSize: 36, fontWeight: 300, color: 'var(--text-primary)', lineHeight: 1 }}>
+            <span className="font-mono" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>
               {formatTime(displayMs)}
             </span>
 
             {/* Time range label */}
             <span style={{
               fontSize: 14,
-              color: 'var(--text-secondary)',
+              color: 'var(--text-primary)',
               background: 'var(--bg-secondary)',
               padding: '4px 14px',
               borderRadius: 20,
