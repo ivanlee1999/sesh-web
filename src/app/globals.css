@@ -9,7 +9,7 @@
 :root {
   /* Backgrounds */
   --bg-primary: #FFFFFF;
-  --bg-secondary: #E8E8ED;
+  --bg-secondary: #D1D1D6;
   --bg-elevated: #FFFFFF;
 
   /* Text */
@@ -23,9 +23,9 @@
   --accent-glow: rgba(43, 121, 229, 0.2);
 
   /* Borders & shadows */
-  --border: rgba(0, 0, 0, 0.2);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+  --border: rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.15);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.15);
 
   /* Semantic */
   --success: #34C759;
@@ -33,7 +33,7 @@
   --danger: #FF3B30;
 
   /* Ring */
-  --ring-track: rgba(0, 0, 0, 0.2);
+  --ring-track: rgba(0, 0, 0, 0.3);
 }
 
 /* prefers-color-scheme removed — theme controlled by .dark class */

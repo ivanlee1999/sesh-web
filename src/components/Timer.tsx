@@ -776,7 +776,7 @@ export default function Timer() {
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         padding: '5px 12px', borderRadius: 8, border: 'none',
                         fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                        background: category === cat.name ? `${cat.color}20` : 'var(--bg-secondary)',
+                        background: category === cat.name ? `${cat.color}40` : 'var(--bg-secondary)',
                         color: category === cat.name ? cat.color : 'var(--text-secondary)',
                         transition: 'all 0.15s ease',
                         flex: '0 0 auto',
