@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
+import { useSettings } from '@/context/SettingsContext'
 
 interface ProgressRingProps {
   progress: number  // 0-1
@@ -23,12 +24,15 @@ export default function ProgressRing({
   onProgressChange,
   onDragEnd,
 }: ProgressRingProps) {
-  // Fixed high-contrast colors for light mode (app uses dark={false})
-  const baseStroke = '#CCCCCC'
-  const majorTickColor = '#000000'
-  const minorTickColor = '#666666'
-  const minuteLabelColor = '#000000'
-  const tipBorderColor = '#FFFFFF'
+  const { settings } = useSettings()
+  const isDark = settings.darkMode
+
+  // Theme-aware colors
+  const baseStroke = isDark ? '#555555' : '#CCCCCC'
+  const majorTickColor = isDark ? '#FFFFFF' : '#000000'
+  const minorTickColor = isDark ? '#AAAAAA' : '#666666'
+  const minuteLabelColor = isDark ? '#FFFFFF' : '#000000'
+  const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
 
   const radius = (size - 40) / 2  // leave room for numbers outside
   const circumference = 2 * Math.PI * radius
