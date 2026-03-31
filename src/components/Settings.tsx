@@ -272,21 +272,7 @@ export default function Settings() {
           </List>
         </div>
 
-        {/* Appearance */}
-        <div>
-          <BlockTitle>Appearance</BlockTitle>
-          <List strong inset>
-            <ListItem
-              title="Dark mode"
-              after={
-                <Toggle
-                  checked={settings.darkMode}
-                  onChange={() => updateSettings({ darkMode: !settings.darkMode })}
-                />
-              }
-            />
-          </List>
-        </div>
+        {/* Appearance section removed — dark mode deleted */}
 
         {/* Google Calendar */}
         <div>

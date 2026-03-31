@@ -7,15 +7,13 @@ import Analytics from './Analytics'
 import Categories from './Categories'
 import Settings from './Settings'
 import TabBar, { type AppTab } from './TabBar'
-import { useSettings } from '@/context/SettingsContext'
 
 export default function AppLayout() {
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
-  const { settings } = useSettings()
 
   // Theme is settings-driven only; system preference must not drive Konsta
   return (
-    <App theme="ios" dark={settings.darkMode} safeAreas>
+    <App theme="ios" dark={false} safeAreas>
       <div className="app-shell">
         <div className="view-stack">
           <div style={{ display: activeTab === 'timer' ? 'block' : 'none' }}>

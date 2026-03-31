@@ -1,6 +1,6 @@
 // ── Offline cache ────────────────────────────────────────────────────────
-const CACHE_NAME = 'sesh-v3'
-const API_CACHE_NAME = 'sesh-api-v4'
+const CACHE_NAME = 'sesh-v5'
+const API_CACHE_NAME = 'sesh-api-v5'
 
 // Static assets to precache on install
 const STATIC_ASSETS = [

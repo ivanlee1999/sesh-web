@@ -38,25 +38,7 @@
 
 /* prefers-color-scheme removed — theme controlled by .dark class */
 
-.dark {
-  --bg-primary: #1C1C1E;
-  --bg-secondary: #2C2C2E;
-  --bg-elevated: #3A3A3C;
-
-  --text-primary: #FFFFFF;
-  --text-secondary: #8E8E93;
-  --text-tertiary: #48484A;
-
-  --accent: #2B79E5;
-  --accent-light: rgba(43, 121, 229, 0.15);
-  --accent-glow: rgba(43, 121, 229, 0.3);
-
-  --border: rgba(255, 255, 255, 0.08);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-
-  --ring-track: rgba(255, 255, 255, 0.08);
-}
+/* dark mode removed */
 
 /* ──────────────────────────────────────────
    Base
@@ -68,9 +50,7 @@ html {
   color-scheme: light;
 }
 
-html.dark {
-  color-scheme: dark;
-}
+html/* dark mode removed */
 
 body {
   height: 100%;
