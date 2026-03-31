@@ -9,7 +9,7 @@
 :root {
   /* Backgrounds */
   --bg-primary: #FFFFFF;
-  --bg-secondary: #F5F5F7;
+  --bg-secondary: #E8E8ED;
   --bg-elevated: #FFFFFF;
 
   /* Text */
@@ -19,11 +19,11 @@
 
   /* Accent – Things blue */
   --accent: #2B79E5;
-  --accent-light: rgba(43, 121, 229, 0.08);
+  --accent-light: rgba(43, 121, 229, 0.15);
   --accent-glow: rgba(43, 121, 229, 0.2);
 
   /* Borders & shadows */
-  --border: rgba(0, 0, 0, 0.12);
+  --border: rgba(0, 0, 0, 0.2);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
 
