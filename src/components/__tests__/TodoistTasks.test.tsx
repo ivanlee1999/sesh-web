@@ -51,7 +51,7 @@ describe('TodoistTasks', () => {
     })
   })
 
-  it('renders dropdown trigger with theme-aware Tailwind classes when configured with tasks', async () => {
+  it('renders trigger with placeholder text when configured with tasks', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
@@ -60,43 +60,21 @@ describe('TodoistTasks', () => {
     // Wait for tasks to load and the "Select a task..." placeholder to appear
     const trigger = await screen.findByText('Select a task...')
     expect(trigger).toBeTruthy()
-
-    // The trigger span should use Tailwind text classes with dark variants
-    expect(trigger.className).toContain('text-gray-500')
-    expect(trigger.className).toContain('dark:text-gray-400')
-    expect(trigger.className).toContain('text-[15px]')
-    expect(trigger.className).toContain('truncate')
-
-    // The trigger button (parent) should have theme-aware Tailwind border/bg classes
-    const button = trigger.closest('button')!
-    expect(button.className).toContain('rounded-xl')
-    expect(button.className).toContain('border-gray-300')
-    expect(button.className).toContain('dark:border-gray-600')
-    expect(button.className).toContain('bg-white')
-    expect(button.className).toContain('dark:bg-gray-800')
-    expect(button.className).toContain('min-h-[44px]')
   })
 
-  it('shows selected task with theme-aware text and blue styling', async () => {
+  it('shows selected task content in trigger', async () => {
     mockFetchConfiguredWithTasks()
-    render(
+    const { container } = render(
       <TodoistTasks selectedTaskId="t1" onSelectTask={vi.fn()} />
     )
 
-    const taskText = await screen.findByText('Write unit tests')
-    expect(taskText).toBeTruthy()
-
-    // When a task is selected, the text span uses theme-aware text
-    expect(taskText.className).toContain('text-black')
-    expect(taskText.className).toContain('dark:text-gray-100')
-
-    // The trigger button should have selected styling (blue border, blue bg)
-    const button = taskText.closest('button')!
-    expect(button.className).toContain('border-blue-500')
-    expect(button.className).toContain('bg-blue-50')
+    // Wait for tasks to load - the selected task content appears in the trigger ListItem
+    await waitFor(() => {
+      expect(container.textContent).toContain('Write unit tests')
+    })
   })
 
-  it('renders task items with theme-aware Tailwind text classes when dropdown is open', async () => {
+  it('opens sheet and shows task list when trigger is clicked', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
@@ -105,62 +83,57 @@ describe('TodoistTasks', () => {
     // Wait for tasks to load
     const trigger = await screen.findByText('Select a task...')
 
-    // Open the dropdown
-    fireEvent.click(trigger.closest('button')!)
+    // Click the list item to open the sheet
+    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
+    fireEvent.click(listItem)
 
-    // Task items should now be visible with proper text classes
-    const taskItem = await screen.findByText('Write unit tests')
-    expect(taskItem).toBeTruthy()
-
-    // Task content should use theme-aware text
-    const taskParagraph = taskItem.closest('p')!
-    expect(taskParagraph.className).toContain('text-black')
-    expect(taskParagraph.className).toContain('dark:text-gray-100')
-    expect(taskParagraph.className).toContain('text-[15px]')
-
-    // Duration text should use Tailwind color
-    const durationSpan = screen.getByText('25min')
-    expect(durationSpan.className).toContain('text-gray-500')
-    expect(durationSpan.className).toContain('text-xs')
+    // Tasks should now be visible in the sheet
+    // The sheet renders task items - look for the sheet toolbar title
+    await waitFor(() => {
+      expect(screen.getByText('Tasks')).toBeTruthy()
+    })
   })
 
-  it('renders priority labels with Tailwind color classes', async () => {
+  it('renders priority badges for high-priority tasks', async () => {
     mockFetchConfiguredWithTasks()
-
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
     )
 
     const trigger = await screen.findByText('Select a task...')
-    fireEvent.click(trigger.closest('button')!)
+    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
+    fireEvent.click(listItem)
 
-    // Task t2 has priority 4 -> P1 -> text-red-500
-    const p1Label = await screen.findByText('P1')
-    expect(p1Label.className).toContain('text-red-500')
-    expect(p1Label.className).toContain('text-xs')
-
-    // Task t3 has priority 3 -> P2 -> text-orange-500
-    const p2Label = screen.getByText('P2')
-    expect(p2Label.className).toContain('text-orange-500')
+    // Task t2 has priority 4 -> P1
+    await waitFor(() => {
+      expect(screen.getByText('P1')).toBeTruthy()
+    })
+    // Task t3 has priority 3 -> P2
+    expect(screen.getByText('P2')).toBeTruthy()
   })
 
-  it('renders the dropdown container with theme-aware Tailwind classes', async () => {
+  it('calls onSelectTask when a task is clicked in the sheet', async () => {
     mockFetchConfiguredWithTasks()
-
-    const { container } = render(
-      <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
+    const onSelectTask = vi.fn()
+    render(
+      <TodoistTasks selectedTaskId={null} onSelectTask={onSelectTask} />
     )
 
     const trigger = await screen.findByText('Select a task...')
-    fireEvent.click(trigger.closest('button')!)
+    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
+    fireEvent.click(listItem)
 
-    // Wait for dropdown menu to render
-    await screen.findByText('Write unit tests')
+    await waitFor(() => {
+      expect(screen.getByText('Write unit tests')).toBeTruthy()
+    })
 
-    // The dropdown menu should have Tailwind border/bg/shadow classes with dark variants
-    const dropdownMenu = container.querySelector('.rounded-xl.border.bg-white.shadow-md')
-    expect(dropdownMenu).toBeTruthy()
-    expect(dropdownMenu!.className).toContain('dark:bg-gray-800')
-    expect(dropdownMenu!.className).toContain('dark:border-gray-700')
+    // Click on the first task in the sheet
+    const taskElements = screen.getAllByText('Write unit tests')
+    // The second occurrence is in the sheet (first is the trigger if selected)
+    const sheetTask = taskElements[taskElements.length - 1]
+    const taskListItem = sheetTask.closest('li') || sheetTask.closest('[class*="list-item"]') || sheetTask
+    fireEvent.click(taskListItem)
+
+    expect(onSelectTask).toHaveBeenCalledWith(mockTasks[0])
   })
 })

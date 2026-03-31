@@ -27,11 +27,11 @@ export default function ProgressRing({
   const { settings } = useSettings()
   const isDark = settings.darkMode
 
-  // Theme-aware neutral colors
-  const baseStroke = isDark ? '#666666' : '#999999'
-  const majorTickColor = isDark ? '#cccccc' : '#333333'
-  const minorTickColor = isDark ? '#999999' : '#666666'
-  const minuteLabelColor = isDark ? '#999999' : '#666666'
+  // Theme-aware colors
+  const baseStroke = isDark ? '#555555' : '#CCCCCC'
+  const majorTickColor = isDark ? '#FFFFFF' : '#000000'
+  const minorTickColor = isDark ? '#AAAAAA' : '#666666'
+  const minuteLabelColor = isDark ? '#FFFFFF' : '#000000'
   const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
 
   const radius = (size - 40) / 2  // leave room for numbers outside
@@ -187,15 +187,15 @@ export default function ProgressRing({
           </radialGradient>
         </defs>
 
-        {/* Subtle base circle — very faint track */}
+        {/* Subtle base circle — visible track */}
         <circle
           cx={cx}
           cy={cy}
           r={radius}
           fill="none"
           stroke={baseStroke}
-          strokeWidth={3}
-          opacity={0.8}
+          strokeWidth={4}
+          opacity={1}
         />
 
         {/* Tick marks */}
@@ -205,7 +205,7 @@ export default function ProgressRing({
             x1={tick.x1} y1={tick.y1}
             x2={tick.x2} y2={tick.y2}
             stroke={tick.isMajor ? majorTickColor : minorTickColor}
-            strokeWidth={tick.isMajor ? 3 : 1.5}
+            strokeWidth={tick.isMajor ? 2.5 : 1.5}
             strokeLinecap="round"
             opacity={1}
           />
@@ -227,7 +227,7 @@ export default function ProgressRing({
           r={radius}
           fill="none"
           stroke={color}
-          strokeWidth={strokeWidth}
+          strokeWidth={Math.max(strokeWidth, 10)}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
@@ -246,8 +246,8 @@ export default function ProgressRing({
             textAnchor="middle"
             dominantBaseline="central"
             fill={minuteLabelColor}
-            fontSize={11}
-            fontWeight={500}
+            fontSize={12}
+            fontWeight={600}
             style={{ userSelect: 'none', pointerEvents: 'none' }}
           >
             {minute}

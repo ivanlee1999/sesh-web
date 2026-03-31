@@ -1,7 +1,15 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Pause, SkipForward, Square } from 'lucide-react'
-import { Button, Segmented, SegmentedButton } from 'konsta/react'
+import {
+  Button,
+  Segmented,
+  SegmentedButton,
+  List,
+  ListInput,
+  Chip,
+  Block,
+} from 'konsta/react'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
@@ -86,7 +94,6 @@ export default function Timer() {
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [todoistTaskContent, setTodoistTaskContent] = useState<string>('')
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
@@ -262,7 +269,6 @@ export default function Timer() {
       setStartedAt(data.startedAt)
       setActiveTargetMs(data.targetMs)
       setTodoistTaskId(data.todoistTaskId ?? null)
-      if (!data.todoistTaskId) setTodoistTaskContent('')
       intervalRef.current = setInterval(tick, 100)
     } else if (data.phase === 'paused') {
       if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
@@ -275,7 +281,6 @@ export default function Timer() {
       setActiveTargetMs(data.targetMs)
       if (data.startedAt) setStartedAt(data.startedAt)
       setTodoistTaskId(data.todoistTaskId ?? null)
-      if (!data.todoistTaskId) setTodoistTaskContent('')
     }
   }, [tick])
 
@@ -382,7 +387,6 @@ export default function Timer() {
           setStartedAt(0)
           setIntention(data.intention)
           setTodoistTaskId(null)
-          setTodoistTaskContent('')
           postSwMessage('TIMER_STOPPED')
         } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
           const idleDuration = data.remainingMs || data.targetMs
@@ -584,7 +588,6 @@ export default function Timer() {
     setOverflowMs(0)
     setIntention('')
     setTodoistTaskId(null)
-    setTodoistTaskContent('')
     clearTimerState()
   }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
 
@@ -597,7 +600,6 @@ export default function Timer() {
     setOverflowMs(0)
     setIntention('')
     setTodoistTaskId(null)
-    setTodoistTaskContent('')
     syncToServer({
       phase: 'idle', sessionType, intention: '', category,
       targetMs: defaultDurationMs, remainingMs: defaultDurationMs,
@@ -624,7 +626,10 @@ export default function Timer() {
 
   const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
     setTodoistTaskId(task?.id ?? null)
-    setTodoistTaskContent(task?.content ?? '')
+    // Copy task content into intention so the input has a single source of truth
+    if (task?.content) {
+      setIntention(task.content)
+    }
   }, [])
 
   const isOverflow = remainingMs < 0
@@ -677,77 +682,72 @@ export default function Timer() {
       {viewState === 'idle' ? (
         <div className="mt-2 flex w-full flex-col items-center justify-start">
           {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <div className="flex w-full flex-col items-center gap-3">
+          <Block className="!w-full !max-w-[361px] !space-y-3 !my-0 !px-0">
             {/* Todoist tasks — compact at top */}
-            <div className="w-full max-w-[361px]">
-              <TodoistTasks
-                selectedTaskId={todoistTaskId}
-                onSelectTask={handleTodoistTaskSelect}
-              />
-            </div>
+            <TodoistTasks
+              selectedTaskId={todoistTaskId}
+              onSelectTask={handleTodoistTaskSelect}
+            />
 
             {/* Intention input — only when no Todoist task selected */}
-            {showIdleIntentionInput ? (
-              <div className="w-full max-w-[361px]">
-                <input
+            {showIdleIntentionInput && (
+              <List strong inset className="!my-0">
+                <ListInput
+                  label="Intention"
                   type="text"
-                  value={intention}
-                  onChange={e => handleIntentionChange(e.target.value)}
                   placeholder="What are you working on?"
+                  value={intention}
+                  onInput={(e: React.FormEvent<HTMLInputElement>) => handleIntentionChange((e.target as HTMLInputElement).value)}
                   maxLength={120}
-                  className="mt-2 w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2 text-[15px] text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
-                  style={{ minHeight: 38 }}
                 />
-              </div>
-            ) : null}
+              </List>
+            )}
 
-            {/* Category pills + Session type pills — two-row layout */}
-            <div className="flex w-full max-w-[360px] flex-col gap-2">
-              <div className="hide-scrollbar mt-2 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto">
-                <div className="mx-auto flex flex-none flex-nowrap items-center gap-1.5">
-                  {categories.map(cat => (
-                    <button
-                      key={cat.name}
-                      onClick={() => {
-                        setCategory(cat.name)
-                        syncToServer({
-                          phase: 'idle', sessionType, intention, category: cat.name,
-                          targetMs: customDurationMs, remainingMs: customDurationMs,
-                          overflowMs: 0, startedAt: null, pausedAt: null,
-                        })
-                      }}
-                      className="inline-flex flex-none items-center gap-1 rounded-full border-2 px-3 py-1.5 text-[13px] font-medium transition-all"
-                      style={{
-                        borderColor: cat.color,
-                        background: category === cat.name ? cat.color : 'transparent',
-                        color: category === cat.name ? '#fff' : cat.color,
-                      }}
-                    >
-                      <span
-                        className="inline-block h-[7px] w-[7px] rounded-full"
-                        style={{ background: category === cat.name ? '#fff' : cat.color }}
-                      />
-                      {cat.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <Segmented strong rounded>
-                {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
-                  <SegmentedButton
-                    key={t}
-                    strong
-                    rounded
-                    active={sessionType === t}
-                    onClick={() => setSessionType(t)}
-                  >
-                    {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
-                  </SegmentedButton>
-                ))}
-              </Segmented>
+            {/* Category chips */}
+            <div className="hide-scrollbar flex gap-2 overflow-x-auto px-1">
+              {categories.map(cat => (
+                <Chip
+                  key={cat.name}
+                  outline={category !== cat.name}
+                  onClick={() => {
+                    setCategory(cat.name)
+                    syncToServer({
+                      phase: 'idle', sessionType, intention, category: cat.name,
+                      targetMs: customDurationMs, remainingMs: customDurationMs,
+                      overflowMs: 0, startedAt: null, pausedAt: null,
+                    })
+                  }}
+                  className={
+                    category === cat.name
+                      ? '!bg-black dark:!bg-white !text-white dark:!text-black !border-black dark:!border-white'
+                      : '!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white'
+                  }
+                >
+                  <span
+                    slot="media"
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  {cat.label}
+                </Chip>
+              ))}
             </div>
-          </div>
+
+            {/* Session type selector */}
+            <Segmented strong rounded>
+              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+                <SegmentedButton
+                  key={t}
+                  strong
+                  rounded
+                  active={sessionType === t}
+                  onClick={() => setSessionType(t)}
+                >
+                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                </SegmentedButton>
+              ))}
+            </Segmented>
+          </Block>
 
           {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
           <div className="flex flex-col items-center gap-4">
@@ -779,19 +779,19 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="font-mono text-4xl font-semibold leading-none text-black dark:text-gray-100">
+            <span className="text-4xl font-bold text-black dark:text-white">
               {formatTime(displayMs)}
             </span>
 
             {/* Time range label */}
-            <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-4 py-1 text-sm leading-6 text-gray-600 dark:text-gray-400">
+            <Chip outline className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
                 const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
                 return `${fmt(now)} → ${fmt(end)}`
               })()}
-            </span>
+            </Chip>
           </div>
 
           {/* ═══ BOTTOM SECTION: Start button ═══ */}
@@ -810,49 +810,48 @@ export default function Timer() {
         /* ═══════ ACTIVE STATE ═══════ */
         <div className="mt-2 flex w-full flex-col items-center gap-3">
           {/* Intention + phase header + category badge */}
-          <div className="w-full max-w-[320px] text-center">
-            <input
+          <List strong inset className="!my-0 w-full max-w-[320px]">
+            <ListInput
               type="text"
-              value={intention || todoistTaskContent}
-              onChange={e => {
-                handleIntentionChange(e.target.value)
+              placeholder="Tap to add intention..."
+              value={intention}
+              onInput={(e: React.FormEvent<HTMLInputElement>) => {
+                const value = (e.target as HTMLInputElement).value
+                handleIntentionChange(value)
                 syncToServer(buildTimerPayload({
-                  intention: e.target.value,
+                  intention: value,
                   pausedAt: phase === 'paused' ? Date.now() : null,
                 }))
               }}
-              placeholder="Tap to add intention..."
               maxLength={120}
-              className="mt-2 mb-1 w-full border-b border-transparent bg-transparent px-0 py-1 text-center text-xl font-semibold leading-snug text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
             />
-            <div className="flex items-center justify-center gap-2">
-              <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-gray-500'}`}>
-                {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
-              </p>
-              <button
-                onClick={() => {
-                  const names = categories.map(c => c.name)
-                  const idx = names.indexOf(category)
-                  const next = names[(idx + 1) % names.length] || category
-                  setCategory(next)
-                  syncToServer(buildTimerPayload({
-                    category: next,
-                    pausedAt: phase === 'paused' ? Date.now() : null,
-                  }))
-                }}
-                className="inline-flex min-h-[20px] cursor-pointer items-center gap-1 rounded-[10px] border-none px-2 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.5px]"
-                style={{
-                  background: `${(byName[category]?.color ?? '#6b7280')}30`,
-                  color: byName[category]?.color ?? '#6b7280',
-                }}
-              >
-                <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
-                  style={{ background: byName[category]?.color ?? '#6b7280' }}
-                />
-                {byName[category]?.label ?? category}
-              </button>
-            </div>
+          </List>
+
+          <div className="flex items-center justify-center gap-2">
+            <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
+              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+            </p>
+            <Chip
+              outline
+              onClick={() => {
+                const names = categories.map(c => c.name)
+                const idx = names.indexOf(category)
+                const next = names[(idx + 1) % names.length] || category
+                setCategory(next)
+                syncToServer(buildTimerPayload({
+                  category: next,
+                  pausedAt: phase === 'paused' ? Date.now() : null,
+                }))
+              }}
+              className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white"
+            >
+              <span
+                slot="media"
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: byName[category]?.color ?? '#6b7280' }}
+              />
+              {byName[category]?.label ?? category}
+            </Chip>
           </div>
 
           {/* Ring — THE HERO */}
@@ -867,7 +866,7 @@ export default function Timer() {
               {isOverflow && (
                 <span className="mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-gray-100">
+              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-white">
                 {formatTime(displayMs)}
               </span>
             </div>

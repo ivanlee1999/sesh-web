@@ -1,7 +1,14 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Check, ChevronDown, X } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect, useCallback } from 'react'
+import { RefreshCw, Check } from 'lucide-react'
+import {
+  List,
+  ListItem,
+  Button,
+  Badge,
+  Sheet,
+  Toolbar,
+} from 'konsta/react'
 import type { TodoistTask } from '@/types'
 
 interface Props {
@@ -16,8 +23,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [closingId, setClosingId] = useState<string | null>(null)
   const [completedId, setCompletedId] = useState<string | null>(null)
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [sheetOpened, setSheetOpened] = useState(false)
 
   const checkStatus = useCallback(async () => {
     try {
@@ -48,17 +54,6 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
   useEffect(() => { checkStatus() }, [checkStatus])
   useEffect(() => { if (configured) fetchTasks() }, [configured, fetchTasks])
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen])
-
   const handleClose = useCallback(async (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setClosingId(taskId)
@@ -82,142 +77,142 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
 
   if (configured === null || configured === false) return null
 
+  const triggerText = selectedTask
+    ? selectedTask.content
+    : tasks.length === 0
+    ? 'No tasks for today'
+    : 'Select a task...'
+
   return (
-    <div className="relative w-full" ref={dropdownRef}>
+    <div className="w-full">
       {error && (
         <p className="mb-2 text-[13px] text-red-600">{error}</p>
       )}
 
-      {/* Dropdown trigger */}
-      <motion.button
-        whileTap={{ scale: 0.98 }}
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex min-h-[44px] w-full items-center justify-between rounded-xl border-[1.5px] px-3.5 py-2.5 text-left transition-all ${
-          selectedTask
-            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-            : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'
-        }`}
-        style={{ cursor: 'pointer' }}
-      >
-        <span className={`flex-1 truncate text-[15px] ${
-          selectedTask ? 'text-black dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
-        }`}>
-          {selectedTask ? selectedTask.content : tasks.length === 0 ? 'No tasks for today' : 'Select a task...'}
-        </span>
-        <div className="flex flex-shrink-0 items-center gap-1.5">
-          {/* Refresh button */}
-          <motion.div
-            whileTap={{ scale: 0.85 }}
-            onClick={(e) => { e.stopPropagation(); fetchTasks() }}
-            className="cursor-pointer rounded-md p-0.5 text-gray-400"
-            style={{ opacity: loading ? 0.5 : 1 }}
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </motion.div>
-          {selectedTask && (
-            <motion.div
-              whileTap={{ scale: 0.85 }}
-              onClick={(e) => { e.stopPropagation(); onSelectTask(null) }}
-              className="cursor-pointer rounded-md p-0.5 text-gray-400"
+      {/* Trigger — Konsta List row */}
+      <List strong inset className="!my-0">
+        <ListItem
+          link
+          title={triggerText}
+          after={
+            <span
+              className="cursor-pointer p-1 text-black dark:text-white"
+              onClick={(e) => { e.stopPropagation(); fetchTasks() }}
+              style={{ opacity: loading ? 0.5 : 1 }}
             >
-              <X className="w-4 h-4" />
-            </motion.div>
-          )}
-          <ChevronDown
-            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-          />
-        </div>
-      </motion.button>
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </span>
+          }
+          onClick={() => setSheetOpened(true)}
+          className={selectedTask ? '!bg-blue-50 dark:!bg-blue-950' : ''}
+        />
+      </List>
 
-      {/* Dropdown menu */}
-      <AnimatePresence>
-        {isOpen && tasks.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -8, scaleY: 0.95 }}
-            animate={{ opacity: 1, y: 0, scaleY: 1 }}
-            exit={{ opacity: 0, y: -8, scaleY: 0.95 }}
-            transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
-            className="mt-1.5 max-h-[280px] origin-top overflow-hidden overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md"
-          >
-            {tasks.map((task, i) => {
+      {selectedTask && (
+        <div className="mt-1 flex justify-center">
+          <Button small clear onClick={() => onSelectTask(null)} className="!text-gray-500">
+            Clear selection
+          </Button>
+        </div>
+      )}
+
+      {/* Task selection sheet */}
+      <Sheet
+        opened={sheetOpened}
+        onBackdropClick={() => setSheetOpened(false)}
+        className="!max-h-[70vh]"
+      >
+        <Toolbar top>
+          <div className="flex w-full items-center justify-between px-2">
+            <Button clear small onClick={() => { fetchTasks() }}>
+              <RefreshCw className={`mr-1 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <span className="text-sm font-semibold text-black dark:text-white">Tasks</span>
+            <Button clear small onClick={() => setSheetOpened(false)}>
+              Done
+            </Button>
+          </div>
+        </Toolbar>
+
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(70vh - 44px)' }}>
+          <List strong inset className="!my-2">
+            {tasks.map((task) => {
               const isSelected = selectedTaskId === task.id
               const isCompleted = completedId === task.id
               const isClosing = closingId === task.id
 
-              return (
-                <motion.button
-                  key={task.id}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    onSelectTask(isSelected ? null : task)
-                    setIsOpen(false)
-                  }}
-                  className={`flex w-full items-center gap-2.5 border-none px-3.5 py-3 text-left transition-colors ${
-                    isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-gray-800'
-                  } ${i < tasks.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
-                  style={{ cursor: 'pointer' }}
-                >
-                  {/* Checkbox */}
-                  <div
-                    className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full border-2 transition-all"
-                    style={{
-                      borderColor: isCompleted ? '#34C759' : isSelected ? '#2B79E5' : '#9CA3AF',
-                      background: isCompleted ? '#34C759' : 'transparent',
-                    }}
-                  >
-                    {isSelected && !isCompleted && (
-                      <div className="h-2 w-2 rounded-full bg-blue-500" />
-                    )}
-                    {isCompleted && (
-                      <Check style={{ width: 12, height: 12, color: '#fff' }} strokeWidth={3} />
-                    )}
-                  </div>
+              const subtitle = [
+                task.duration ? `${task.duration.amount}min` : null,
+              ].filter(Boolean).join(' · ')
 
-                  {/* Content */}
-                  <div className="min-w-0 flex-1">
-                    <p className={`m-0 truncate text-[15px] text-black dark:text-gray-100 ${
-                      isCompleted ? 'line-through opacity-50' : ''
-                    }`}>
+              return (
+                <ListItem
+                  key={task.id}
+                  title={
+                    <span className={`text-black dark:text-white ${isCompleted ? 'line-through opacity-50' : ''}`}>
                       {task.content}
-                    </p>
-                    <div className="mt-0.5 flex gap-2">
-                      {task.duration && (
-                        <span className="text-xs text-gray-500">
-                          {task.duration.amount}min
-                        </span>
-                      )}
+                    </span>
+                  }
+                  subtitle={subtitle || undefined}
+                  after={
+                    <div className="flex items-center gap-2">
                       {task.priority > 1 && (
-                        <span className={`text-xs ${
-                          task.priority === 4 ? 'text-red-500' : task.priority === 3 ? 'text-orange-500' : 'text-blue-500'
-                        }`}>
+                        <Badge
+                          className={
+                            task.priority === 4
+                              ? '!bg-red-500 !text-white'
+                              : task.priority === 3
+                              ? '!bg-orange-500 !text-white'
+                              : '!bg-blue-500 !text-white'
+                          }
+                        >
                           P{5 - task.priority}
-                        </span>
+                        </Badge>
+                      )}
+                      <span
+                        className="cursor-pointer rounded-md p-1 text-black dark:text-white"
+                        onClick={(e) => handleClose(task.id, e)}
+                        style={{
+                          opacity: isClosing ? 0.5 : 1,
+                          pointerEvents: isClosing ? 'none' : 'auto',
+                        }}
+                      >
+                        {isClosing ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                      </span>
+                    </div>
+                  }
+                  media={
+                    <div
+                      className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full border-2"
+                      style={{
+                        borderColor: isCompleted ? '#34C759' : isSelected ? '#2B79E5' : '#9CA3AF',
+                        background: isCompleted ? '#34C759' : 'transparent',
+                      }}
+                    >
+                      {isSelected && !isCompleted && (
+                        <div className="h-2 w-2 rounded-full bg-blue-500" />
+                      )}
+                      {isCompleted && (
+                        <Check style={{ width: 12, height: 12, color: '#fff' }} strokeWidth={3} />
                       )}
                     </div>
-                  </div>
-
-                  {/* Complete button */}
-                  <motion.div
-                    whileTap={{ scale: 0.85 }}
-                    onClick={(e) => handleClose(task.id, e)}
-                    className="flex-shrink-0 cursor-pointer rounded-md p-1 text-gray-400"
-                    style={{
-                      opacity: isClosing ? 0.5 : 1,
-                      pointerEvents: isClosing ? 'none' : 'auto',
-                    }}
-                  >
-                    {isClosing ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Check className="w-4 h-4" />
-                    )}
-                  </motion.div>
-                </motion.button>
+                  }
+                  onClick={() => {
+                    onSelectTask(isSelected ? null : task)
+                    setSheetOpened(false)
+                  }}
+                  className={isSelected ? '!bg-blue-50 dark:!bg-blue-950' : ''}
+                />
               )
             })}
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </List>
+        </div>
+      </Sheet>
     </div>
   )
 }

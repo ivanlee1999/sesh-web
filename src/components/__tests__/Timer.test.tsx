@@ -92,7 +92,7 @@ beforeEach(() => {
 })
 
 describe('Timer', () => {
-  it('renders the idle view with Tailwind classes and no CSS var inline styles for colors', () => {
+  it('renders the idle view with proper layout', () => {
     const { container } = render(<Timer />)
 
     // The outermost wrapper should use Tailwind classes
@@ -107,78 +107,42 @@ describe('Timer', () => {
     expect(style).not.toMatch(/--[\w-]+-color/)
   })
 
-  it('renders the intention input with theme-aware Tailwind classes', () => {
+  it('renders the intention input with proper placeholder', () => {
     render(<Timer />)
 
     const input = screen.getByPlaceholderText('What are you working on?')
     expect(input).toBeTruthy()
-
-    // Should have light-mode text color with dark-mode variant
-    expect(input.className).toContain('text-black')
-    expect(input.className).toContain('dark:text-gray-100')
-    // Should have text-[15px] for readable size
-    expect(input.className).toContain('text-[15px]')
-    // Should have border styling via Tailwind with dark variant
-    expect(input.className).toContain('border')
-    expect(input.className).toContain('border-gray-300')
-    expect(input.className).toContain('dark:border-gray-600')
-    // Should have theme-aware background
-    expect(input.className).toContain('bg-white')
-    expect(input.className).toContain('dark:bg-gray-800')
-    // Should have rounded corners
-    expect(input.className).toContain('rounded-xl')
   })
 
-  it('renders category pills with border-based styling', () => {
+  it('renders category chips with labels', () => {
     render(<Timer />)
 
-    // Find category pill buttons by their label text
-    const workButton = screen.getByText('Work').closest('button')
-    const studyButton = screen.getByText('Study').closest('button')
-
-    expect(workButton).toBeTruthy()
-    expect(studyButton).toBeTruthy()
-
-    // Category pills should use border-2 Tailwind class for border-based styling
-    expect(workButton!.className).toContain('border-2')
-    expect(workButton!.className).toContain('rounded-full')
-    expect(workButton!.className).toContain('font-medium')
-
-    expect(studyButton!.className).toContain('border-2')
-    expect(studyButton!.className).toContain('rounded-full')
-
-    // The borderColor should come from the category color via inline style
-    // (this is acceptable for dynamic values), but the structural styling is Tailwind
-    expect(workButton!.style.borderColor).toBeTruthy()
-    expect(studyButton!.style.borderColor).toBeTruthy()
+    // Find category chips by their label text
+    expect(screen.getByText('Work')).toBeTruthy()
+    expect(screen.getByText('Study')).toBeTruthy()
   })
 
-  it('renders time display with theme-aware text classes', () => {
+  it('renders time display with bold theme-aware text', () => {
     render(<Timer />)
 
-    // Find the time display span: it should show "25:00" and use theme-aware text
+    // Find the time display: it should show "25:00"
     const timeDisplay = screen.getByText('25:00')
     expect(timeDisplay).toBeTruthy()
     expect(timeDisplay.className).toContain('text-black')
-    expect(timeDisplay.className).toContain('dark:text-gray-100')
-    expect(timeDisplay.className).toContain('font-mono')
+    expect(timeDisplay.className).toContain('dark:text-white')
     expect(timeDisplay.className).toContain('text-4xl')
-    expect(timeDisplay.className).toContain('font-semibold')
-  })
-
-  it('renders category dot indicators inside pills', () => {
-    render(<Timer />)
-
-    // Each category pill has a small colored dot (span with rounded-full and h-[7px])
-    const workButton = screen.getByText('Work').closest('button')!
-    const dot = workButton.querySelector('span.rounded-full')
-    expect(dot).toBeTruthy()
-    expect(dot!.className).toContain('h-[7px]')
-    expect(dot!.className).toContain('w-[7px]')
+    expect(timeDisplay.className).toContain('font-bold')
   })
 
   it('renders START SESSION button text', () => {
     render(<Timer />)
     expect(screen.getByText('START SESSION')).toBeTruthy()
+  })
+
+  it('renders session type segmented control', () => {
+    render(<Timer />)
+    expect(screen.getByText('Focus')).toBeTruthy()
+    expect(screen.getByText('Short')).toBeTruthy()
+    expect(screen.getByText('Long')).toBeTruthy()
   })
 })
