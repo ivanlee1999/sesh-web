@@ -89,24 +89,24 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
         <p className="mb-2 text-[13px] text-red-600">{error}</p>
       )}
 
-      {/* Trigger — Konsta List row */}
-      <List strong inset className="!my-0">
-        <ListItem
-          link
-          title={triggerText}
-          after={
-            <span
-              className="cursor-pointer p-1 text-black dark:text-white"
-              onClick={(e) => { e.stopPropagation(); fetchTasks() }}
-              style={{ opacity: loading ? 0.5 : 1 }}
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </span>
-          }
-          onClick={() => setSheetOpened(true)}
-          className={selectedTask ? '!bg-blue-50 dark:!bg-blue-950' : ''}
-        />
-      </List>
+      {/* Trigger button */}
+      <button
+        onClick={() => setSheetOpened(true)}
+        className={`flex w-full items-center justify-between rounded-xl border px-3.5 py-3 text-left text-sm ${
+          selectedTask
+            ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950'
+            : 'border-gray-300 bg-gray-100 dark:border-gray-600 dark:bg-gray-800'
+        } text-black dark:text-white`}
+      >
+        <span className="truncate">{triggerText}</span>
+        <span
+          className="ml-2 cursor-pointer p-1 text-black dark:text-white"
+          onClick={(e) => { e.stopPropagation(); fetchTasks() }}
+          style={{ opacity: loading ? 0.5 : 1 }}
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+        </span>
+      </button>
 
       {selectedTask && (
         <div className="mt-1 flex justify-center">

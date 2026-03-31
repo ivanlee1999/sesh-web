@@ -5,8 +5,6 @@ import {
   Button,
   Segmented,
   SegmentedButton,
-  List,
-  ListInput,
   Chip,
 } from 'konsta/react'
 import ProgressRing from './ProgressRing'
@@ -690,16 +688,17 @@ export default function Timer() {
 
             {/* Intention input — only when no Todoist task selected */}
             {showIdleIntentionInput && (
-              <List strong inset className="!my-0">
-                <ListInput
-                  label="Intention"
+              <div className="w-full">
+                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Intention</label>
+                <input
                   type="text"
                   placeholder="What are you working on?"
                   value={intention}
-                  onInput={(e: React.FormEvent<HTMLInputElement>) => handleIntentionChange((e.target as HTMLInputElement).value)}
+                  onChange={(e) => handleIntentionChange(e.target.value)}
                   maxLength={120}
+                  className="w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2.5 text-sm text-black dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
                 />
-              </List>
+              </div>
             )}
 
             {/* Category chips */}
@@ -809,22 +808,21 @@ export default function Timer() {
         /* ═══════ ACTIVE STATE ═══════ */
         <div className="mt-2 flex w-full flex-col items-center gap-3">
           {/* Intention + phase header + category badge */}
-          <List strong inset className="!my-0 w-full max-w-[320px]">
-            <ListInput
-              type="text"
-              placeholder="Tap to add intention..."
-              value={intention}
-              onInput={(e: React.FormEvent<HTMLInputElement>) => {
-                const value = (e.target as HTMLInputElement).value
-                handleIntentionChange(value)
-                syncToServer(buildTimerPayload({
-                  intention: value,
-                  pausedAt: phase === 'paused' ? Date.now() : null,
-                }))
-              }}
-              maxLength={120}
-            />
-          </List>
+          <input
+            type="text"
+            placeholder="Tap to add intention..."
+            value={intention}
+            onChange={(e) => {
+              const value = e.target.value
+              handleIntentionChange(value)
+              syncToServer(buildTimerPayload({
+                intention: value,
+                pausedAt: phase === 'paused' ? Date.now() : null,
+              }))
+            }}
+            maxLength={120}
+            className="w-full max-w-[320px] rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2.5 text-sm text-black dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+          />
 
           <div className="flex items-center justify-center gap-2">
             <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
