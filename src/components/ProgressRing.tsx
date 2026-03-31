@@ -261,7 +261,7 @@ export default function ProgressRing({
               cx={tipX} cy={tipY}
               r={5}
               fill={color}
-              stroke="var(--bg-primary)"
+              stroke="#FFFFFF"
               strokeWidth={3}
             />
           </>

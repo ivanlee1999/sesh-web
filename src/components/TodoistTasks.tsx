@@ -83,53 +83,34 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
   if (configured === null || configured === false) return null
 
   return (
-    <div style={{ width: '100%', position: 'relative' }} ref={dropdownRef}>
+    <div className="relative w-full" ref={dropdownRef}>
       {error && (
-        <p style={{ fontSize: 13, color: 'var(--danger)', marginBottom: 8 }}>{error}</p>
+        <p className="mb-2 text-[13px] text-red-600">{error}</p>
       )}
 
       {/* Dropdown trigger */}
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={() => setIsOpen(!isOpen)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '10px 14px',
-          minHeight: 44,
-          borderRadius: 12,
-          border: '1.5px solid',
-          borderColor: selectedTask ? 'var(--accent)' : 'var(--border)',
-          background: selectedTask ? 'var(--accent-light)' : 'var(--bg-secondary)',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-        }}
+        className={`flex min-h-[44px] w-full items-center justify-between rounded-xl border-[1.5px] px-3.5 py-2.5 text-left transition-all ${
+          selectedTask
+            ? 'border-blue-500 bg-blue-50'
+            : 'border-gray-300 bg-white'
+        }`}
+        style={{ cursor: 'pointer' }}
       >
-        <span style={{
-          fontSize: 15,
-          color: selectedTask ? 'var(--text-primary)' : 'var(--text-secondary)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          flex: 1,
-          textAlign: 'left',
-        }}>
+        <span className={`flex-1 truncate text-[15px] ${
+          selectedTask ? 'text-black' : 'text-gray-500'
+        }`}>
           {selectedTask ? selectedTask.content : tasks.length === 0 ? 'No tasks for today' : 'Select a task...'}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <div className="flex flex-shrink-0 items-center gap-1.5">
           {/* Refresh button */}
           <motion.div
             whileTap={{ scale: 0.85 }}
             onClick={(e) => { e.stopPropagation(); fetchTasks() }}
-            style={{
-              padding: 2,
-              borderRadius: 6,
-              color: 'var(--text-tertiary)',
-              cursor: 'pointer',
-              opacity: loading ? 0.5 : 1,
-            }}
+            className="cursor-pointer rounded-md p-0.5 text-gray-400"
+            style={{ opacity: loading ? 0.5 : 1 }}
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </motion.div>
@@ -137,23 +118,13 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
             <motion.div
               whileTap={{ scale: 0.85 }}
               onClick={(e) => { e.stopPropagation(); onSelectTask(null) }}
-              style={{
-                padding: 2,
-                borderRadius: 6,
-                color: 'var(--text-tertiary)',
-                cursor: 'pointer',
-              }}
+              className="cursor-pointer rounded-md p-0.5 text-gray-400"
             >
               <X className="w-4 h-4" />
             </motion.div>
           )}
           <ChevronDown
-            className="w-4 h-4"
-            style={{
-              color: 'var(--text-tertiary)',
-              transition: 'transform 0.2s ease',
-              transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-            }}
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
           />
         </div>
       </motion.button>
@@ -166,17 +137,7 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
             animate={{ opacity: 1, y: 0, scaleY: 1 }}
             exit={{ opacity: 0, y: -8, scaleY: 0.95 }}
             transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
-            style={{
-              marginTop: 6,
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-elevated)',
-              boxShadow: 'var(--shadow-md)',
-              overflow: 'hidden',
-              transformOrigin: 'top center',
-              maxHeight: 280,
-              overflowY: 'auto',
-            }}
+            className="mt-1.5 max-h-[280px] origin-top overflow-hidden overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-md"
           >
             {tasks.map((task, i) => {
               const isSelected = selectedTaskId === task.id
@@ -191,40 +152,21 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                     onSelectTask(isSelected ? null : task)
                     setIsOpen(false)
                   }}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '12px 14px',
-                    border: 'none',
-                    borderBottom: i < tasks.length - 1 ? '1px solid var(--border)' : 'none',
-                    background: isSelected ? 'var(--accent-light)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease',
-                    textAlign: 'left',
-                  }}
+                  className={`flex w-full items-center gap-2.5 border-none px-3.5 py-3 text-left transition-colors ${
+                    isSelected ? 'bg-blue-50' : 'bg-white'
+                  } ${i < tasks.length - 1 ? 'border-b border-gray-100' : ''}`}
+                  style={{ cursor: 'pointer' }}
                 >
                   {/* Checkbox */}
-                  <div style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    border: `2px solid ${isCompleted ? 'var(--success)' : isSelected ? 'var(--accent)' : 'var(--text-tertiary)'}`,
-                    background: isCompleted ? 'var(--success)' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s ease',
-                    flexShrink: 0,
-                  }}>
+                  <div
+                    className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full border-2 transition-all"
+                    style={{
+                      borderColor: isCompleted ? '#34C759' : isSelected ? '#2B79E5' : '#9CA3AF',
+                      background: isCompleted ? '#34C759' : 'transparent',
+                    }}
+                  >
                     {isSelected && !isCompleted && (
-                      <div style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: 'var(--accent)',
-                      }} />
+                      <div className="h-2 w-2 rounded-full bg-blue-500" />
                     )}
                     {isCompleted && (
                       <Check style={{ width: 12, height: 12, color: '#fff' }} strokeWidth={3} />
@@ -232,30 +174,22 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                   </div>
 
                   {/* Content */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{
-                      fontSize: 15,
-                      color: 'var(--text-primary)',
-                      margin: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      textDecoration: isCompleted ? 'line-through' : 'none',
-                      opacity: isCompleted ? 0.5 : 1,
-                    }}>
+                  <div className="min-w-0 flex-1">
+                    <p className={`m-0 truncate text-[15px] text-black ${
+                      isCompleted ? 'line-through opacity-50' : ''
+                    }`}>
                       {task.content}
                     </p>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                    <div className="mt-0.5 flex gap-2">
                       {task.duration && (
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        <span className="text-xs text-gray-500">
                           {task.duration.amount}min
                         </span>
                       )}
                       {task.priority > 1 && (
-                        <span style={{
-                          fontSize: 12,
-                          color: task.priority === 4 ? 'var(--danger)' : task.priority === 3 ? 'var(--warning)' : 'var(--accent)'
-                        }}>
+                        <span className={`text-xs ${
+                          task.priority === 4 ? 'text-red-500' : task.priority === 3 ? 'text-orange-500' : 'text-blue-500'
+                        }`}>
                           P{5 - task.priority}
                         </span>
                       )}
@@ -266,14 +200,10 @@ export default function TodoistTasks({ selectedTaskId, onSelectTask }: Props) {
                   <motion.div
                     whileTap={{ scale: 0.85 }}
                     onClick={(e) => handleClose(task.id, e)}
+                    className="flex-shrink-0 cursor-pointer rounded-md p-1 text-gray-400"
                     style={{
-                      padding: 4,
-                      borderRadius: 6,
-                      color: 'var(--text-tertiary)',
-                      cursor: 'pointer',
                       opacity: isClosing ? 0.5 : 1,
                       pointerEvents: isClosing ? 'none' : 'auto',
-                      flexShrink: 0,
                     }}
                   >
                     {isClosing ? (

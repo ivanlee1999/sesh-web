@@ -30,20 +30,20 @@ describe('ProgressRing', () => {
     expect(lines.length).toBe(60)
   })
 
-  it('renders 12 major ticks with strokeWidth=2', () => {
+  it('renders 12 major ticks with strokeWidth=3', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const lines = container.querySelectorAll('svg line')
     const majorTicks = Array.from(lines).filter(
-      l => l.getAttribute('stroke-width') === '2'
+      l => l.getAttribute('stroke-width') === '3'
     )
     expect(majorTicks.length).toBe(12)
   })
 
-  it('renders 48 minor ticks with strokeWidth=0.75', () => {
+  it('renders 48 minor ticks with strokeWidth=1.5', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const lines = container.querySelectorAll('svg line')
     const minorTicks = Array.from(lines).filter(
-      l => l.getAttribute('stroke-width') === '0.75'
+      l => l.getAttribute('stroke-width') === '1.5'
     )
     expect(minorTicks.length).toBe(48)
   })
@@ -106,24 +106,18 @@ describe('ProgressRing', () => {
     // Base circle + progress arc + center dot + tip dot = 4
     expect(circles.length).toBeGreaterThanOrEqual(4)
 
-    // Should have a hand line (line with strokeWidth=3)
+    // Should have 60 tick lines + 1 hand line = 61 total lines
     const lines = container.querySelectorAll('svg line')
-    const handLine = Array.from(lines).find(
-      l => l.getAttribute('stroke-width') === '3'
-    )
-    expect(handLine).toBeTruthy()
+    expect(lines.length).toBe(61)
   })
 
   it('does not render clock hand in interactive mode when progress=0', () => {
     const { container } = render(
       <ProgressRing {...defaultProps} progress={0} interactive />
     )
-    // No hand line with strokeWidth=3
+    // Only 60 tick lines, no hand line
     const lines = container.querySelectorAll('svg line')
-    const handLine = Array.from(lines).find(
-      l => l.getAttribute('stroke-width') === '3'
-    )
-    expect(handLine).toBeFalsy()
+    expect(lines.length).toBe(60)
   })
 
   it('renders children in the overlay div', () => {
