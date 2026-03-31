@@ -663,47 +663,23 @@ export default function Timer() {
   const showIdleIntentionInput = !todoistTaskId
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      padding: '16px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
-      paddingTop: '16px',
-      minHeight: 'calc(100dvh - 83px - env(safe-area-inset-bottom, 0px))',
-      
-      overscrollBehavior: 'contain' as const,
-      boxSizing: 'border-box' as const,
-      marginTop: 8,
-                width: '100%',
-      position: 'relative',
-    }}>
+    <div className="relative mt-2 flex min-h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] w-full flex-col items-center px-4 pb-[calc(24px+env(safe-area-inset-bottom,0px))] pt-4" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
       {/* Sync indicator: green=online+synced, orange=offline, grey=unknown */}
-      <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{
-          width: 7, height: 7, borderRadius: '50%',
-          background: !online ? '#FF9500' : synced === null ? 'var(--text-tertiary)' : synced ? 'var(--success)' : '#FF9500',
-          transition: 'background 0.3s ease',
-        }} />
+      <div className="absolute right-4 top-4 flex items-center gap-1.5">
+        <div
+          className="h-[7px] w-[7px] rounded-full transition-colors duration-300"
+          style={{
+            background: !online ? '#FF9500' : synced === null ? '#8E8E93' : synced ? '#34C759' : '#FF9500',
+          }}
+        />
       </div>
 
       {viewState === 'idle' ? (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'flex-start',
-            marginTop: 8,
-                width: '100%',
-            
-            paddingTop: 0,
-          }}
-        >
+        <div className="mt-2 flex w-full flex-col items-center justify-start">
           {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
+          <div className="flex w-full flex-col items-center gap-3">
             {/* Todoist tasks — compact at top */}
-            <div style={{ width: '100%', maxWidth: 361 }}>
+            <div className="w-full max-w-[361px]">
               <TodoistTasks
                 selectedTaskId={todoistTaskId}
                 onSelectTask={handleTodoistTaskSelect}
@@ -712,55 +688,23 @@ export default function Timer() {
 
             {/* Intention input — only when no Todoist task selected */}
             {showIdleIntentionInput ? (
-              <div style={{ width: '100%', maxWidth: 361 }}>
+              <div className="w-full max-w-[361px]">
                 <input
                   type="text"
                   value={intention}
                   onChange={e => handleIntentionChange(e.target.value)}
                   placeholder="What are you working on?"
                   maxLength={120}
-                  style={{
-                    marginTop: 8,
-                width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 12,
-                    border: '1px solid var(--border)',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 15,
-                    outline: 'none',
-                    transition: 'border-color 0.2s ease',
-                    minHeight: 38,
-                  }}
-                  onFocus={e => { e.target.style.borderColor = 'var(--accent)' }}
-                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
+                  className="mt-2 w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-[15px] text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
+                  style={{ minHeight: 38 }}
                 />
               </div>
             ) : null}
 
             {/* Category pills + Session type pills — two-row layout */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 360 }}>
-              <div
-                className="hide-scrollbar"
-                style={{
-                  display: 'flex',
-                  gap: 6,
-                  justifyContent: 'flex-start',
-                  alignItems: 'center',
-                  marginTop: 8,
-                width: '100%',
-                  overflowX: 'auto',
-                  flexWrap: 'nowrap',
-                }}
-              >
-                <div style={{
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  flexWrap: 'nowrap',
-                  margin: '0 auto',
-                  flex: '0 0 auto',
-                }}>
+            <div className="flex w-full max-w-[360px] flex-col gap-2">
+              <div className="hide-scrollbar mt-2 flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto">
+                <div className="mx-auto flex flex-none flex-nowrap items-center gap-1.5">
                   {categories.map(cat => (
                     <button
                       key={cat.name}
@@ -772,21 +716,17 @@ export default function Timer() {
                           overflowMs: 0, startedAt: null, pausedAt: null,
                         })
                       }}
+                      className="inline-flex flex-none items-center gap-1 rounded-full border-2 px-3 py-1.5 text-[13px] font-medium transition-all"
                       style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '5px 12px', borderRadius: 8, border: 'none',
-                        fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                        background: category === cat.name ? `${cat.color}40` : 'var(--bg-secondary)',
-                        color: category === cat.name ? cat.color : 'var(--text-secondary)',
-                        transition: 'all 0.15s ease',
-                        flex: '0 0 auto',
+                        borderColor: cat.color,
+                        background: category === cat.name ? cat.color : 'transparent',
+                        color: category === cat.name ? '#fff' : cat.color,
                       }}
                     >
-                      <span style={{
-                        width: 7, height: 7, borderRadius: '50%',
-                        background: cat.color,
-                        display: 'inline-block',
-                      }} />
+                      <span
+                        className="inline-block h-[7px] w-[7px] rounded-full"
+                        style={{ background: category === cat.name ? '#fff' : cat.color }}
+                      />
                       {cat.label}
                     </button>
                   ))}
@@ -810,7 +750,7 @@ export default function Timer() {
           </div>
 
           {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div className="flex flex-col items-center gap-4">
             {/* THE HERO — Timer Ring (large, empty center) */}
             <ProgressRing
               progress={progress}
@@ -839,19 +779,12 @@ export default function Timer() {
             </ProgressRing>
 
             {/* Time display BELOW ring */}
-            <span className="font-mono" style={{ fontSize: 36, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>
+            <span className="font-mono text-4xl font-semibold leading-none text-black dark:text-gray-100">
               {formatTime(displayMs)}
             </span>
 
             {/* Time range label */}
-            <span style={{
-              fontSize: 14,
-              color: 'var(--text-primary)',
-              background: 'var(--bg-secondary)',
-              padding: '4px 14px',
-              borderRadius: 20,
-              lineHeight: 1.4,
-            }}>
+            <span className="rounded-full bg-gray-100 dark:bg-gray-800 px-4 py-1 text-sm leading-6 text-gray-600 dark:text-gray-400">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
@@ -862,7 +795,7 @@ export default function Timer() {
           </div>
 
           {/* ═══ BOTTOM SECTION: Start button ═══ */}
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center', paddingBottom: 4 }}>
+          <div className="flex w-full justify-center pb-1">
             <Button
               large
               rounded
@@ -875,18 +808,9 @@ export default function Timer() {
         </div>
       ) : (
         /* ═══════ ACTIVE STATE ═══════ */
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: 12,
-            marginTop: 8,
-                width: '100%',
-          }}
-        >
+        <div className="mt-2 flex w-full flex-col items-center gap-3">
           {/* Intention + phase header + category badge */}
-          <div style={{ textAlign: 'center', maxWidth: 320, width: '100%' }}>
+          <div className="w-full max-w-[320px] text-center">
             <input
               type="text"
               value={intention || todoistTaskContent}
@@ -899,31 +823,10 @@ export default function Timer() {
               }}
               placeholder="Tap to add intention..."
               maxLength={120}
-              style={{
-                marginTop: 8,
-                width: '100%',
-                fontSize: 20,
-                fontWeight: 600,
-                color: 'var(--text-primary)',
-                marginBottom: 4,
-                lineHeight: 1.3,
-                textAlign: 'center',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: '1px solid transparent',
-                outline: 'none',
-                padding: '4px 0',
-                transition: 'border-color 0.2s ease',
-              }}
-              onFocus={e => { e.target.style.borderBottomColor = 'var(--accent)' }}
-              onBlur={e => { e.target.style.borderBottomColor = 'transparent' }}
+              className="mt-2 mb-1 w-full border-b border-transparent bg-transparent px-0 py-1 text-center text-xl font-semibold leading-snug text-black dark:text-gray-100 outline-none transition-colors focus:border-blue-500"
             />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <p style={{
-                fontSize: 11, fontWeight: 600, letterSpacing: '1.4px', textTransform: 'uppercase',
-                color: isOverflow ? 'var(--warning)' : 'var(--text-secondary)',
-                margin: 0,
-              }}>
+            <div className="flex items-center justify-center gap-2">
+              <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-gray-500'}`}>
                 {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
               </p>
               <button
@@ -937,22 +840,16 @@ export default function Timer() {
                     pausedAt: phase === 'paused' ? Date.now() : null,
                   }))
                 }}
+                className="inline-flex min-h-[20px] cursor-pointer items-center gap-1 rounded-[10px] border-none px-2 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-[0.5px]"
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
-                  padding: '2px 8px', borderRadius: 10,
-                  border: 'none', cursor: 'pointer',
-                  background: `${(byName[category]?.color ?? '#6b7280')}22`,
+                  background: `${(byName[category]?.color ?? '#6b7280')}30`,
                   color: byName[category]?.color ?? '#6b7280',
-                  fontSize: 10, fontWeight: 600, letterSpacing: '0.5px',
-                  textTransform: 'uppercase', lineHeight: 1,
-                  minHeight: 20,
                 }}
               >
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: byName[category]?.color ?? '#6b7280',
-                  display: 'inline-block',
-                }} />
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ background: byName[category]?.color ?? '#6b7280' }}
+                />
                 {byName[category]?.label ?? category}
               </button>
             </div>
@@ -966,18 +863,18 @@ export default function Timer() {
             strokeWidth={8}
             interactive={false}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div className="flex flex-col items-center">
               {isOverflow && (
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--warning)', marginBottom: 4 }}>+{formatTime(overflowMs)}</span>
+                <span className="mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono" style={{ fontSize: 52, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
+              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-gray-100">
                 {formatTime(displayMs)}
               </span>
             </div>
           </ProgressRing>
 
           {/* Controls — Konsta buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="flex items-center gap-3">
             {(phase === 'running' || phase === 'overflow') && (
               <>
                 <Button clear rounded onClick={pauseTimer} className="!min-h-[44px]">
@@ -1005,17 +902,14 @@ export default function Timer() {
           </div>
 
           {/* Abandon — minimal */}
-          <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-400 hover:!text-red-500">
+          <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-500 hover:!text-red-500">
             <Square style={{ width: 14, height: 14, marginRight: 6 }} />
             Abandon
           </Button>
 
           {/* Save error */}
           {saveError && (
-            <div style={{
-              padding: '10px 16px', borderRadius: 12,
-              background: 'rgba(255, 59, 48, 0.08)', color: 'var(--danger)', fontSize: 14,
-            }}>
+            <div className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600">
               {saveError}
             </div>
           )}
