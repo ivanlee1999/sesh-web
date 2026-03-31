@@ -8,7 +8,6 @@ import {
   List,
   ListInput,
   Chip,
-  Block,
 } from 'konsta/react'
 import ProgressRing from './ProgressRing'
 import TodoistTasks from './TodoistTasks'
@@ -682,7 +681,7 @@ export default function Timer() {
       {viewState === 'idle' ? (
         <div className="mt-2 flex w-full flex-col items-center justify-start">
           {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <Block className="!w-full !max-w-[361px] !space-y-3 !my-0 !px-0">
+          <div className="w-full max-w-[361px] space-y-3 mx-auto">
             {/* Todoist tasks — compact at top */}
             <TodoistTasks
               selectedTaskId={todoistTaskId}
@@ -747,7 +746,7 @@ export default function Timer() {
                 </SegmentedButton>
               ))}
             </Segmented>
-          </Block>
+          </div>
 
           {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
           <div className="flex flex-col items-center gap-4">
@@ -755,7 +754,7 @@ export default function Timer() {
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={140}
+              size={260}
               strokeWidth={8}
               interactive={true}
               onProgressChange={(p) => {
