@@ -12,7 +12,7 @@ import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
-import { saveTimerState, loadTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
+import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
 import { getCategoryMeta } from '@/lib/categories'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 
@@ -567,39 +567,20 @@ export default function Timer() {
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
 
-    // Auto-cycle: flip focus ↔ break and start immediately
+    // Auto-cycle: pre-select the next type but stay in idle
     const nextType: SessionType = sessionType === 'focus' ? 'break' : 'focus'
     const nextDurationMs = nextType === 'focus'
       ? settings.focusDuration * 60 * 1000
       : settings.breakDuration * 60 * 1000
-    const cycleNow = Date.now()
 
+    setPhase('idle')
     setSessionType(nextType)
-    setOverflowMs(0)
-    setStartedAt(cycleNow)
-    setActiveTargetMs(nextDurationMs)
     setCustomDurationMs(nextDurationMs)
     setRemainingMs(nextDurationMs)
-    setPhase('running')
-    // Keep intention and category; clear todoist task
+    setOverflowMs(0)
     setTodoistTaskId(null)
-
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    intervalRef.current = setInterval(tick, 100)
-
-    syncToServer({
-      phase: 'running',
-      sessionType: nextType,
-      intention,
-      category,
-      targetMs: nextDurationMs,
-      remainingMs: nextDurationMs,
-      overflowMs: 0,
-      startedAt: cycleNow,
-      pausedAt: null,
-      todoistTaskId: null,
-    })
-    postSwMessage('TIMER_STARTED')
+    clearTimerState()
+    postSwMessage('TIMER_STOPPED')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, settings.focusDuration, settings.breakDuration, playChime, postSwMessage, tick, syncToServer])
 
