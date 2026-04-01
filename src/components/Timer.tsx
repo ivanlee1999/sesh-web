@@ -12,7 +12,7 @@ import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
-import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
+import { saveTimerState, loadTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
 import { getCategoryMeta } from '@/lib/categories'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 
@@ -153,9 +153,7 @@ export default function Timer() {
 
   const defaultDurationMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
-    : sessionType === 'short-break'
-    ? settings.shortBreakDuration * 60 * 1000
-    : settings.longBreakDuration * 60 * 1000
+    : settings.breakDuration * 60 * 1000
 
   const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
 
@@ -568,17 +566,42 @@ export default function Timer() {
     }
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
-    postSwMessage('TIMER_STOPPED')
 
-    setPhase('idle')
-    setCustomDurationMs(defaultDurationMs)
-    setRemainingMs(defaultDurationMs)
+    // Auto-cycle: flip focus ↔ break and start immediately
+    const nextType: SessionType = sessionType === 'focus' ? 'break' : 'focus'
+    const nextDurationMs = nextType === 'focus'
+      ? settings.focusDuration * 60 * 1000
+      : settings.breakDuration * 60 * 1000
+    const cycleNow = Date.now()
+
+    setSessionType(nextType)
     setOverflowMs(0)
-    setIntention('')
+    setStartedAt(cycleNow)
+    setActiveTargetMs(nextDurationMs)
+    setCustomDurationMs(nextDurationMs)
+    setRemainingMs(nextDurationMs)
+    setPhase('running')
+    // Keep intention and category; clear todoist task
     setTodoistTaskId(null)
-    clearTimerState()
+
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    intervalRef.current = setInterval(tick, 100)
+
+    syncToServer({
+      phase: 'running',
+      sessionType: nextType,
+      intention,
+      category,
+      targetMs: nextDurationMs,
+      remainingMs: nextDurationMs,
+      overflowMs: 0,
+      startedAt: cycleNow,
+      pausedAt: null,
+      todoistTaskId: null,
+    })
+    postSwMessage('TIMER_STARTED')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage])
+  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, settings.focusDuration, settings.breakDuration, playChime, postSwMessage, tick, syncToServer])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
@@ -714,7 +737,7 @@ export default function Timer() {
 
             {/* Session type selector */}
             <Segmented strong rounded>
-              {(['focus', 'short-break', 'long-break'] as SessionType[]).map(t => (
+              {(['focus', 'break'] as SessionType[]).map(t => (
                 <SegmentedButton
                   key={t}
                   strong
@@ -722,7 +745,7 @@ export default function Timer() {
                   active={sessionType === t}
                   onClick={() => setSessionType(t)}
                 >
-                  {t === 'focus' ? 'Focus' : t === 'short-break' ? 'Short' : 'Long'}
+                  {t === 'focus' ? 'Focus' : 'Rest'}
                 </SegmentedButton>
               ))}
             </Segmented>
@@ -807,7 +830,7 @@ export default function Timer() {
           {/* Phase label + category chip */}
           <div className="flex items-center justify-center gap-2">
             <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
-              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
+              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'REST'}
             </p>
             <Chip
               outline

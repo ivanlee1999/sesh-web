@@ -110,7 +110,7 @@ export default function History() {
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-300">{formatTime(s.startedAt)}</span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-300">{meta.label}</span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-500 dark:bg-gray-700 dark:text-gray-300">{s.type}</span>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-500 dark:bg-gray-700 dark:text-gray-300">{(s.type as string) === 'short-break' || (s.type as string) === 'long-break' || s.type === 'break' ? 'rest' : s.type}</span>
                       </div>
                     }
                     after={

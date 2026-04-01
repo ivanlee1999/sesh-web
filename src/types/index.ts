@@ -1,5 +1,5 @@
 export type Category = string
-export type SessionType = 'focus' | 'short-break' | 'long-break'
+export type SessionType = 'focus' | 'break'
 export type TimerPhase = 'idle' | 'running' | 'paused' | 'overflow' | 'finished'
 
 export interface CategoryRecord {
@@ -35,8 +35,7 @@ export interface TodoistTask {
 
 export interface AppSettings {
   focusDuration: number    // minutes
-  shortBreakDuration: number
-  longBreakDuration: number
+  breakDuration: number
   soundEnabled: boolean
   calendarSync: boolean
   darkMode: boolean
@@ -44,8 +43,7 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   focusDuration: 25,
-  shortBreakDuration: 5,
-  longBreakDuration: 20,
+  breakDuration: 5,
   soundEnabled: true,
   calendarSync: false,
   darkMode: false,

@@ -271,16 +271,10 @@ export default function Settings() {
               onChange={v => updateSettings({ focusDuration: v })}
             />
             <NumberRow
-              label="Short break"
-              value={settings.shortBreakDuration}
+              label="Rest duration"
+              value={settings.breakDuration}
               min={1} max={60}
-              onChange={v => updateSettings({ shortBreakDuration: v })}
-            />
-            <NumberRow
-              label="Long break"
-              value={settings.longBreakDuration}
-              min={1} max={120}
-              onChange={v => updateSettings({ longBreakDuration: v })}
+              onChange={v => updateSettings({ breakDuration: v })}
             />
           </List>
         </div>

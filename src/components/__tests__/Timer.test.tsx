@@ -6,8 +6,7 @@ vi.mock('@/context/SettingsContext', () => ({
   useSettings: () => ({
     settings: {
       focusDuration: 25,
-      shortBreakDuration: 5,
-      longBreakDuration: 20,
+      breakDuration: 5,
       soundEnabled: false,
       calendarSync: false,
       darkMode: false,
@@ -136,8 +135,7 @@ describe('Timer', () => {
   it('renders session type segmented control', () => {
     render(<Timer />)
     expect(screen.getByText('Focus')).toBeTruthy()
-    expect(screen.getByText('Short')).toBeTruthy()
-    expect(screen.getByText('Long')).toBeTruthy()
+    expect(screen.getByText('Rest')).toBeTruthy()
   })
 
   it('shows active controls from running state', async () => {

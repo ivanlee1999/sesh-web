@@ -55,9 +55,7 @@ function formatDuration(ms: number): string {
 
 function buildDefaultSummary(type: string): string {
   if (type === 'focus') return 'Focus Session'
-  if (type === 'short-break') return 'Short Break'
-  if (type === 'long-break') return 'Long Break'
-  return 'Session'
+  return 'Break'
 }
 
 function getTokens(req: NextRequest, db: Database.Database) {
@@ -105,7 +103,7 @@ export async function POST(req: NextRequest) {
   const start = new Date(startedAt)
   const end = new Date(endedAt)
 
-  const typeLabel = type === 'focus' ? 'Focus' : type === 'short-break' ? 'Short Break' : 'Long Break'
+  const typeLabel = type === 'focus' ? 'Focus' : 'Break'
   const categoryLabel = category.charAt(0).toUpperCase() + category.slice(1)
   let description = `Category: ${categoryLabel}\nType: ${typeLabel}\nDuration: ${formatDuration(actualMs || (endedAt - startedAt))}`
   if (targetMs) description += `\nTarget: ${formatDuration(targetMs)}`
