@@ -103,13 +103,13 @@ function playTickSound(isMajor: boolean) {
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
   osc.type = 'sine'
-  osc.frequency.setValueAtTime(isMajor ? 2000 : 1800, ctx.currentTime)
-  gain.gain.setValueAtTime(isMajor ? 0.03 : 0.02, ctx.currentTime)
-  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05)
+  osc.frequency.setValueAtTime(isMajor ? 1200 : 800, ctx.currentTime)
+  gain.gain.setValueAtTime(isMajor ? 0.15 : 0.08, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (isMajor ? 0.06 : 0.03))
   osc.connect(gain)
   gain.connect(ctx.destination)
   osc.start(ctx.currentTime)
-  osc.stop(ctx.currentTime + 0.05)
+  osc.stop(ctx.currentTime + (isMajor ? 0.06 : 0.03))
 }
 
 export default function ProgressRing({
@@ -157,10 +157,8 @@ export default function ProgressRing({
     } else {
       haptic()
     }
-    // Also play audio tick if sound enabled (for extra feedback on iOS)
-    if (settings.soundEnabled) {
-      playTickSound(isMajor)
-    }
+    // Audio tick for tactile feedback (always on — soundEnabled only controls completion chime)
+    playTickSound(isMajor)
   }, [settings.soundEnabled])
 
   const updateFromPoint = useCallback((clientX: number, clientY: number) => {
