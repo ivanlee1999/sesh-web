@@ -3,6 +3,10 @@
 import { useRef, useCallback, useEffect, useMemo, useId } from 'react'
 import { useSettings } from '@/context/SettingsContext'
 
+// --- Magnetic detent constants (in minutes) ---
+const DETENT_CAPTURE_BAND = 1.5  // snap TO detent when within ±1.5 min
+const DETENT_RELEASE_BAND = 2.0  // break free when raw exceeds ±2 min
+
 interface ProgressRingProps {
   progress: number  // 0-1
   color: string
@@ -12,6 +16,90 @@ interface ProgressRingProps {
   interactive?: boolean
   onProgressChange?: (progress: number) => void
   onDragEnd?: (progress: number) => void
+}
+
+// --- Pure math helpers ---
+function clamp(min: number, max: number, v: number) {
+  return Math.max(min, Math.min(max, v))
+}
+
+function rawProgressFromPoint(
+  clientX: number, clientY: number,
+  rect: DOMRect,
+): number {
+  const dx = clientX - (rect.left + rect.width / 2)
+  const dy = clientY - (rect.top + rect.height / 2)
+  let angle = Math.atan2(dx, -dy)
+  if (angle < 0) angle += 2 * Math.PI
+  return angle / (2 * Math.PI)
+}
+
+function minuteFromProgress(p: number): number {
+  return clamp(1, 60, Math.round(p * 60))
+}
+
+function progressFromMinute(m: number): number {
+  return clamp(1, 60, m) / 60
+}
+
+/** Apply magnetic detent logic. Returns the snapped minute and updated lock state. */
+function applyDetent(
+  rawMinute: number,
+  lockedDetent: number | null,
+): { minute: number; lockedDetent: number | null } {
+  // Treat 0 as 60 for detent purposes (full circle)
+  const nearest5 = Math.round(rawMinute / 5) * 5
+  const nearestDetent = nearest5 === 0 ? 60 : nearest5
+
+  // If currently locked to a detent, stay until raw movement exceeds release band
+  if (lockedDetent != null) {
+    if (Math.abs(rawMinute - lockedDetent) <= DETENT_RELEASE_BAND) {
+      return { minute: lockedDetent, lockedDetent }
+    }
+    // Release — fall through to normal logic
+    lockedDetent = null
+  }
+
+  // Try to capture onto nearest 5-minute detent
+  if (nearestDetent >= 5 && nearestDetent <= 60 && Math.abs(rawMinute - nearestDetent) <= DETENT_CAPTURE_BAND) {
+    return { minute: nearestDetent, lockedDetent: nearestDetent }
+  }
+
+  // No detent — return rounded minute
+  return { minute: clamp(1, 60, Math.round(rawMinute)), lockedDetent: null }
+}
+
+// --- Audio tick feedback (iOS fallback) ---
+let sharedAudioContext: AudioContext | null = null
+
+function getOrCreateAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  if (sharedAudioContext && sharedAudioContext.state !== 'closed') return sharedAudioContext
+  try {
+    sharedAudioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+    return sharedAudioContext
+  } catch {
+    return null
+  }
+}
+
+function playTickSound(isMajor: boolean) {
+  const ctx = getOrCreateAudioContext()
+  if (!ctx) return
+  // Resume if suspended (required by iOS after user gesture)
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {})
+  }
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(isMajor ? 2000 : 1800, ctx.currentTime)
+  gain.gain.setValueAtTime(isMajor ? 0.03 : 0.02, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05)
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start(ctx.currentTime)
+  osc.stop(ctx.currentTime + 0.05)
 }
 
 export default function ProgressRing({
@@ -42,61 +130,55 @@ export default function ProgressRing({
   const cy = size / 2
 
   const svgRef = useRef<SVGSVGElement | null>(null)
-  const hapticRef = useRef<HTMLInputElement | null>(null)
-  const hapticLabelRef = useRef<HTMLLabelElement | null>(null)
   const draggingRef = useRef(false)
-  const lastProgressRef = useRef(progress)
-  const stickyUntilRef = useRef(0)
+  const lastEmittedMinuteRef = useRef(minuteFromProgress(progress))
+  const lockedDetentMinuteRef = useRef<number | null>(null)
+
+  // Derive current minute for visual emphasis
+  const currentMinute = minuteFromProgress(progress)
+  const activeMajorMinute = currentMinute % 5 === 0 ? currentMinute : null
+
+  const emitFeedback = useCallback((newMinute: number, prevMinute: number) => {
+    if (newMinute === prevMinute) return
+    const isMajor = newMinute % 5 === 0
+    // Prefer vibration (Android); fall back to audio (iOS) if soundEnabled
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { navigator.vibrate(isMajor ? 10 : 1) } catch { /* fail soft */ }
+    } else if (settings.soundEnabled) {
+      playTickSound(isMajor)
+    }
+  }, [settings.soundEnabled])
 
   const updateFromPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current || !onProgressChange) return
     const rect = svgRef.current.getBoundingClientRect()
-    const dx = clientX - (rect.left + rect.width / 2)
-    const dy = clientY - (rect.top + rect.height / 2)
-    let angle = Math.atan2(dx, -dy)
-    if (angle < 0) angle += 2 * Math.PI
-    const raw = angle / (2 * Math.PI)
-    const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
-    // Sticky snapping on multiples of 5 — hold for 120ms before moving past
-    const now = Date.now()
-    const currentMinutes = Math.round(lastProgressRef.current * 60)
-    const newMinutes = Math.round(snapped * 60)
-    if (currentMinutes % 5 === 0 && newMinutes !== currentMinutes) {
-      if (now < stickyUntilRef.current) {
-        return  // still in sticky zone, ignore this move
-      }
-    }
-    if (newMinutes % 5 === 0 && newMinutes !== currentMinutes) {
-      stickyUntilRef.current = now + 120  // stick for 120ms
-    }
+    const raw = rawProgressFromPoint(clientX, clientY, rect)
+    const rawMinute = clamp(1, 60, raw * 60)
 
-    // Haptic feedback when snapping to a new tick
-    if (snapped !== lastProgressRef.current) {
-      const isMultipleOf5 = newMinutes % 5 === 0
-      // Android haptic
-      if (navigator.vibrate) {
-        navigator.vibrate(isMultipleOf5 ? 10 : 1)
-      }
-      // iOS 18+ haptic via hidden checkbox switch
-      if (hapticRef.current && hapticLabelRef.current) {
-        hapticRef.current.checked = !hapticRef.current.checked
-        hapticLabelRef.current.click()
-      }
-    }
-    lastProgressRef.current = snapped
-    onProgressChange(snapped)
-  }, [onProgressChange])
+    const result = applyDetent(rawMinute, lockedDetentMinuteRef.current)
+    lockedDetentMinuteRef.current = result.lockedDetent
+
+    const snappedProgress = progressFromMinute(result.minute)
+
+    // Emit feedback only on minute change
+    emitFeedback(result.minute, lastEmittedMinuteRef.current)
+    lastEmittedMinuteRef.current = result.minute
+
+    onProgressChange(snappedProgress)
+  }, [onProgressChange, emitFeedback])
 
   const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (!interactive) return
     e.preventDefault()
     draggingRef.current = true
+    lockedDetentMinuteRef.current = null  // reset lock on new drag
     updateFromPoint(e.clientX, e.clientY)
   }, [interactive, updateFromPoint])
 
   const handleTouchStart = useCallback((e: React.TouchEvent<SVGSVGElement>) => {
     if (!interactive) return
     draggingRef.current = true
+    lockedDetentMinuteRef.current = null  // reset lock on new drag
     updateFromPoint(e.touches[0].clientX, e.touches[0].clientY)
   }, [interactive, updateFromPoint])
 
@@ -109,7 +191,8 @@ export default function ProgressRing({
   const handleTouchEnd = useCallback(() => {
     if (draggingRef.current) {
       draggingRef.current = false
-      onDragEnd?.(lastProgressRef.current)
+      lockedDetentMinuteRef.current = null
+      onDragEnd?.(progressFromMinute(lastEmittedMinuteRef.current))
     }
   }, [onDragEnd])
 
@@ -122,7 +205,8 @@ export default function ProgressRing({
     const onUp = () => {
       if (draggingRef.current) {
         draggingRef.current = false
-        onDragEnd?.(lastProgressRef.current)
+        lockedDetentMinuteRef.current = null
+        onDragEnd?.(progressFromMinute(lastEmittedMinuteRef.current))
       }
     }
     window.addEventListener('mousemove', onMove)
@@ -147,6 +231,7 @@ export default function ProgressRing({
       x2: cx + outerR * Math.cos(angle),
       y2: cy + outerR * Math.sin(angle),
       isMajor,
+      minute: i === 0 ? 60 : i,  // tick 0 = 60 minutes (12 o'clock)
     }
   }), [radius, strokeWidth, cx, cy])
 
@@ -176,6 +261,7 @@ export default function ProgressRing({
 
   const wedgeGradientId = `${gradientId}-wedge`
   const glowFilterId = `${gradientId}-glow`
+  const tickGlowFilterId = `${gradientId}-tickglow`
 
   return (
     <div
@@ -206,6 +292,12 @@ export default function ProgressRing({
             <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
+
+          {/* Glow filter for active major tick */}
+          <filter id={tickGlowFilterId} x="-200%" y="-200%" width="500%" height="500%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
         </defs>
 
         {/* Track — subtle background ring */}
@@ -218,16 +310,22 @@ export default function ProgressRing({
         />
 
         {/* Tick marks */}
-        {ticks.map((tick, i) => (
-          <line
-            key={i}
-            x1={tick.x1} y1={tick.y1}
-            x2={tick.x2} y2={tick.y2}
-            stroke={tick.isMajor ? majorTickColor : minorTickColor}
-            strokeWidth={tick.isMajor ? 2 : 1}
-            strokeLinecap="round"
-          />
-        ))}
+        {ticks.map((tick, i) => {
+          const isActiveMajor = interactive && tick.isMajor && tick.minute === activeMajorMinute
+          return (
+            <line
+              key={i}
+              x1={tick.x1} y1={tick.y1}
+              x2={tick.x2} y2={tick.y2}
+              stroke={isActiveMajor ? color : tick.isMajor ? majorTickColor : minorTickColor}
+              strokeWidth={isActiveMajor ? 3 : tick.isMajor ? 2 : 1}
+              strokeLinecap="round"
+              opacity={isActiveMajor ? 1 : 0.9}
+              filter={isActiveMajor ? `url(#${tickGlowFilterId})` : undefined}
+              data-active-major={isActiveMajor ? 'true' : undefined}
+            />
+          )
+        })}
 
         {/* Wedge fill */}
         {clampedProgress > 0 && (
@@ -279,11 +377,6 @@ export default function ProgressRing({
           />
         )}
       </svg>
-
-      {/* Hidden iOS haptic trigger (iOS 18+ checkbox switch hack) */}
-      <label ref={hapticLabelRef} htmlFor={`haptic-${gradientId}`} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", opacity: 0, pointerEvents: "none" }} aria-hidden="true" />
-      <input ref={hapticRef} id={`haptic-${gradientId}`} type="checkbox" /* @ts-expect-error switch is valid in Safari */
-        switch="" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", opacity: 0, pointerEvents: "none" }} aria-hidden="true" tabIndex={-1} />
 
       <div className="absolute inset-0 flex items-center justify-center" style={interactive ? { pointerEvents: 'none' } : undefined}>
         {children}

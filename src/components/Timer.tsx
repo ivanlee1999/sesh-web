@@ -93,6 +93,7 @@ export default function Timer() {
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
   const [isMultipleOf5, setIsMultipleOf5] = useState(false)
   const multipleOf5TimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastMultiplePulseMinuteRef = useRef<number | null>(null)
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
@@ -107,6 +108,13 @@ export default function Timer() {
   const categoryRef = useRef(category)
   const serverUpdatedAtRef = useRef(0)
   const intentionSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup multipleOf5 timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (multipleOf5TimeoutRef.current) clearTimeout(multipleOf5TimeoutRef.current)
+    }
+  }, [])
 
   useEffect(() => { phaseRef.current = phase }, [phase])
   useEffect(() => { startedAtRef.current = startedAt }, [startedAt])
@@ -747,11 +755,13 @@ export default function Timer() {
                 const ms = minutes * 60 * 1000
                 setCustomDurationMs(ms)
                 setRemainingMs(ms)
-                if (minutes % 5 === 0) {
+                if (minutes % 5 === 0 && lastMultiplePulseMinuteRef.current !== minutes) {
+                  lastMultiplePulseMinuteRef.current = minutes
                   setIsMultipleOf5(true)
                   if (multipleOf5TimeoutRef.current) clearTimeout(multipleOf5TimeoutRef.current)
                   multipleOf5TimeoutRef.current = setTimeout(() => setIsMultipleOf5(false), 400)
-                } else {
+                } else if (minutes % 5 !== 0) {
+                  lastMultiplePulseMinuteRef.current = null
                   setIsMultipleOf5(false)
                 }
               }}
