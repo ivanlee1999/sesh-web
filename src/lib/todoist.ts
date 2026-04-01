@@ -55,6 +55,7 @@ export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
   const url = `${TODOIST_BASE_URL}/tasks/filter?query=${encodeURIComponent('today | overdue')}`
   const res = await fetch(url, {
     headers: authHeaders(),
+    cache: 'no-store',
   })
   if (!res.ok) {
     throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
@@ -67,6 +68,7 @@ export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
 export async function getTask(id: string): Promise<TodoistTaskRaw> {
   const res = await fetch(`${TODOIST_BASE_URL}/tasks/${id}`, {
     headers: authHeaders(),
+    cache: 'no-store',
   })
   if (!res.ok) {
     throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
@@ -78,6 +80,7 @@ export async function closeTask(id: string): Promise<void> {
   const res = await fetch(`${TODOIST_BASE_URL}/tasks/${id}/close`, {
     method: 'POST',
     headers: authHeaders(),
+    cache: 'no-store',
   })
   if (!res.ok) {
     throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
@@ -88,6 +91,7 @@ export async function setTaskDuration(id: string, totalMinutes: number): Promise
   const res = await fetch(`${TODOIST_BASE_URL}/tasks/${id}`, {
     method: 'POST',
     headers: authHeaders(),
+    cache: 'no-store',
     body: JSON.stringify({
       duration: totalMinutes,
       duration_unit: 'minute',
