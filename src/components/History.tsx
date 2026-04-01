@@ -88,7 +88,7 @@ export default function History() {
       {!loading && !error && groups.length === 0 && (
         <div className="py-16 text-center text-gray-400">
           <p className="text-lg">No sessions yet</p>
-          <p className="mt-1 text-sm">Complete a session to see your history</p>
+          <p className="mt-1 text-sm">Start your first focus session!</p>
         </div>
       )}
       <div className="flex flex-col gap-6">

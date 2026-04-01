@@ -72,6 +72,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
 
+    // Check if any sessions reference this category
+    const sessionCount = (db.prepare('SELECT COUNT(*) as count FROM sessions WHERE category = ?').get(existing.name) as { count: number }).count
+    if (sessionCount > 0) {
+      return NextResponse.json(
+        { error: 'Category is in use', sessionCount },
+        { status: 409 }
+      )
+    }
+
     const timerRef = db.prepare('SELECT id FROM timer_state WHERE category = ?').get(existing.name) as { id: number } | undefined
 
     db.transaction(() => {

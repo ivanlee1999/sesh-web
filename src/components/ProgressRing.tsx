@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback, useEffect, useMemo } from 'react'
+import { useRef, useCallback, useEffect, useMemo, useId } from 'react'
 import { useSettings } from '@/context/SettingsContext'
 
 interface ProgressRingProps {
@@ -26,6 +26,7 @@ export default function ProgressRing({
 }: ProgressRingProps) {
   const { settings } = useSettings()
   const isDark = settings.darkMode
+  const gradientId = useId()
 
   // Theme-aware colors
   const baseStroke = isDark ? '#555555' : '#CCCCCC'
@@ -128,7 +129,7 @@ export default function ProgressRing({
     return { minute, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
   }), [radius, cx, cy])
 
-  // --- Filled wedge path (computed directly, no animation on path d) ---
+  // --- Filled wedge path ---
   const clampedProgress = Math.min(Math.max(progress, 0), 1)
   const wedgePath = useMemo(() => {
     if (clampedProgress <= 0) return ''
@@ -149,11 +150,13 @@ export default function ProgressRing({
 
   // --- Clock hand ---
   const thumbAngle = fractionToAngle(progress)
-  const handLen = radius - 14  // hand stops before ticks
+  const handLen = radius - 14
   const handEndX = cx + handLen * Math.cos(thumbAngle)
   const handEndY = cy + handLen * Math.sin(thumbAngle)
   const tipX = cx + (radius - 4) * Math.cos(thumbAngle)
   const tipY = cy + (radius - 4) * Math.sin(thumbAngle)
+
+  const wedgeGradientId = `${gradientId}-wedge`
 
   return (
     <div
@@ -172,15 +175,14 @@ export default function ProgressRing({
         style={interactive ? { touchAction: 'none', cursor: 'pointer' } : undefined}
       >
         <defs>
-{/* Gradient for the wedge fill — radial fade from center */}
-          <radialGradient id="wedge-gradient" cx="50%" cy="50%" r="50%">
+          <radialGradient id={wedgeGradientId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={color} stopOpacity="0.15" />
             <stop offset="60%" stopColor={color} stopOpacity="0.45" />
             <stop offset="100%" stopColor={color} stopOpacity="0.45" />
           </radialGradient>
         </defs>
 
-        {/* Subtle base circle — visible track */}
+        {/* Base circle track */}
         <circle
           cx={cx}
           cy={cy}
@@ -188,7 +190,6 @@ export default function ProgressRing({
           fill="none"
           stroke={baseStroke}
           strokeWidth={6}
-          opacity={1}
         />
 
         {/* Tick marks */}
@@ -200,20 +201,19 @@ export default function ProgressRing({
             stroke={tick.isMajor ? majorTickColor : minorTickColor}
             strokeWidth={tick.isMajor ? 3 : 2}
             strokeLinecap="round"
-            opacity={1}
           />
         ))}
 
-        {/* Filled wedge — instant update, no spring animation on path */}
+        {/* Filled wedge */}
         {clampedProgress > 0 && (
           <path
             d={wedgePath}
-            fill="url(#wedge-gradient)"
+            fill={`url(#${wedgeGradientId})`}
             style={{ transition: interactive ? 'none' : 'd 0.3s ease' }}
           />
         )}
 
-        {/* Progress arc stroke — thicker, bolder */}
+        {/* Progress arc stroke */}
         <circle
           cx={cx}
           cy={cy}
@@ -225,13 +225,12 @@ export default function ProgressRing({
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${cx} ${cy})`}
-          /* no blur filter — keeps ring sharp on retina */
           style={{
             transition: interactive ? 'none' : 'stroke-dashoffset 0.5s ease',
           }}
         />
 
-        {/* Minute numbers (interactive only) */}
+        {/* Minute numbers */}
         {minuteNumbers.map(({ minute, x, y }) => (
           <text
             key={minute}
@@ -247,12 +246,10 @@ export default function ProgressRing({
           </text>
         ))}
 
-        {/* Clock hand (interactive only) — thicker, with center dot */}
+        {/* Clock hand (interactive only) */}
         {interactive && clampedProgress > 0 && (
           <>
-            {/* Center dot */}
             <circle cx={cx} cy={cy} r={5} fill={color} />
-            {/* Hand line */}
             <line
               x1={cx} y1={cy}
               x2={handEndX} y2={handEndY}
@@ -260,7 +257,6 @@ export default function ProgressRing({
               strokeWidth={3}
               strokeLinecap="round"
             />
-            {/* Tip dot */}
             <circle
               cx={tipX} cy={tipY}
               r={5}

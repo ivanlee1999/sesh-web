@@ -1,6 +1,5 @@
 'use client'
 import { Clock, History, BarChart2, Tag, Settings } from 'lucide-react'
-import { Tabbar, TabbarLink } from 'konsta/react'
 
 export type AppTab = 'timer' | 'history' | 'analytics' | 'categories' | 'settings'
 
@@ -19,16 +18,26 @@ const tabs: { id: AppTab; label: string; Icon: React.ComponentType<{ className?:
 
 export default function TabBar({ activeTab, onChange }: TabBarProps) {
   return (
-    <Tabbar labels icons className="tabbar-fixed app-tabbar">
-      {tabs.map(({ id, label, Icon }) => (
-        <TabbarLink
-          key={id}
-          active={activeTab === id}
-          onClick={() => onChange(id)}
-          icon={<Icon className="w-5 h-5" />}
-          label={label}
-        />
-      ))}
-    </Tabbar>
+    <div className="tabbar-frosted">
+      <div className="mx-auto flex max-w-[480px] items-end justify-around px-2 pb-[calc(8px+env(safe-area-inset-bottom))] pt-2">
+        {tabs.map(({ id, label, Icon }) => {
+          const active = activeTab === id
+          return (
+            <button
+              key={id}
+              onClick={() => onChange(id)}
+              className={`flex flex-col items-center gap-0.5 border-none bg-transparent px-2 py-1 ${
+                active
+                  ? 'text-blue-500 dark:text-blue-400'
+                  : 'text-gray-400 dark:text-gray-500'
+              }`}
+            >
+              <Icon className="h-5 w-5" />
+              <span className="text-[9px] font-medium tracking-tight">{label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }

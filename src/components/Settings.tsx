@@ -1,13 +1,21 @@
 'use client'
 import React from 'react'
 import { useSettings } from '@/context/SettingsContext'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { List, ListItem, BlockTitle, Toggle, Button } from 'konsta/react'
 
 function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
   const [step, setStep] = React.useState<'idle' | 'pending' | 'done'>('idle')
   const [userCode, setUserCode] = React.useState('')
   const [verifyUrl, setVerifyUrl] = React.useState('')
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
 
   const startAuth = async () => {
     const res = await fetch('/api/auth/device', { method: 'POST' })
@@ -16,19 +24,36 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
       setUserCode(data.user_code)
       setVerifyUrl(data.verification_url)
       setStep('pending')
-      const interval = setInterval(async () => {
-        const pollRes = await fetch('/api/auth/device/poll', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_code: data.device_code }),
-        })
-        const pollData = await pollRes.json()
-        if (pollData.success) {
-          clearInterval(interval)
-          setStep('done')
-          onConnected()
+      intervalRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch('/api/auth/device/poll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_code: data.device_code }),
+          })
+          const pollData = await pollRes.json()
+          if (pollData.success) {
+            if (intervalRef.current) clearInterval(intervalRef.current)
+            intervalRef.current = null
+            setStep('done')
+            onConnected()
+          }
+        } catch {
+          // Continue polling
         }
       }, (data.interval || 5) * 1000)
+    }
+  }
+
+  const handleDisconnect = async () => {
+    try {
+      await fetch('/api/auth/google/disconnect', { method: 'POST' })
+      setStep('idle')
+      // Force page reload to reset state
+      window.location.reload()
+    } catch {
+      // Fallback to GET for backwards compatibility
+      window.location.href = '/api/auth/google/disconnect'
     }
   }
 
@@ -42,12 +67,12 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
           </span>
         }
         after={
-          <a
-            href="/api/auth/google/disconnect"
-            className="text-sm text-red-500 no-underline dark:text-red-400"
+          <button
+            onClick={handleDisconnect}
+            className="border-none bg-transparent text-sm text-red-500 dark:text-red-400"
           >
             Disconnect
-          </a>
+          </button>
         }
       />
     )
@@ -237,22 +262,22 @@ export default function Settings() {
       <div className="flex flex-col gap-6">
         {/* Timer Durations */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Timer Durations</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Timer</BlockTitle>
           <List strong inset>
             <NumberRow
-              label="Focus"
+              label="Focus duration"
               value={settings.focusDuration}
               min={1} max={120}
               onChange={v => updateSettings({ focusDuration: v })}
             />
             <NumberRow
-              label="Short Break"
+              label="Short break"
               value={settings.shortBreakDuration}
               min={1} max={60}
               onChange={v => updateSettings({ shortBreakDuration: v })}
             />
             <NumberRow
-              label="Long Break"
+              label="Long break"
               value={settings.longBreakDuration}
               min={1} max={120}
               onChange={v => updateSettings({ longBreakDuration: v })}
@@ -265,7 +290,7 @@ export default function Settings() {
           <BlockTitle className="!text-black dark:!text-white">Notifications</BlockTitle>
           <List strong inset>
             <ListItem
-              title={<span className="text-black dark:text-white">Sound on completion</span>}
+              title={<span className="text-black dark:text-white">Sound</span>}
               after={
                 <Toggle
                   checked={settings.soundEnabled}
@@ -277,9 +302,9 @@ export default function Settings() {
           </List>
         </div>
 
-        {/* Google Calendar */}
+        {/* Integrations */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Google Calendar</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Integrations</BlockTitle>
           <List strong inset>
             <DeviceFlowAuth connected={calConnected} onConnected={() => {
               setCalConnected(true)
@@ -299,13 +324,18 @@ export default function Settings() {
           </List>
         </div>
 
-        {/* About */}
+        {/* Appearance */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">About</BlockTitle>
+          <BlockTitle className="!text-black dark:!text-white">Appearance</BlockTitle>
           <List strong inset>
             <ListItem
-              title={<span className="text-black dark:text-white">sesh-web v0.1.0</span>}
-              subtitle="PWA Pomodoro timer"
+              title={<span className="text-black dark:text-white">Dark mode</span>}
+              after={
+                <Toggle
+                  checked={settings.darkMode}
+                  onChange={() => updateSettings({ darkMode: !settings.darkMode })}
+                />
+              }
             />
           </List>
         </div>

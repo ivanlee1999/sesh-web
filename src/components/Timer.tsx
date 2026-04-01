@@ -13,6 +13,7 @@ import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
+import { getCategoryMeta } from '@/lib/categories'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 
 function interpolateColor(hex1: string, hex2: string, t: number): string {
@@ -49,20 +50,6 @@ function toEpochMs(value: unknown): number | null {
   return null
 }
 
-/** Ensure all numeric timer fields are valid numbers */
-function normalizeTimerState(data: ServerTimerState): ServerTimerState {
-  return {
-    ...data,
-    targetMs: Number.isFinite(data.targetMs) ? data.targetMs : 0,
-    remainingMs: Number.isFinite(data.remainingMs) ? data.remainingMs : 0,
-    overflowMs: Number.isFinite(data.overflowMs) ? data.overflowMs : 0,
-    startedAt: toEpochMs(data.startedAt),
-    pausedAt: toEpochMs(data.pausedAt),
-    updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
-  }
-}
-
-
 interface ServerTimerState {
   phase: string
   sessionType: string
@@ -75,6 +62,19 @@ interface ServerTimerState {
   pausedAt: number | null
   updatedAt: number
   todoistTaskId: string | null
+}
+
+/** Ensure all numeric timer fields are valid numbers */
+function normalizeTimerState(data: ServerTimerState): ServerTimerState {
+  return {
+    ...data,
+    targetMs: Number.isFinite(data.targetMs) ? data.targetMs : 0,
+    remainingMs: Number.isFinite(data.remainingMs) ? data.remainingMs : 0,
+    overflowMs: Number.isFinite(data.overflowMs) ? data.overflowMs : 0,
+    startedAt: toEpochMs(data.startedAt),
+    pausedAt: toEpochMs(data.pausedAt),
+    updatedAt: Number.isFinite(data.updatedAt) ? data.updatedAt : Date.now(),
+  }
 }
 
 export default function Timer() {
@@ -117,7 +117,6 @@ export default function Timer() {
   // ── Persist timer state to localStorage for offline resilience ──
   useEffect(() => {
     if (phase === 'idle') {
-      // Save idle config so it restores on reload
       saveTimerState({
         phase, sessionType, intention, category,
         targetMs: customDurationMs, remainingMs: customDurationMs,
@@ -135,12 +134,10 @@ export default function Timer() {
     }
   }, [phase, sessionType, intention, category, customDurationMs, activeTargetMs, remainingMs, overflowMs, startedAt, todoistTaskId])
 
-  // Once categories are loaded, ensure the selected category actually exists.
-  // If it doesn't (e.g. initial empty string, or a renamed/deleted slug), fall
-  // back to the default category (is_default) or the first available one.
+  // Ensure selected category is valid
   useEffect(() => {
-    if (categories.length === 0) return // still loading
-    if (category && byName[category]) return // already valid
+    if (categories.length === 0) return
+    if (category && byName[category]) return
     const defaultCat = categories.find(c => c.isDefault) ?? categories[0]
     if (defaultCat) setCategory(defaultCat.name)
   }, [categories, byName, category])
@@ -251,9 +248,6 @@ export default function Timer() {
   const applyServerState = useCallback((rawData: ServerTimerState) => {
     const data = normalizeTimerState(rawData)
     if (data.phase === 'running' && data.startedAt) {
-      // Use remainingMs at updatedAt as the authoritative countdown state.
-      // This is consistent with Raycast's timer-state.ts and handles
-      // pause/resume correctly (startedAt doesn't account for paused time).
       const elapsedSinceUpdate = Date.now() - data.updatedAt
       const newRemaining = data.remainingMs - elapsedSinceUpdate
       if (intervalRef.current) clearInterval(intervalRef.current)
@@ -293,7 +287,6 @@ export default function Timer() {
       setTodoistTaskId(local.todoistTaskId ?? null)
 
       if ((local.phase === 'running' || local.phase === 'overflow') && local.startedAt) {
-        // Recompute remaining from savedAt + remainingMs (handles pause/resume correctly)
         const elapsedSinceSave = Date.now() - local.savedAt
         const newRemaining = local.remainingMs - elapsedSinceSave
         setActiveTargetMs(local.targetMs)
@@ -310,7 +303,6 @@ export default function Timer() {
         setOverflowMs(local.overflowMs)
         setPhase('paused')
       } else {
-        // idle
         if (local.remainingMs) {
           setCustomDurationMs(local.remainingMs)
           setActiveTargetMs(local.remainingMs)
@@ -354,6 +346,7 @@ export default function Timer() {
       if (intervalRef.current) clearInterval(intervalRef.current)
       if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyServerState, postSwMessage])
 
   // Poll every 2s
@@ -505,7 +498,6 @@ export default function Timer() {
     const actualMs = startedAt ? now - startedAt : 0
     const curOverflowMs = Math.max(0, overflowMs)
 
-    // Build the session record for offline queueing
     const effectiveStartedAt = startedAt || now
     const offlineSession: QueuedSession = {
       id: `offline-${effectiveStartedAt}`,
@@ -551,9 +543,8 @@ export default function Timer() {
 
       if (data.timer?.updatedAt) serverUpdatedAtRef.current = data.timer.updatedAt
     } catch {
-      // Offline: queue the session for later sync
       enqueueSession(offlineSession)
-      setSaveError(null) // Don't show error — queued for later
+      setSaveError(null)
     }
 
     if (settings.soundEnabled) playChime()
@@ -586,7 +577,8 @@ export default function Timer() {
     setIntention('')
     setTodoistTaskId(null)
     clearTimerState()
-  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage, tick])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, playChime, postSwMessage])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
@@ -623,12 +615,12 @@ export default function Timer() {
 
   const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
     setTodoistTaskId(task?.id ?? null)
-    // Copy task content into intention so the input has a single source of truth
     if (task?.content) {
       setIntention(task.content)
     }
   }, [])
 
+  // ── Derived display values ──
   const isOverflow = remainingMs < 0
 
   const displayMs = phase === 'idle'
@@ -640,33 +632,27 @@ export default function Timer() {
     : isOverflow ? 1 : Math.max(0, remainingMs / activeTargetMs)
 
   const getRingColor = () => {
-    // Break sessions always green
     if (sessionType !== 'focus') {
       if (isOverflow) return '#FF9500'
       return '#34C759'
     }
-    // Focus: category color, shifting to warning as time runs low
     if (isOverflow) return '#FF9500'
-    const categoryColor = byName[category]?.color ?? '#6b7280'
+    const meta = getCategoryMeta(category, categories)
+    const categoryColor = meta.color
     if (phase === 'idle') return categoryColor
-    const timeRatio = remainingMs / activeTargetMs  // 1.0 = full, 0.0 = done
+    const timeRatio = remainingMs / activeTargetMs
     if (timeRatio > 0.2) return categoryColor
-    // Blend from category color to warning orange in last 20%
-    const urgencyRatio = timeRatio / 0.2  // 1.0 at 20%, 0.0 at 0%
+    const urgencyRatio = timeRatio / 0.2
     return interpolateColor(categoryColor, '#FF9500', 1 - urgencyRatio)
   }
   const ringColor = getRingColor()
 
-  const viewState = phase === 'idle' ? 'idle' : 'active'
-
-  // Determine the display intention for the active state
-
-  // Whether to show the text input in idle (only when no Todoist task selected)
   const showIdleIntentionInput = !todoistTaskId
+  const catMeta = getCategoryMeta(category, categories)
 
   return (
     <div className="relative mt-2 flex min-h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] w-full flex-col items-center px-4 pb-[calc(24px+env(safe-area-inset-bottom,0px))] pt-4" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
-      {/* Sync indicator: green=online+synced, orange=offline, grey=unknown */}
+      {/* Sync indicator */}
       <div className="absolute right-4 top-4 flex items-center gap-1.5">
         <div
           className="h-[7px] w-[7px] rounded-full transition-colors duration-300"
@@ -676,59 +662,55 @@ export default function Timer() {
         />
       </div>
 
-      {viewState === 'idle' ? (
+      {phase === 'idle' ? (
+        /* ═══════ IDLE STATE ═══════ */
         <div className="mt-2 flex w-full flex-col items-center justify-start">
-          {/* ═══ TOP SECTION: Todoist + Intention + Category + Session Type ═══ */}
-          <div className="w-full max-w-[361px] space-y-3 mx-auto">
-            {/* Todoist tasks — compact at top */}
-            <TodoistTasks
-              selectedTaskId={todoistTaskId}
-              onSelectTask={handleTodoistTaskSelect}
-            />
-
-            {/* Intention input — only when no Todoist task selected */}
+          <div className="mx-auto w-full max-w-[361px] space-y-3">
+            {/* Intention input */}
             {showIdleIntentionInput && (
               <div className="w-full">
-                <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">Intention</label>
                 <input
                   type="text"
                   placeholder="What are you working on?"
                   value={intention}
                   onChange={(e) => handleIntentionChange(e.target.value)}
                   maxLength={120}
-                  className="w-full rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2.5 text-sm text-black dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                  className="w-full rounded-xl border border-gray-300 bg-gray-100 px-3 py-2.5 text-sm text-black placeholder-gray-400 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
                 />
               </div>
             )}
 
             {/* Category chips */}
             <div className="hide-scrollbar flex gap-2 overflow-x-auto px-1">
-              {categories.map(cat => (
-                <Chip
-                  key={cat.name}
-                  outline={category !== cat.name}
-                  onClick={() => {
-                    setCategory(cat.name)
-                    syncToServer({
-                      phase: 'idle', sessionType, intention, category: cat.name,
-                      targetMs: customDurationMs, remainingMs: customDurationMs,
-                      overflowMs: 0, startedAt: null, pausedAt: null,
-                    })
-                  }}
-                  className={
-                    category === cat.name
-                      ? '!bg-black dark:!bg-white !text-white dark:!text-black !border-black dark:!border-white'
-                      : '!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white'
-                  }
-                >
-                  <span
-                    slot="media"
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  {cat.label}
-                </Chip>
-              ))}
+              {categories.map(cat => {
+                const selected = category === cat.name
+                return (
+                  <Chip
+                    key={cat.name}
+                    outline={!selected}
+                    onClick={() => {
+                      setCategory(cat.name)
+                      syncToServer({
+                        phase: 'idle', sessionType, intention, category: cat.name,
+                        targetMs: customDurationMs, remainingMs: customDurationMs,
+                        overflowMs: 0, startedAt: null, pausedAt: null,
+                      })
+                    }}
+                    className={
+                      selected
+                        ? '!bg-black dark:!bg-white !text-white dark:!text-black !border-black dark:!border-white'
+                        : '!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white'
+                    }
+                  >
+                    <span
+                      slot="media"
+                      className="inline-block h-2 w-2 rounded-full"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                    {cat.label}
+                  </Chip>
+                )
+              })}
             </div>
 
             {/* Session type selector */}
@@ -747,9 +729,8 @@ export default function Timer() {
             </Segmented>
           </div>
 
-          {/* ═══ MIDDLE SECTION: Ring + Time display ═══ */}
+          {/* Ring + Time display */}
           <div className="flex flex-col items-center gap-4">
-            {/* THE HERO — Timer Ring (large, empty center) */}
             <ProgressRing
               progress={progress}
               color={ringColor}
@@ -776,13 +757,13 @@ export default function Timer() {
               <></>
             </ProgressRing>
 
-            {/* Time display BELOW ring */}
+            {/* Time display */}
             <span className="text-4xl font-bold text-black dark:text-white">
               {formatTime(displayMs)}
             </span>
 
-            {/* Time range label */}
-            <Chip outline className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white">
+            {/* Time range chip */}
+            <Chip outline className="!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
@@ -792,22 +773,30 @@ export default function Timer() {
             </Chip>
           </div>
 
-          {/* ═══ BOTTOM SECTION: Start button ═══ */}
+          {/* START button */}
           <div className="flex w-full justify-center pb-1">
             <Button
               large
               rounded
               onClick={startTimer}
-              className="!w-full !max-w-[320px] !mt-2 !min-h-[52px] !text-[15px] !font-semibold !tracking-wider !uppercase"
+              className="!mt-2 !w-full !max-w-[320px] !min-h-[52px] !text-[15px] !font-semibold !tracking-wider !uppercase"
             >
               START SESSION
             </Button>
+          </div>
+
+          {/* Todoist picker */}
+          <div className="mx-auto mt-3 w-full max-w-[361px]">
+            <TodoistTasks
+              selectedTaskId={todoistTaskId}
+              onSelectTask={handleTodoistTaskSelect}
+            />
           </div>
         </div>
       ) : (
         /* ═══════ ACTIVE STATE ═══════ */
         <div className="mt-2 flex w-full flex-col items-center gap-3">
-          {/* Intention + phase header + category badge */}
+          {/* Editable intention */}
           <input
             type="text"
             placeholder="Tap to add intention..."
@@ -815,15 +804,12 @@ export default function Timer() {
             onChange={(e) => {
               const value = e.target.value
               handleIntentionChange(value)
-              syncToServer(buildTimerPayload({
-                intention: value,
-                pausedAt: phase === 'paused' ? Date.now() : null,
-              }))
             }}
             maxLength={120}
-            className="w-full max-w-[320px] rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 px-3 py-2.5 text-sm text-black dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+            className="w-full max-w-[320px] rounded-xl border border-gray-300 bg-gray-100 px-3 py-2.5 text-sm text-black placeholder-gray-400 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
 
+          {/* Phase label + category chip */}
           <div className="flex items-center justify-center gap-2">
             <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
               {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'BREAK'}
@@ -840,18 +826,18 @@ export default function Timer() {
                   pausedAt: phase === 'paused' ? Date.now() : null,
                 }))
               }}
-              className="!border-[#666666] dark:!border-[#999999] !text-black dark:!text-white"
+              className="!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white"
             >
               <span
                 slot="media"
                 className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: byName[category]?.color ?? '#6b7280' }}
+                style={{ backgroundColor: catMeta.color }}
               />
-              {byName[category]?.label ?? category}
+              {catMeta.label}
             </Chip>
           </div>
 
-          {/* Ring — THE HERO */}
+          {/* Ring */}
           <ProgressRing
             progress={progress}
             color={ringColor}
@@ -869,7 +855,7 @@ export default function Timer() {
             </div>
           </ProgressRing>
 
-          {/* Controls — Konsta buttons */}
+          {/* Controls */}
           <div className="flex items-center gap-3">
             {(phase === 'running' || phase === 'overflow') && (
               <>
@@ -897,7 +883,7 @@ export default function Timer() {
             )}
           </div>
 
-          {/* Abandon — minimal */}
+          {/* Abandon */}
           <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-500 hover:!text-red-500">
             <Square style={{ width: 14, height: 14, marginRight: 6 }} />
             Abandon
@@ -905,7 +891,7 @@ export default function Timer() {
 
           {/* Save error */}
           {saveError && (
-            <div className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600">
+            <div className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
               {saveError}
             </div>
           )}
