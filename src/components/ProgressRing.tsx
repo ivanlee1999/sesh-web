@@ -23,6 +23,12 @@ function clamp(min: number, max: number, v: number) {
   return Math.max(min, Math.min(max, v))
 }
 
+/** Circular distance on a 0..period ring (handles wrap-around). */
+function circularDistance(a: number, b: number, period: number = 60): number {
+  const d = Math.abs(a - b)
+  return Math.min(d, period - d)
+}
+
 function rawProgressFromPoint(
   clientX: number, clientY: number,
   rect: DOMRect,
@@ -42,7 +48,8 @@ function progressFromMinute(m: number): number {
   return clamp(1, 60, m) / 60
 }
 
-/** Apply magnetic detent logic. Returns the snapped minute and updated lock state. */
+/** Apply magnetic detent logic. Returns the snapped minute and updated lock state.
+ *  rawMinute is in [0, 60] where 0 and 60 both represent the 12 o'clock position. */
 function applyDetent(
   rawMinute: number,
   lockedDetent: number | null,
@@ -52,21 +59,23 @@ function applyDetent(
   const nearestDetent = nearest5 === 0 ? 60 : nearest5
 
   // If currently locked to a detent, stay until raw movement exceeds release band
+  // Use circular distance so that the 60/0 boundary works correctly
   if (lockedDetent != null) {
-    if (Math.abs(rawMinute - lockedDetent) <= DETENT_RELEASE_BAND) {
+    if (circularDistance(rawMinute, lockedDetent) <= DETENT_RELEASE_BAND) {
       return { minute: lockedDetent, lockedDetent }
     }
     // Release — fall through to normal logic
     lockedDetent = null
   }
 
-  // Try to capture onto nearest 5-minute detent
-  if (nearestDetent >= 5 && nearestDetent <= 60 && Math.abs(rawMinute - nearestDetent) <= DETENT_CAPTURE_BAND) {
+  // Try to capture onto nearest 5-minute detent (circular distance for 60/0 wrap)
+  if (nearestDetent >= 5 && nearestDetent <= 60 && circularDistance(rawMinute, nearestDetent) <= DETENT_CAPTURE_BAND) {
     return { minute: nearestDetent, lockedDetent: nearestDetent }
   }
 
-  // No detent — return rounded minute
-  return { minute: clamp(1, 60, Math.round(rawMinute)), lockedDetent: null }
+  // No detent — return rounded minute, mapping 0 to 60
+  const rounded = Math.round(rawMinute)
+  return { minute: rounded <= 0 ? 60 : clamp(1, 60, rounded), lockedDetent: null }
 }
 
 // --- Audio tick feedback (iOS fallback) ---
@@ -153,7 +162,7 @@ export default function ProgressRing({
     if (!svgRef.current || !onProgressChange) return
     const rect = svgRef.current.getBoundingClientRect()
     const raw = rawProgressFromPoint(clientX, clientY, rect)
-    const rawMinute = clamp(1, 60, raw * 60)
+    const rawMinute = raw * 60  // 0..60, where 0 = top of ring = 60 minutes
 
     const result = applyDetent(rawMinute, lockedDetentMinuteRef.current)
     lockedDetentMinuteRef.current = result.lockedDetent

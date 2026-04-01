@@ -320,6 +320,44 @@ describe('ProgressRing', () => {
       expect(vibrateSpy).toHaveBeenCalled()
     })
 
+    it('dragging to 12 o\'clock (top) selects 60 minutes, not 1', () => {
+      const { svg, onProgressChange } = setupDrag()
+      const rect = svg.getBoundingClientRect()
+
+      // Minute 0/60 = exact top of ring (12 o'clock position)
+      const ptTop = pointForMinute(0, 240, rect)
+      fireEvent.mouseDown(svg, { clientX: ptTop.clientX, clientY: ptTop.clientY })
+
+      expect(onProgressChange).toHaveBeenCalled()
+      const emitted = onProgressChange.mock.calls[0][0]
+      const minute = Math.round(emitted * 60)
+      expect(minute).toBe(60)
+    })
+
+    it('holds 60-minute detent when crossing the wrap-around boundary', () => {
+      const { svg, onProgressChange } = setupDrag()
+      const rect = svg.getBoundingClientRect()
+
+      // Lock onto 60 by dragging to top
+      const ptTop = pointForMinute(0, 240, rect)
+      fireEvent.mouseDown(svg, { clientX: ptTop.clientX, clientY: ptTop.clientY })
+      expect(Math.round(onProgressChange.mock.calls[0][0] * 60)).toBe(60)
+
+      // Move slightly past the boundary to minute 59 — within ±2 release band of 60
+      const pt59 = pointForMinute(59, 240, rect)
+      fireEvent.mouseMove(window, { clientX: pt59.clientX, clientY: pt59.clientY })
+
+      const lastCall = onProgressChange.mock.calls[onProgressChange.mock.calls.length - 1][0]
+      expect(Math.round(lastCall * 60)).toBe(60)
+
+      // Move slightly to minute 1 — also within ±2 release band of 60 (circularly)
+      const pt1 = pointForMinute(1, 240, rect)
+      fireEvent.mouseMove(window, { clientX: pt1.clientX, clientY: pt1.clientY })
+
+      const lastCall2 = onProgressChange.mock.calls[onProgressChange.mock.calls.length - 1][0]
+      expect(Math.round(lastCall2 * 60)).toBe(60)
+    })
+
     it('does not emit duplicate feedback for same minute', () => {
       const { svg } = setupDrag()
       const rect = svg.getBoundingClientRect()
