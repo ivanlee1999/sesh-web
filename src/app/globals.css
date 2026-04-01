@@ -66,3 +66,46 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* iOS PWA native behavior */
+@layer base {
+  /* Prevent zoom on double-tap and pinch */
+  html {
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Prevent pull-to-refresh / elastic scroll on body */
+  body {
+    overscroll-behavior: none;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Prevent text selection on UI elements (not inputs) */
+  button, label, [role="button"], .tabbar-frosted, nav {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Prevent iOS callout on long press */
+  a, button, img {
+    -webkit-touch-callout: none;
+  }
+
+  /* Remove tap highlight */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Smooth scrolling for content areas */
+  .view-stack {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+}
