@@ -46,6 +46,7 @@ export default function ProgressRing({
   const hapticLabelRef = useRef<HTMLLabelElement | null>(null)
   const draggingRef = useRef(false)
   const lastProgressRef = useRef(progress)
+  const stickyUntilRef = useRef(0)
 
   const updateFromPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current || !onProgressChange) return
@@ -56,15 +57,27 @@ export default function ProgressRing({
     if (angle < 0) angle += 2 * Math.PI
     const raw = angle / (2 * Math.PI)
     const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
+    // Sticky snapping on multiples of 5 — hold for 120ms before moving past
+    const now = Date.now()
+    const currentMinutes = Math.round(lastProgressRef.current * 60)
+    const newMinutes = Math.round(snapped * 60)
+    if (currentMinutes % 5 === 0 && newMinutes !== currentMinutes) {
+      if (now < stickyUntilRef.current) {
+        return  // still in sticky zone, ignore this move
+      }
+    }
+    if (newMinutes % 5 === 0 && newMinutes !== currentMinutes) {
+      stickyUntilRef.current = now + 120  // stick for 120ms
+    }
+
     // Haptic feedback when snapping to a new tick
     if (snapped !== lastProgressRef.current) {
-      // Stronger haptic on multiples of 5
-      const minutes = Math.round(snapped * 60)
-      const isMultipleOf5 = minutes % 5 === 0
+      const isMultipleOf5 = newMinutes % 5 === 0
+      // Android haptic
       if (navigator.vibrate) {
-        navigator.vibrate(isMultipleOf5 ? 5 : 1)
+        navigator.vibrate(isMultipleOf5 ? 10 : 1)
       }
-      // iOS 18+ haptic via hidden checkbox switch trick
+      // iOS 18+ haptic via hidden checkbox switch
       if (hapticRef.current && hapticLabelRef.current) {
         hapticRef.current.checked = !hapticRef.current.checked
         hapticLabelRef.current.click()
@@ -268,9 +281,9 @@ export default function ProgressRing({
       </svg>
 
       {/* Hidden iOS haptic trigger (iOS 18+ checkbox switch hack) */}
-      <label ref={hapticLabelRef} htmlFor={`haptic-${gradientId}`} className="hidden" aria-hidden="true" />
+      <label ref={hapticLabelRef} htmlFor={`haptic-${gradientId}`} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", opacity: 0, pointerEvents: "none" }} aria-hidden="true" />
       <input ref={hapticRef} id={`haptic-${gradientId}`} type="checkbox" /* @ts-expect-error switch is valid in Safari */
-        switch="" className="hidden" aria-hidden="true" tabIndex={-1} />
+        switch="" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)", opacity: 0, pointerEvents: "none" }} aria-hidden="true" tabIndex={-1} />
 
       <div className="absolute inset-0 flex items-center justify-center" style={interactive ? { pointerEvents: 'none' } : undefined}>
         {children}
