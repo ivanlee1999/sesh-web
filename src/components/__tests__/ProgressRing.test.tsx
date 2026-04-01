@@ -16,7 +16,7 @@ describe('ProgressRing', () => {
   const defaultProps = {
     progress: 0.5,
     color: '#3b82f6',
-    size: 300,
+    size: 240,
   }
 
   it('renders without crashing at progress=0', () => {
@@ -34,57 +34,43 @@ describe('ProgressRing', () => {
     expect(container.querySelector('svg')).toBeTruthy()
   })
 
-  it('renders 60 tick marks', () => {
+  it('renders no tick marks or minute numbers', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const lines = container.querySelectorAll('svg line')
-    expect(lines.length).toBe(60)
+    expect(lines.length).toBe(0)
+    const texts = container.querySelectorAll('svg text')
+    expect(texts.length).toBe(0)
   })
 
-  it('renders 12 major ticks with strokeWidth=3', () => {
-    const { container } = render(<ProgressRing {...defaultProps} />)
-    const lines = container.querySelectorAll('svg line')
-    const majorTicks = Array.from(lines).filter(
-      l => l.getAttribute('stroke-width') === '3'
-    )
-    expect(majorTicks.length).toBe(12)
-  })
-
-  it('renders 48 minor ticks with strokeWidth=2', () => {
-    const { container } = render(<ProgressRing {...defaultProps} />)
-    const lines = container.querySelectorAll('svg line')
-    const minorTicks = Array.from(lines).filter(
-      l => l.getAttribute('stroke-width') === '2'
-    )
-    expect(minorTicks.length).toBe(48)
-  })
-
-  it('uses light-mode colors when darkMode=false', () => {
+  it('renders a base track circle with correct light mode color', () => {
     mockDarkMode = false
     const { container } = render(<ProgressRing {...defaultProps} />)
-    const baseCircle = container.querySelector('svg circle')!
-    expect(baseCircle.getAttribute('stroke')).toBe('#CCCCCC')
-
-    const lines = container.querySelectorAll('svg line')
-    const majorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '3')!
-    expect(majorTick.getAttribute('stroke')).toBe('#000000')
-
-    const minorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '2')!
-    expect(minorTick.getAttribute('stroke')).toBe('#666666')
+    const circles = container.querySelectorAll('svg circle')
+    const track = circles[0]
+    expect(track).toBeTruthy()
+    expect(track.getAttribute('stroke')).toBe('#E5E5EA')
+    expect(track.getAttribute('stroke-width')).toBe('8')
   })
 
-  it('uses dark-mode colors when darkMode=true', () => {
+  it('renders a base track circle with correct dark mode color', () => {
     mockDarkMode = true
     const { container } = render(<ProgressRing {...defaultProps} />)
-    const baseCircle = container.querySelector('svg circle')!
-    expect(baseCircle.getAttribute('stroke')).toBe('#555555')
-
-    const lines = container.querySelectorAll('svg line')
-    const majorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '3')!
-    expect(majorTick.getAttribute('stroke')).toBe('#FFFFFF')
-
-    const minorTick = Array.from(lines).find(l => l.getAttribute('stroke-width') === '2')!
-    expect(minorTick.getAttribute('stroke')).toBe('#AAAAAA')
+    const circles = container.querySelectorAll('svg circle')
+    const track = circles[0]
+    expect(track).toBeTruthy()
+    expect(track.getAttribute('stroke')).toBe('#3A3A3C')
     mockDarkMode = false
+  })
+
+  it('renders a progress arc with the category color', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const circles = container.querySelectorAll('svg circle')
+    const progressArc = Array.from(circles).find(
+      c => c.getAttribute('stroke') === '#3b82f6'
+    )
+    expect(progressArc).toBeTruthy()
+    expect(progressArc!.getAttribute('stroke-linecap')).toBe('round')
+    expect(progressArc!.getAttribute('stroke-width')).toBe('8')
   })
 
   it('does not render wedge path when progress=0', () => {
@@ -100,32 +86,23 @@ describe('ProgressRing', () => {
     expect(paths[0].getAttribute('d')).toBeTruthy()
   })
 
-  it('renders 12 minute numbers with correct values', () => {
+  it('renders a tip dot at arc end when progress > 0', () => {
     mockDarkMode = false
-    const { container } = render(
-      <ProgressRing {...defaultProps} interactive />
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const circles = container.querySelectorAll('svg circle')
+    // Should have: track circle, progress arc circle, tip dot circle = 3
+    const tipDot = Array.from(circles).find(
+      c => c.getAttribute('r') === '6' && c.getAttribute('fill') === '#3b82f6'
     )
-    const texts = container.querySelectorAll('svg text')
-    expect(texts.length).toBe(12)
-    const values = Array.from(texts).map(t => t.textContent)
-    expect(values).toEqual(['5', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55', '60'])
+    expect(tipDot).toBeTruthy()
+    expect(tipDot!.getAttribute('stroke')).toBe('#FFFFFF')
   })
 
-  it('renders clock hand in interactive mode with progress > 0', () => {
-    const { container } = render(
-      <ProgressRing {...defaultProps} progress={0.5} interactive />
-    )
-    // Should have 60 tick lines + 1 hand line = 61 total lines
-    const lines = container.querySelectorAll('svg line')
-    expect(lines.length).toBe(61)
-  })
-
-  it('does not render clock hand in interactive mode when progress=0', () => {
-    const { container } = render(
-      <ProgressRing {...defaultProps} progress={0} interactive />
-    )
-    const lines = container.querySelectorAll('svg line')
-    expect(lines.length).toBe(60)
+  it('does not render tip dot when progress=0', () => {
+    const { container } = render(<ProgressRing {...defaultProps} progress={0} />)
+    const circles = container.querySelectorAll('svg circle')
+    // Only track + progress arc = 2 circles
+    expect(circles.length).toBe(2)
   })
 
   it('creates unique gradient ids across multiple instances', () => {
@@ -165,26 +142,15 @@ describe('ProgressRing', () => {
     expect(svg.style.touchAction).toBe('')
   })
 
-  it('uses progress arc strokeWidth of at least 10', () => {
+  it('tip dot has dark mode border color', () => {
+    mockDarkMode = true
     const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
     const circles = container.querySelectorAll('svg circle')
-    const progressArc = Array.from(circles).find(
-      c => c.getAttribute('stroke') === '#3b82f6'
+    const tipDot = Array.from(circles).find(
+      c => c.getAttribute('r') === '6' && c.getAttribute('fill') === '#3b82f6'
     )
-    expect(progressArc).toBeTruthy()
-    const sw = Number(progressArc!.getAttribute('stroke-width'))
-    expect(sw).toBeGreaterThanOrEqual(10)
-  })
-
-  it('renders tip border color as white in light mode', () => {
+    expect(tipDot).toBeTruthy()
+    expect(tipDot!.getAttribute('stroke')).toBe('#1c1c1e')
     mockDarkMode = false
-    const { container } = render(
-      <ProgressRing {...defaultProps} progress={0.5} interactive />
-    )
-    const circles = container.querySelectorAll('svg circle')
-    const tipCircle = Array.from(circles).find(
-      c => c.getAttribute('stroke') === '#FFFFFF'
-    )
-    expect(tipCircle).toBeTruthy()
   })
 })

@@ -262,7 +262,7 @@ export default function Settings() {
       <div className="flex flex-col gap-6">
         {/* Timer Durations */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Timer</BlockTitle>
+          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Timer</BlockTitle>
           <List strong inset>
             <NumberRow
               label="Focus duration"
@@ -287,7 +287,7 @@ export default function Settings() {
 
         {/* Notifications */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Notifications</BlockTitle>
+          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Notifications</BlockTitle>
           <List strong inset>
             <ListItem
               title={<span className="text-black dark:text-white">Sound</span>}
@@ -304,7 +304,7 @@ export default function Settings() {
 
         {/* Integrations */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Integrations</BlockTitle>
+          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Integrations</BlockTitle>
           <List strong inset>
             <DeviceFlowAuth connected={calConnected} onConnected={() => {
               setCalConnected(true)
@@ -326,7 +326,7 @@ export default function Settings() {
 
         {/* Appearance */}
         <div>
-          <BlockTitle className="!text-black dark:!text-white">Appearance</BlockTitle>
+          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Appearance</BlockTitle>
           <List strong inset>
             <ListItem
               title={<span className="text-black dark:text-white">Dark mode</span>}

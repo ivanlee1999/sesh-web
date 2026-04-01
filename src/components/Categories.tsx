@@ -215,7 +215,7 @@ export default function Categories() {
               key={cat.id}
               media={
                 <div
-                  className="h-3 w-3 flex-shrink-0 rounded-full"
+                  className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
                   style={{ backgroundColor: cat.color }}
                 />
               }
@@ -238,7 +238,7 @@ export default function Categories() {
                     className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-500 dark:hover:bg-blue-900/20"
                     title="Edit"
                   >
-                    <Pencil className="h-4 w-4" />
+                    <Pencil className="h-3.5 w-3.5" />
                   </button>
                   {confirmDeleteId === cat.id ? (
                     <div className="flex items-center gap-1">
@@ -262,10 +262,10 @@ export default function Categories() {
                   ) : (
                     <button
                       onClick={() => { setDeleteError(null); setConfirmDeleteId(cat.id) }}
-                      className="rounded-lg p-1.5 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-900/20"
+                      className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-900/20"
                       title="Delete"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>

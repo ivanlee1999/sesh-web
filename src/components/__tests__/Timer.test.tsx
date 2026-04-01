@@ -124,8 +124,8 @@ describe('Timer', () => {
     expect(timeDisplay).toBeTruthy()
     expect(timeDisplay.className).toContain('text-black')
     expect(timeDisplay.className).toContain('dark:text-white')
-    expect(timeDisplay.className).toContain('text-4xl')
-    expect(timeDisplay.className).toContain('font-bold')
+    expect(timeDisplay.className).toContain('text-[48px]')
+    expect(timeDisplay.className).toContain('font-light')
   })
 
   it('renders START SESSION button text', () => {

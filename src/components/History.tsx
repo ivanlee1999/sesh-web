@@ -94,7 +94,7 @@ export default function History() {
       <div className="flex flex-col gap-6">
         {groups.map(({ date, sessions }) => (
           <ListGroup key={date}>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">{date}</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-gray-500 dark:text-gray-400">{date}</div>
             <List strong inset className="!my-0 !rounded-2xl">
               {sessions.map(s => {
                 const meta = getCategoryMeta(s.category, categories)

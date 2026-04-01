@@ -664,7 +664,7 @@ export default function Timer() {
 
       {phase === 'idle' ? (
         /* ═══════ IDLE STATE ═══════ */
-        <div className="mt-2 flex w-full flex-col items-center justify-start">
+        <div className="mt-2 flex w-full flex-col items-center justify-start gap-8">
           <div className="mx-auto w-full max-w-[361px] space-y-3">
             {/* Intention input */}
             {showIdleIntentionInput && (
@@ -685,9 +685,8 @@ export default function Timer() {
               {categories.map(cat => {
                 const selected = category === cat.name
                 return (
-                  <Chip
+                  <button
                     key={cat.name}
-                    outline={!selected}
                     onClick={() => {
                       setCategory(cat.name)
                       syncToServer({
@@ -696,19 +695,19 @@ export default function Timer() {
                         overflowMs: 0, startedAt: null, pausedAt: null,
                       })
                     }}
-                    className={
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[15px] font-medium transition-colors duration-200 ${
                       selected
-                        ? '!bg-black dark:!bg-white !text-white dark:!text-black !border-black dark:!border-white'
-                        : '!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white'
-                    }
+                        ? 'text-black dark:text-white'
+                        : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                    }`}
+                    style={selected ? { backgroundColor: `${cat.color}1A`, color: cat.color } : undefined}
                   >
                     <span
-                      slot="media"
-                      className="inline-block h-2 w-2 rounded-full"
+                      className="inline-block h-2 w-2 flex-shrink-0 rounded-full"
                       style={{ backgroundColor: cat.color }}
                     />
                     {cat.label}
-                  </Chip>
+                  </button>
                 )
               })}
             </div>
@@ -729,12 +728,12 @@ export default function Timer() {
             </Segmented>
           </div>
 
-          {/* Ring + Time display */}
-          <div className="flex flex-col items-center gap-4">
+          {/* Ring with time display INSIDE */}
+          <div className="flex flex-col items-center gap-3">
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={260}
+              size={240}
               strokeWidth={8}
               interactive={true}
               onProgressChange={(p) => {
@@ -754,39 +753,35 @@ export default function Timer() {
                 })
               }}
             >
-              <></>
+              <span className="font-mono text-[48px] font-light leading-none text-black dark:text-white">
+                {formatTime(displayMs)}
+              </span>
             </ProgressRing>
 
-            {/* Time display */}
-            <span className="text-4xl font-bold text-black dark:text-white">
-              {formatTime(displayMs)}
-            </span>
-
             {/* Time range chip */}
-            <Chip outline className="!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white">
+            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
               {(() => {
                 const now = new Date()
                 const end = new Date(now.getTime() + (customDurationMs || remainingMs))
                 const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
                 return `${fmt(now)} → ${fmt(end)}`
               })()}
-            </Chip>
+            </span>
           </div>
 
           {/* START button */}
-          <div className="flex w-full justify-center pb-1">
-            <Button
-              large
-              rounded
+          <div className="flex w-full justify-center">
+            <button
               onClick={startTimer}
-              className="!mt-2 !w-full !max-w-[320px] !min-h-[52px] !text-[15px] !font-semibold !tracking-wider !uppercase"
+              className="press-in w-full max-w-[361px] rounded-full bg-[#007AFF] py-[14px] text-[17px] font-semibold text-white active:scale-[0.97]"
+              style={{ minHeight: 50, transition: 'transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
             >
               START SESSION
-            </Button>
+            </button>
           </div>
 
           {/* Todoist picker */}
-          <div className="mx-auto mt-3 w-full max-w-[361px]">
+          <div className="mx-auto w-full max-w-[361px]">
             <TodoistTasks
               selectedTaskId={todoistTaskId}
               onSelectTask={handleTodoistTaskSelect}
@@ -841,15 +836,15 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={280}
+            size={240}
             strokeWidth={8}
             interactive={false}
           >
             <div className="flex flex-col items-center">
               {isOverflow && (
-                <span className="mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
+                <span className="overflow-pulse mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono text-[52px] font-bold leading-none text-black dark:text-white">
+              <span className="font-mono text-[48px] font-light leading-none text-black dark:text-white">
                 {formatTime(displayMs)}
               </span>
             </div>
