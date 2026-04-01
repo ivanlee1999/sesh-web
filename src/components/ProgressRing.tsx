@@ -7,7 +7,7 @@ interface ProgressRingProps {
   progress: number  // 0-1
   color: string
   size: number
-  strokeWidth?: number  // default 8
+  strokeWidth?: number  // default 14
   children?: React.ReactNode
   interactive?: boolean
   onProgressChange?: (progress: number) => void
@@ -18,7 +18,7 @@ export default function ProgressRing({
   progress,
   color,
   size,
-  strokeWidth = 8,
+  strokeWidth = 14,
   children,
   interactive = false,
   onProgressChange,
@@ -28,11 +28,12 @@ export default function ProgressRing({
   const isDark = settings.darkMode
   const gradientId = useId()
 
-  // Theme-aware colors
-  const trackStroke = isDark ? '#3A3A3C' : '#E5E5EA'
+  // Session-style colors
+  const trackStroke = isDark ? '#2C2C2E' : '#F0F0F0'
   const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
 
-  const radius = (size - strokeWidth) / 2 - 4  // leave a small margin
+  const padding = strokeWidth + 4
+  const radius = (size - padding * 2) / 2
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
   const cx = size / 2
@@ -109,17 +110,17 @@ export default function ProgressRing({
     if (clampedProgress <= 0) return ''
     const startAngle = -Math.PI / 2
     const endAngle = startAngle + clampedProgress * 2 * Math.PI
-    const startX = cx + radius * Math.cos(startAngle)
-    const startY = cy + radius * Math.sin(startAngle)
-    const endX = cx + radius * Math.cos(endAngle)
-    const endY = cy + radius * Math.sin(endAngle)
-    const largeArc = clampedProgress > 0.5 ? 1 : 0
+    const sX = cx + radius * Math.cos(startAngle)
+    const sY = cy + radius * Math.sin(startAngle)
+    const eX = cx + radius * Math.cos(endAngle)
+    const eY = cy + radius * Math.sin(endAngle)
+    const la = clampedProgress > 0.5 ? 1 : 0
     if (clampedProgress >= 1) {
-      const midX = cx + radius * Math.cos(startAngle + Math.PI)
-      const midY = cy + radius * Math.sin(startAngle + Math.PI)
-      return `M ${cx},${cy} L ${startX},${startY} A ${radius},${radius} 0 0,1 ${midX},${midY} A ${radius},${radius} 0 0,1 ${startX},${startY} Z`
+      const mX = cx + radius * Math.cos(startAngle + Math.PI)
+      const mY = cy + radius * Math.sin(startAngle + Math.PI)
+      return `M ${cx},${cy} L ${sX},${sY} A ${radius},${radius} 0 0,1 ${mX},${mY} A ${radius},${radius} 0 0,1 ${sX},${sY} Z`
     }
-    return `M ${cx},${cy} L ${startX},${startY} A ${radius},${radius} 0 ${largeArc},1 ${endX},${endY} Z`
+    return `M ${cx},${cy} L ${sX},${sY} A ${radius},${radius} 0 ${la},1 ${eX},${eY} Z`
   }, [clampedProgress, cx, cy, radius])
 
   // --- Tip dot position ---
@@ -128,6 +129,7 @@ export default function ProgressRing({
   const tipY = cy + radius * Math.sin(tipAngle)
 
   const wedgeGradientId = `${gradientId}-wedge`
+  const glowFilterId = `${gradientId}-glow`
 
   return (
     <div
@@ -146,24 +148,30 @@ export default function ProgressRing({
         style={interactive ? { touchAction: 'none', cursor: 'pointer' } : undefined}
       >
         <defs>
+          {/* Wedge fill — very subtle tint */}
           <radialGradient id={wedgeGradientId} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={color} stopOpacity="0.15" />
-            <stop offset="60%" stopColor={color} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.05" />
+            <stop offset="70%" stopColor={color} stopOpacity="0.12" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.18" />
           </radialGradient>
+
+          {/* Glow blur for the arc */}
+          <filter id={glowFilterId} x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
         </defs>
 
-        {/* Base circle track */}
+        {/* Track — subtle background ring */}
         <circle
-          cx={cx}
-          cy={cy}
-          r={radius}
+          cx={cx} cy={cy} r={radius}
           fill="none"
           stroke={trackStroke}
           strokeWidth={strokeWidth}
+          strokeLinecap="round"
         />
 
-        {/* Filled wedge */}
+        {/* Wedge fill */}
         {clampedProgress > 0 && (
           <path
             d={wedgePath}
@@ -172,11 +180,26 @@ export default function ProgressRing({
           />
         )}
 
-        {/* Progress arc stroke */}
+        {/* Glow layer — blurred arc behind the real one */}
+        {clampedProgress > 0 && (
+          <circle
+            cx={cx} cy={cy} r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth + 8}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${cx} ${cy})`}
+            opacity={0.25}
+            filter={`url(#${glowFilterId})`}
+            style={{ transition: interactive ? 'none' : 'stroke-dashoffset 0.5s ease' }}
+          />
+        )}
+
+        {/* Progress arc — thick, solid */}
         <circle
-          cx={cx}
-          cy={cy}
-          r={radius}
+          cx={cx} cy={cy} r={radius}
           fill="none"
           stroke={color}
           strokeWidth={strokeWidth}
@@ -184,20 +207,17 @@ export default function ProgressRing({
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${cx} ${cy})`}
-          style={{
-            transition: interactive ? 'none' : 'stroke-dashoffset 0.5s ease',
-          }}
+          style={{ transition: interactive ? 'none' : 'stroke-dashoffset 0.5s ease' }}
         />
 
-        {/* Tip dot at arc end */}
-        {clampedProgress > 0 && (
+        {/* Tip dot — only in interactive/idle mode */}
+        {clampedProgress > 0 && interactive && (
           <circle
-            cx={tipX}
-            cy={tipY}
-            r={6}
+            cx={tipX} cy={tipY}
+            r={strokeWidth / 2 + 2}
             fill={color}
             stroke={tipBorderColor}
-            strokeWidth={2}
+            strokeWidth={3}
           />
         )}
       </svg>

@@ -25,7 +25,7 @@ describe('ProgressRing', () => {
   })
 
   it('renders without crashing at progress=0.5', () => {
-    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} interactive />)
     expect(container.querySelector('svg')).toBeTruthy()
   })
 
@@ -48,8 +48,8 @@ describe('ProgressRing', () => {
     const circles = container.querySelectorAll('svg circle')
     const track = circles[0]
     expect(track).toBeTruthy()
-    expect(track.getAttribute('stroke')).toBe('#E5E5EA')
-    expect(track.getAttribute('stroke-width')).toBe('8')
+    expect(track.getAttribute('stroke')).toBe('#F0F0F0')
+    expect(track.getAttribute('stroke-width')).toBe('14')
   })
 
   it('renders a base track circle with correct dark mode color', () => {
@@ -58,19 +58,19 @@ describe('ProgressRing', () => {
     const circles = container.querySelectorAll('svg circle')
     const track = circles[0]
     expect(track).toBeTruthy()
-    expect(track.getAttribute('stroke')).toBe('#3A3A3C')
+    expect(track.getAttribute('stroke')).toBe('#2C2C2E')
     mockDarkMode = false
   })
 
   it('renders a progress arc with the category color', () => {
-    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} interactive />)
     const circles = container.querySelectorAll('svg circle')
     const progressArc = Array.from(circles).find(
-      c => c.getAttribute('stroke') === '#3b82f6'
+      c => c.getAttribute('stroke') === '#3b82f6' && c.getAttribute('stroke-width') === '14'
     )
     expect(progressArc).toBeTruthy()
     expect(progressArc!.getAttribute('stroke-linecap')).toBe('round')
-    expect(progressArc!.getAttribute('stroke-width')).toBe('8')
+    expect(progressArc!.getAttribute('stroke-width')).toBe('14')
   })
 
   it('does not render wedge path when progress=0', () => {
@@ -80,7 +80,7 @@ describe('ProgressRing', () => {
   })
 
   it('renders wedge path when progress > 0', () => {
-    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} interactive />)
     const paths = container.querySelectorAll('svg path')
     expect(paths.length).toBe(1)
     expect(paths[0].getAttribute('d')).toBeTruthy()
@@ -88,11 +88,11 @@ describe('ProgressRing', () => {
 
   it('renders a tip dot at arc end when progress > 0', () => {
     mockDarkMode = false
-    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} interactive />)
     const circles = container.querySelectorAll('svg circle')
     // Should have: track circle, progress arc circle, tip dot circle = 3
     const tipDot = Array.from(circles).find(
-      c => c.getAttribute('r') === '6' && c.getAttribute('fill') === '#3b82f6'
+      c => c.getAttribute('r') === '9' && c.getAttribute('fill') === '#3b82f6'
     )
     expect(tipDot).toBeTruthy()
     expect(tipDot!.getAttribute('stroke')).toBe('#FFFFFF')
@@ -102,7 +102,9 @@ describe('ProgressRing', () => {
     const { container } = render(<ProgressRing {...defaultProps} progress={0} />)
     const circles = container.querySelectorAll('svg circle')
     // Only track + progress arc = 2 circles
-    expect(circles.length).toBe(2)
+    // No tip dot, just track + arc circles
+    const tipDot = Array.from(circles).find(c => c.getAttribute('r') === '9')
+    expect(tipDot).toBeFalsy()
   })
 
   it('creates unique gradient ids across multiple instances', () => {
@@ -144,10 +146,10 @@ describe('ProgressRing', () => {
 
   it('tip dot has dark mode border color', () => {
     mockDarkMode = true
-    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} />)
+    const { container } = render(<ProgressRing {...defaultProps} progress={0.5} interactive />)
     const circles = container.querySelectorAll('svg circle')
     const tipDot = Array.from(circles).find(
-      c => c.getAttribute('r') === '6' && c.getAttribute('fill') === '#3b82f6'
+      c => c.getAttribute('r') === '9' && c.getAttribute('fill') === '#3b82f6'
     )
     expect(tipDot).toBeTruthy()
     expect(tipDot!.getAttribute('stroke')).toBe('#1c1c1e')

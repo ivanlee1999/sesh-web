@@ -738,7 +738,7 @@ export default function Timer() {
               progress={progress}
               color={ringColor}
               size={240}
-              strokeWidth={8}
+              strokeWidth={14}
               interactive={true}
               onProgressChange={(p) => {
                 const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
@@ -841,7 +841,7 @@ export default function Timer() {
             progress={progress}
             color={ringColor}
             size={240}
-            strokeWidth={8}
+            strokeWidth={14}
             interactive={false}
           >
             <div className="flex flex-col items-center">
