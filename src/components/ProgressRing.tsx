@@ -80,37 +80,6 @@ function applyDetent(
 }
 
 // --- Audio tick feedback (iOS fallback) ---
-let sharedAudioContext: AudioContext | null = null
-
-function getOrCreateAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null
-  if (sharedAudioContext && sharedAudioContext.state !== 'closed') return sharedAudioContext
-  try {
-    sharedAudioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-    return sharedAudioContext
-  } catch {
-    return null
-  }
-}
-
-function playTickSound(isMajor: boolean) {
-  const ctx = getOrCreateAudioContext()
-  if (!ctx) return
-  // Resume if suspended (required by iOS after user gesture)
-  if (ctx.state === 'suspended') {
-    ctx.resume().catch(() => {})
-  }
-  const osc = ctx.createOscillator()
-  const gain = ctx.createGain()
-  osc.type = 'sine'
-  osc.frequency.setValueAtTime(isMajor ? 1200 : 800, ctx.currentTime)
-  gain.gain.setValueAtTime(isMajor ? 0.15 : 0.08, ctx.currentTime)
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (isMajor ? 0.06 : 0.03))
-  osc.connect(gain)
-  gain.connect(ctx.destination)
-  osc.start(ctx.currentTime)
-  osc.stop(ctx.currentTime + (isMajor ? 0.06 : 0.03))
-}
 
 export default function ProgressRing({
   progress,
@@ -157,9 +126,7 @@ export default function ProgressRing({
     } else {
       haptic()
     }
-    // Audio tick for tactile feedback (always on — soundEnabled only controls completion chime)
-    playTickSound(isMajor)
-  }, [settings.soundEnabled])
+  }, [])
 
   const updateFromPoint = useCallback((clientX: number, clientY: number) => {
     if (!svgRef.current || !onProgressChange) return
