@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useEffect, useMemo, useId } from 'react'
 import { useSettings } from '@/context/SettingsContext'
+import { haptic } from '@/lib/haptic'
 
 // --- Magnetic detent constants (in minutes) ---
 const DETENT_CAPTURE_BAND = 1.5  // snap TO detent when within ±1.5 min
@@ -150,10 +151,14 @@ export default function ProgressRing({
   const emitFeedback = useCallback((newMinute: number, prevMinute: number) => {
     if (newMinute === prevMinute) return
     const isMajor = newMinute % 5 === 0
-    // Prefer vibration (Android); fall back to audio (iOS) if soundEnabled
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try { navigator.vibrate(isMajor ? 10 : 1) } catch { /* fail soft */ }
-    } else if (settings.soundEnabled) {
+    // Cross-platform haptic: Android vibrate + iOS checkbox switch hack
+    if (isMajor) {
+      haptic.strong()
+    } else {
+      haptic()
+    }
+    // Also play audio tick if sound enabled (for extra feedback on iOS)
+    if (settings.soundEnabled) {
       playTickSound(isMajor)
     }
   }, [settings.soundEnabled])
