@@ -57,7 +57,6 @@ describe('TodoistTasks', () => {
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
     )
 
-    // Wait for tasks to load and the "Select a task..." placeholder to appear
     const trigger = await screen.findByText('Select a task...')
     expect(trigger).toBeTruthy()
   })
@@ -68,29 +67,25 @@ describe('TodoistTasks', () => {
       <TodoistTasks selectedTaskId="t1" onSelectTask={vi.fn()} />
     )
 
-    // Wait for tasks to load - the selected task content appears in the trigger ListItem
     await waitFor(() => {
       expect(container.textContent).toContain('Write unit tests')
     })
   })
 
-  it('opens sheet and shows task list when trigger is clicked', async () => {
+  it('opens dropdown and shows task list when trigger is clicked', async () => {
     mockFetchConfiguredWithTasks()
     render(
       <TodoistTasks selectedTaskId={null} onSelectTask={vi.fn()} />
     )
 
-    // Wait for tasks to load
     const trigger = await screen.findByText('Select a task...')
+    fireEvent.click(trigger.closest('button')!)
 
-    // Click the list item to open the sheet
-    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
-    fireEvent.click(listItem)
-
-    // Tasks should now be visible in the sheet
-    // The sheet renders task items - look for the sheet toolbar title
+    // Tasks should now be visible in the dropdown
     await waitFor(() => {
-      expect(screen.getByText('Tasks')).toBeTruthy()
+      expect(screen.getByText('Write unit tests')).toBeTruthy()
+      expect(screen.getByText('Review PR')).toBeTruthy()
+      expect(screen.getByText('Deploy to staging')).toBeTruthy()
     })
   })
 
@@ -101,18 +96,15 @@ describe('TodoistTasks', () => {
     )
 
     const trigger = await screen.findByText('Select a task...')
-    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
-    fireEvent.click(listItem)
+    fireEvent.click(trigger.closest('button')!)
 
-    // Task t2 has priority 4 -> P1
     await waitFor(() => {
       expect(screen.getByText('P1')).toBeTruthy()
     })
-    // Task t3 has priority 3 -> P2
     expect(screen.getByText('P2')).toBeTruthy()
   })
 
-  it('calls onSelectTask when a task is clicked in the sheet', async () => {
+  it('calls onSelectTask when a task is clicked in the dropdown', async () => {
     mockFetchConfiguredWithTasks()
     const onSelectTask = vi.fn()
     render(
@@ -120,19 +112,14 @@ describe('TodoistTasks', () => {
     )
 
     const trigger = await screen.findByText('Select a task...')
-    const listItem = trigger.closest('[class*="list-item"]') || trigger.closest('li') || trigger
-    fireEvent.click(listItem)
+    fireEvent.click(trigger.closest('button')!)
 
     await waitFor(() => {
       expect(screen.getByText('Write unit tests')).toBeTruthy()
     })
 
-    // Click on the first task in the sheet
-    const taskElements = screen.getAllByText('Write unit tests')
-    // The second occurrence is in the sheet (first is the trigger if selected)
-    const sheetTask = taskElements[taskElements.length - 1]
-    const taskListItem = sheetTask.closest('li') || sheetTask.closest('[class*="list-item"]') || sheetTask
-    fireEvent.click(taskListItem)
+    // Click on the first task in the dropdown
+    fireEvent.click(screen.getByText('Write unit tests').closest('[class*="cursor-pointer"]')!)
 
     expect(onSelectTask).toHaveBeenCalledWith(mockTasks[0])
   })

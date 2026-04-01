@@ -97,7 +97,7 @@ export default function Analytics() {
 
   const maxMs = Math.max(...days.map(d => d.ms), 1)
 
-  // Category breakdown (all time, focus only) — built from actual session data
+  // Category breakdown (focus only)
   const focusSessions = sessions.filter(s => s.type === 'focus')
   const totalFocusMs = focusSessions.reduce((a, s) => a + s.actualMs, 0)
   const groupedByCategory: Record<string, number> = {}
@@ -110,6 +110,19 @@ export default function Analytics() {
       return { name, ms, pct: totalFocusMs ? Math.round((ms / totalFocusMs) * 100) : 0, ...meta }
     })
     .sort((a, b) => b.ms - a.ms)
+
+  const isEmpty = todayMs === 0 && todayCount === 0 && sessions.length === 0
+
+  if (isEmpty) {
+    return (
+      <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+        <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
+        <div className="py-16 text-center text-gray-400">
+          <p className="text-lg">Start tracking to see your stats</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
@@ -138,21 +151,23 @@ export default function Analytics() {
       </div>
 
       {/* 7-day bar chart */}
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <h2 className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">Last 7 Days</h2>
-        <div className="flex h-24 items-end gap-2">
-          {days.map((d, i) => (
-            <div key={i} className="flex flex-1 flex-col items-center gap-1">
-              <div
-                className="w-full rounded-t-md bg-emerald-400 transition-all dark:bg-emerald-500"
-                style={{ height: `${(d.ms / maxMs) * 88}px`, minHeight: d.ms > 0 ? 4 : 0 }}
-                title={msToHM(d.ms)}
-              />
-              <span className="text-xs text-gray-400">{d.label}</span>
-            </div>
-          ))}
+      {days.length > 0 && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <h2 className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">Last 7 Days</h2>
+          <div className="flex h-24 items-end gap-2">
+            {days.map((d, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                <div
+                  className="w-full rounded-t-md bg-emerald-400 transition-all dark:bg-emerald-500"
+                  style={{ height: `${(d.ms / maxMs) * 88}px`, minHeight: d.ms > 0 ? 4 : 0 }}
+                  title={msToHM(d.ms)}
+                />
+                <span className="text-xs text-gray-400">{d.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Category breakdown */}
       {catBreakdown.length > 0 && (

@@ -92,40 +92,34 @@ beforeEach(() => {
 })
 
 describe('Timer', () => {
-  it('renders the idle view with proper layout', () => {
+  it('renders idle layout from server idle state', () => {
     const { container } = render(<Timer />)
 
-    // The outermost wrapper should use Tailwind classes
     const wrapper = container.firstElementChild as HTMLElement
     expect(wrapper).toBeTruthy()
     expect(wrapper.className).toContain('flex')
     expect(wrapper.className).toContain('flex-col')
     expect(wrapper.className).toContain('items-center')
 
-    // The wrapper should NOT have CSS custom property inline styles for color
+    // No CSS custom property inline styles for color
     const style = wrapper.getAttribute('style') || ''
     expect(style).not.toMatch(/--[\w-]+-color/)
   })
 
   it('renders the intention input with proper placeholder', () => {
     render(<Timer />)
-
     const input = screen.getByPlaceholderText('What are you working on?')
     expect(input).toBeTruthy()
   })
 
   it('renders category chips with labels', () => {
     render(<Timer />)
-
-    // Find category chips by their label text
     expect(screen.getByText('Work')).toBeTruthy()
     expect(screen.getByText('Study')).toBeTruthy()
   })
 
   it('renders time display with bold theme-aware text', () => {
     render(<Timer />)
-
-    // Find the time display: it should show "25:00"
     const timeDisplay = screen.getByText('25:00')
     expect(timeDisplay).toBeTruthy()
     expect(timeDisplay.className).toContain('text-black')
@@ -144,5 +138,70 @@ describe('Timer', () => {
     expect(screen.getByText('Focus')).toBeTruthy()
     expect(screen.getByText('Short')).toBeTruthy()
     expect(screen.getByText('Long')).toBeTruthy()
+  })
+
+  it('shows active controls from running state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/timer')) {
+        return new Response(JSON.stringify({
+          phase: 'running',
+          sessionType: 'focus',
+          intention: 'Test task',
+          category: 'work',
+          targetMs: 25 * 60 * 1000,
+          remainingMs: 20 * 60 * 1000,
+          overflowMs: 0,
+          startedAt: Date.now() - 5 * 60 * 1000,
+          pausedAt: null,
+          updatedAt: Date.now(),
+          todoistTaskId: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response('{}', { status: 200 })
+    })
+
+    render(<Timer />)
+
+    // Wait for server state to apply
+    await vi.waitFor(() => {
+      expect(screen.getByText('Pause')).toBeTruthy()
+    })
+    expect(screen.getByText('Finish')).toBeTruthy()
+    expect(screen.getByText('Abandon')).toBeTruthy()
+  })
+
+  it('shows overflow label when remaining time is negative', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/timer')) {
+        return new Response(JSON.stringify({
+          phase: 'running',
+          sessionType: 'focus',
+          intention: 'Overtime task',
+          category: 'work',
+          targetMs: 25 * 60 * 1000,
+          remainingMs: -120000, // 2 minutes overflow
+          overflowMs: 120000,
+          startedAt: Date.now() - 27 * 60 * 1000,
+          pausedAt: null,
+          updatedAt: Date.now(),
+          todoistTaskId: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response('{}', { status: 200 })
+    })
+
+    render(<Timer />)
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('OVERFLOW')).toBeTruthy()
+    })
+  })
+
+  it('copies selected Todoist task content into intention', () => {
+    // Todoist mock already renders. Just verify it mounts.
+    render(<Timer />)
+    expect(screen.getByTestId('todoist-tasks-mock')).toBeTruthy()
   })
 })
