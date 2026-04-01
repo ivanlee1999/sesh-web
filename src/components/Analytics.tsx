@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Card } from 'konsta/react'
+// Card import removed — using native divs for stat cards
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
@@ -130,35 +130,35 @@ export default function Analytics() {
 
       {/* Today summary */}
       <div className="grid grid-cols-3 gap-3">
-        <Card className="!m-0 !rounded-2xl !bg-white !shadow-sm dark:!bg-gray-800">
+        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
           <div className="text-center">
-            <div className="text-2xl font-bold text-emerald-500">{msToHM(todayMs)}</div>
+            <div className="text-3xl font-bold text-emerald-500">{msToHM(todayMs)}</div>
             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Today</div>
           </div>
-        </Card>
-        <Card className="!m-0 !rounded-2xl !bg-white !shadow-sm dark:!bg-gray-800">
+        </div>
+        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-500">{todayCount}</div>
+            <div className="text-3xl font-bold text-blue-500">{todayCount}</div>
             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Sessions</div>
           </div>
-        </Card>
-        <Card className="!m-0 !rounded-2xl !bg-white !shadow-sm dark:!bg-gray-800">
+        </div>
+        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
           <div className="text-center">
-            <div className="text-2xl font-bold text-amber-500">{streak}</div>
+            <div className="text-3xl font-bold text-amber-500">{streak}</div>
             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Day streak</div>
           </div>
-        </Card>
+        </div>
       </div>
 
       {/* 7-day bar chart */}
       {days.length > 0 && (
-        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
           <h2 className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">Last 7 Days</h2>
           <div className="flex h-24 items-end gap-2">
             {days.map((d, i) => (
               <div key={i} className="flex flex-1 flex-col items-center gap-1">
                 <div
-                  className="w-full rounded-t-md bg-emerald-400 transition-all dark:bg-emerald-500"
+                  className="w-full rounded-t-md bg-[#007AFF] transition-all"
                   style={{ height: `${(d.ms / maxMs) * 88}px`, minHeight: d.ms > 0 ? 4 : 0 }}
                   title={msToHM(d.ms)}
                 />
@@ -171,21 +171,22 @@ export default function Analytics() {
 
       {/* Category breakdown */}
       {catBreakdown.length > 0 && (
-        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
           <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">Categories</h2>
           <div className="flex flex-col gap-2">
-            {catBreakdown.map(({ name, ms, pct, label }, index) => {
+            {catBreakdown.map(({ name, ms, pct, label, color: catColor }) => {
               return (
                 <div key={name} className="flex items-center gap-2">
                   <div
-                    className={`h-2 w-2 rounded-full ${PALETTE[index % PALETTE.length]}`}
+                    className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                    style={{ backgroundColor: catColor }}
                   />
                   <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{label}</span>
                   <span className="text-xs text-gray-500">{msToHM(ms)}</span>
                   <div className="h-1.5 w-20 rounded-full bg-gray-100 dark:bg-gray-700">
                     <div
-                      className={`h-1.5 rounded-full ${PALETTE[index % PALETTE.length]}`}
-                      style={{ width: `${pct}%` }}
+                      className="h-1.5 rounded-full"
+                      style={{ width: `${pct}%`, backgroundColor: catColor }}
                     />
                   </div>
                   <span className="w-8 text-right text-xs text-gray-400">{pct}%</span>
@@ -213,7 +214,7 @@ function DailyTimeline({ sessions }: { sessions: Session[] }) {
   if (todaySessions.length === 0) return null
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
       <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">Today&apos;s Timeline</h2>
       <div className="relative h-12 overflow-hidden rounded-lg bg-gray-50 dark:bg-gray-900">
         {todaySessions.map((s, index) => {

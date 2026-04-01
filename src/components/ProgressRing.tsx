@@ -29,13 +29,10 @@ export default function ProgressRing({
   const gradientId = useId()
 
   // Theme-aware colors
-  const baseStroke = isDark ? '#555555' : '#CCCCCC'
-  const majorTickColor = isDark ? '#FFFFFF' : '#000000'
-  const minorTickColor = isDark ? '#AAAAAA' : '#666666'
-  const minuteLabelColor = isDark ? '#FFFFFF' : '#000000'
+  const trackStroke = isDark ? '#3A3A3C' : '#E5E5EA'
   const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
 
-  const radius = (size - 44) / 2  // leave room for numbers outside
+  const radius = (size - strokeWidth) / 2 - 4  // leave a small margin
   const circumference = 2 * Math.PI * radius
   const offset = circumference * (1 - Math.min(progress, 1))
   const cx = size / 2
@@ -106,29 +103,6 @@ export default function ProgressRing({
 
   const fractionToAngle = (frac: number) => frac * 2 * Math.PI - Math.PI / 2
 
-  // --- Tick marks ---
-  const ticks = useMemo(() => Array.from({ length: 60 }, (_, i) => {
-    const angle = fractionToAngle(i / 60)
-    const isMajor = i % 5 === 0
-    const outerR = radius + 2
-    const innerR = isMajor ? radius - 12 : radius - 6
-    return {
-      x1: cx + innerR * Math.cos(angle),
-      y1: cy + innerR * Math.sin(angle),
-      x2: cx + outerR * Math.cos(angle),
-      y2: cy + outerR * Math.sin(angle),
-      isMajor,
-    }
-  }), [radius, cx, cy])
-
-  // --- Minute numbers ---
-  const minuteNumbers = useMemo(() => Array.from({ length: 12 }, (_, i) => {
-    const minute = (i + 1) * 5
-    const angle = fractionToAngle(minute / 60)
-    const r = radius + 20
-    return { minute, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
-  }), [radius, cx, cy])
-
   // --- Filled wedge path ---
   const clampedProgress = Math.min(Math.max(progress, 0), 1)
   const wedgePath = useMemo(() => {
@@ -148,13 +122,10 @@ export default function ProgressRing({
     return `M ${cx},${cy} L ${startX},${startY} A ${radius},${radius} 0 ${largeArc},1 ${endX},${endY} Z`
   }, [clampedProgress, cx, cy, radius])
 
-  // --- Clock hand ---
-  const thumbAngle = fractionToAngle(progress)
-  const handLen = radius - 14
-  const handEndX = cx + handLen * Math.cos(thumbAngle)
-  const handEndY = cy + handLen * Math.sin(thumbAngle)
-  const tipX = cx + (radius - 4) * Math.cos(thumbAngle)
-  const tipY = cy + (radius - 4) * Math.sin(thumbAngle)
+  // --- Tip dot position ---
+  const tipAngle = fractionToAngle(progress)
+  const tipX = cx + radius * Math.cos(tipAngle)
+  const tipY = cy + radius * Math.sin(tipAngle)
 
   const wedgeGradientId = `${gradientId}-wedge`
 
@@ -177,8 +148,8 @@ export default function ProgressRing({
         <defs>
           <radialGradient id={wedgeGradientId} cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={color} stopOpacity="0.15" />
-            <stop offset="60%" stopColor={color} stopOpacity="0.45" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.45" />
+            <stop offset="60%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.35" />
           </radialGradient>
         </defs>
 
@@ -188,21 +159,9 @@ export default function ProgressRing({
           cy={cy}
           r={radius}
           fill="none"
-          stroke={baseStroke}
-          strokeWidth={6}
+          stroke={trackStroke}
+          strokeWidth={strokeWidth}
         />
-
-        {/* Tick marks */}
-        {ticks.map((tick, i) => (
-          <line
-            key={i}
-            x1={tick.x1} y1={tick.y1}
-            x2={tick.x2} y2={tick.y2}
-            stroke={tick.isMajor ? majorTickColor : minorTickColor}
-            strokeWidth={tick.isMajor ? 3 : 2}
-            strokeLinecap="round"
-          />
-        ))}
 
         {/* Filled wedge */}
         {clampedProgress > 0 && (
@@ -220,7 +179,7 @@ export default function ProgressRing({
           r={radius}
           fill="none"
           stroke={color}
-          strokeWidth={Math.max(strokeWidth, 10)}
+          strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
@@ -230,41 +189,16 @@ export default function ProgressRing({
           }}
         />
 
-        {/* Minute numbers */}
-        {minuteNumbers.map(({ minute, x, y }) => (
-          <text
-            key={minute}
-            x={x} y={y}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fill={minuteLabelColor}
-            fontSize={14}
-            fontWeight={700}
-            style={{ userSelect: 'none', pointerEvents: 'none' }}
-          >
-            {minute}
-          </text>
-        ))}
-
-        {/* Clock hand (interactive only) */}
-        {interactive && clampedProgress > 0 && (
-          <>
-            <circle cx={cx} cy={cy} r={5} fill={color} />
-            <line
-              x1={cx} y1={cy}
-              x2={handEndX} y2={handEndY}
-              stroke={color}
-              strokeWidth={3}
-              strokeLinecap="round"
-            />
-            <circle
-              cx={tipX} cy={tipY}
-              r={5}
-              fill={color}
-              stroke={tipBorderColor}
-              strokeWidth={3}
-            />
-          </>
+        {/* Tip dot at arc end */}
+        {clampedProgress > 0 && (
+          <circle
+            cx={tipX}
+            cy={tipY}
+            r={6}
+            fill={color}
+            stroke={tipBorderColor}
+            strokeWidth={2}
+          />
         )}
       </svg>
 
