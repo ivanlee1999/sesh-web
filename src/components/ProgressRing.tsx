@@ -42,6 +42,8 @@ export default function ProgressRing({
   const cy = size / 2
 
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const hapticRef = useRef<HTMLInputElement | null>(null)
+  const hapticLabelRef = useRef<HTMLLabelElement | null>(null)
   const draggingRef = useRef(false)
   const lastProgressRef = useRef(progress)
 
@@ -54,9 +56,19 @@ export default function ProgressRing({
     if (angle < 0) angle += 2 * Math.PI
     const raw = angle / (2 * Math.PI)
     const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
-    // Haptic feedback when value changes
-    if (snapped !== lastProgressRef.current && navigator.vibrate) {
-      navigator.vibrate(1)
+    // Haptic feedback when snapping to a new tick
+    if (snapped !== lastProgressRef.current) {
+      // Stronger haptic on multiples of 5
+      const minutes = Math.round(snapped * 60)
+      const isMultipleOf5 = minutes % 5 === 0
+      if (navigator.vibrate) {
+        navigator.vibrate(isMultipleOf5 ? 5 : 1)
+      }
+      // iOS 18+ haptic via hidden checkbox switch trick
+      if (hapticRef.current && hapticLabelRef.current) {
+        hapticRef.current.checked = !hapticRef.current.checked
+        hapticLabelRef.current.click()
+      }
     }
     lastProgressRef.current = snapped
     onProgressChange(snapped)
@@ -254,6 +266,11 @@ export default function ProgressRing({
           />
         )}
       </svg>
+
+      {/* Hidden iOS haptic trigger (iOS 18+ checkbox switch hack) */}
+      <label ref={hapticLabelRef} htmlFor={`haptic-${gradientId}`} className="hidden" aria-hidden="true" />
+      <input ref={hapticRef} id={`haptic-${gradientId}`} type="checkbox" /* @ts-expect-error switch is valid in Safari */
+        switch="" className="hidden" aria-hidden="true" tabIndex={-1} />
 
       <div className="absolute inset-0 flex items-center justify-center" style={interactive ? { pointerEvents: 'none' } : undefined}>
         {children}

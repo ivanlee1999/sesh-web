@@ -91,6 +91,8 @@ export default function Timer() {
   const [synced, setSynced] = useState<boolean | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
+  const [isMultipleOf5, setIsMultipleOf5] = useState(false)
+  const multipleOf5TimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
 
@@ -745,6 +747,13 @@ export default function Timer() {
                 const ms = minutes * 60 * 1000
                 setCustomDurationMs(ms)
                 setRemainingMs(ms)
+                if (minutes % 5 === 0) {
+                  setIsMultipleOf5(true)
+                  if (multipleOf5TimeoutRef.current) clearTimeout(multipleOf5TimeoutRef.current)
+                  multipleOf5TimeoutRef.current = setTimeout(() => setIsMultipleOf5(false), 400)
+                } else {
+                  setIsMultipleOf5(false)
+                }
               }}
               onDragEnd={(p) => {
                 const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
@@ -757,7 +766,7 @@ export default function Timer() {
                 })
               }}
             >
-              <span className="font-mono text-[48px] font-light leading-none text-black dark:text-white">
+              <span className={`font-mono text-[48px] font-light leading-none text-black dark:text-white transition-transform duration-150 ${isMultipleOf5 ? "scale-110" : "scale-100"}`}>
                 {formatTime(displayMs)}
               </span>
             </ProgressRing>
