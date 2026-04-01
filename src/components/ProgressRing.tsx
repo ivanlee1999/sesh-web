@@ -31,6 +31,8 @@ export default function ProgressRing({
   // Session-style colors
   const trackStroke = isDark ? '#2C2C2E' : '#F0F0F0'
   const tipBorderColor = isDark ? '#1c1c1e' : '#FFFFFF'
+  const majorTickColor = isDark ? '#555555' : '#CCCCCC'
+  const minorTickColor = isDark ? '#3A3A3C' : '#E0E0E0'
 
   const padding = strokeWidth + 4
   const radius = (size - padding * 2) / 2
@@ -52,6 +54,10 @@ export default function ProgressRing({
     if (angle < 0) angle += 2 * Math.PI
     const raw = angle / (2 * Math.PI)
     const snapped = Math.max(1 / 60, Math.min(1, Math.round(raw * 60) / 60))
+    // Haptic feedback when value changes
+    if (snapped !== lastProgressRef.current && navigator.vibrate) {
+      navigator.vibrate(1)
+    }
     lastProgressRef.current = snapped
     onProgressChange(snapped)
   }, [onProgressChange])
@@ -103,6 +109,21 @@ export default function ProgressRing({
   }, [interactive, updateFromPoint, onDragEnd])
 
   const fractionToAngle = (frac: number) => frac * 2 * Math.PI - Math.PI / 2
+
+  // --- Tick marks (刻度) ---
+  const ticks = useMemo(() => Array.from({ length: 60 }, (_, i) => {
+    const angle = fractionToAngle(i / 60)
+    const isMajor = i % 5 === 0
+    const outerR = radius + strokeWidth / 2 - 1
+    const innerR = isMajor ? outerR - 10 : outerR - 5
+    return {
+      x1: cx + innerR * Math.cos(angle),
+      y1: cy + innerR * Math.sin(angle),
+      x2: cx + outerR * Math.cos(angle),
+      y2: cy + outerR * Math.sin(angle),
+      isMajor,
+    }
+  }), [radius, strokeWidth, cx, cy])
 
   // --- Filled wedge path ---
   const clampedProgress = Math.min(Math.max(progress, 0), 1)
@@ -170,6 +191,18 @@ export default function ProgressRing({
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />
+
+        {/* Tick marks */}
+        {ticks.map((tick, i) => (
+          <line
+            key={i}
+            x1={tick.x1} y1={tick.y1}
+            x2={tick.x2} y2={tick.y2}
+            stroke={tick.isMajor ? majorTickColor : minorTickColor}
+            strokeWidth={tick.isMajor ? 2 : 1}
+            strokeLinecap="round"
+          />
+        ))}
 
         {/* Wedge fill */}
         {clampedProgress > 0 && (

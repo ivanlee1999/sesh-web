@@ -34,11 +34,12 @@ describe('ProgressRing', () => {
     expect(container.querySelector('svg')).toBeTruthy()
   })
 
-  it('renders no tick marks or minute numbers', () => {
+  it('renders 60 tick marks (12 major, 48 minor)', () => {
     const { container } = render(<ProgressRing {...defaultProps} />)
     const lines = container.querySelectorAll('svg line')
-    expect(lines.length).toBe(0)
+    expect(lines.length).toBe(60)
     const texts = container.querySelectorAll('svg text')
+    // No minute number labels (clean design)
     expect(texts.length).toBe(0)
   })
 
