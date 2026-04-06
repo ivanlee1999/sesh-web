@@ -19,18 +19,23 @@ export async function GET(req: NextRequest) {
     if (!tokens.access_token) throw new Error('no token')
 
     const expiresAt = Date.now() + (tokens.expires_in * 1000)
+
+    // Preserve existing refresh_token if Google omits it on re-auth
+    const db = getDb()
+    const existing = db.prepare('SELECT refresh_token FROM google_oauth WHERE id = 1').get() as { refresh_token: string } | undefined
+    const refreshToken = tokens.refresh_token || existing?.refresh_token || ''
+
     const tokenData = {
       access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
+      refresh_token: refreshToken,
       expires_at: expiresAt,
     }
 
     // Store in server DB for cross-device sync
-    const db = getDb()
     db.prepare(`
       UPDATE google_oauth SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
       WHERE id = 1
-    `).run(tokenData.access_token, tokenData.refresh_token || '', tokenData.expires_at, Date.now())
+    `).run(tokenData.access_token, tokenData.refresh_token, tokenData.expires_at, Date.now())
 
     // Also set cookie for this device's session
     const response = NextResponse.redirect(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/?tab=settings`)

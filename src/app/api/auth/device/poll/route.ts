@@ -19,18 +19,22 @@ export async function POST(req: NextRequest) {
   const data = await res.json()
   
   if (data.access_token) {
+    // Preserve existing refresh_token if Google omits it on re-auth
+    const db = getDb()
+    const existing = db.prepare('SELECT refresh_token FROM google_oauth WHERE id = 1').get() as { refresh_token: string } | undefined
+    const refreshToken = data.refresh_token || existing?.refresh_token || ''
+
     const tokenData = {
       access_token: data.access_token,
-      refresh_token: data.refresh_token,
+      refresh_token: refreshToken,
       expires_at: Date.now() + (data.expires_in * 1000),
     }
 
     // Store in server DB for cross-device access
-    const db = getDb()
     db.prepare(`
       UPDATE google_oauth SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
       WHERE id = 1
-    `).run(tokenData.access_token, tokenData.refresh_token || '', tokenData.expires_at, Date.now())
+    `).run(tokenData.access_token, tokenData.refresh_token, tokenData.expires_at, Date.now())
 
     // Also set cookie for this device
     const cookieStore = await cookies()

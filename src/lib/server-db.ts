@@ -83,6 +83,10 @@ function initSchema(d: Database.Database) {
   ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'notification_count', 'notification_count INTEGER NOT NULL DEFAULT 0')
 
+  // Google OAuth migrations: cache calendar ID and track scope
+  ensureColumn(d, 'google_oauth', 'calendar_id', "calendar_id TEXT NOT NULL DEFAULT ''")
+  ensureColumn(d, 'google_oauth', 'scope', "scope TEXT NOT NULL DEFAULT ''")
+
   // Categories table
   d.exec(`
     CREATE TABLE IF NOT EXISTS categories (

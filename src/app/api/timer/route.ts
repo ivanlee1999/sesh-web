@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { sendPushToAll } from '@/lib/push'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
+import { syncSessionToGoogleCalendar } from '@/lib/google-calendar'
 export const dynamic = 'force-dynamic'
 
 interface TimerRow {
@@ -294,10 +295,17 @@ export async function POST(request: Request) {
       void syncTodoistDuration(result.todoistTaskId, result.session.actualMs)
     }
 
+    // Google Calendar sync, non-fatal
+    let calendar: { synced: boolean; skipped?: string; eventId?: string; error?: string } | undefined
+    if (result.session) {
+      calendar = await syncSessionToGoogleCalendar(result.session)
+    }
+
     return NextResponse.json({
       completed: true,
       timer: result.row ? rowToJson(result.row) : null,
       session: result.session,
+      calendar,
     })
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })

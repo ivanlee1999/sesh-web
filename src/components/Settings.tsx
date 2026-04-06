@@ -1,54 +1,13 @@
 'use client'
 import React from 'react'
 import { useSettings } from '@/context/SettingsContext'
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { List, ListItem, BlockTitle, Toggle, Button } from 'konsta/react'
 
-function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
-  const [step, setStep] = React.useState<'idle' | 'pending' | 'done'>('idle')
-  const [userCode, setUserCode] = React.useState('')
-  const [verifyUrl, setVerifyUrl] = React.useState('')
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Clean up polling on unmount
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [])
-
-  const startAuth = async () => {
-    const res = await fetch('/api/auth/device', { method: 'POST' })
-    const data = await res.json()
-    if (data.user_code) {
-      setUserCode(data.user_code)
-      setVerifyUrl(data.verification_url)
-      setStep('pending')
-      intervalRef.current = setInterval(async () => {
-        try {
-          const pollRes = await fetch('/api/auth/device/poll', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device_code: data.device_code }),
-          })
-          const pollData = await pollRes.json()
-          if (pollData.success) {
-            if (intervalRef.current) clearInterval(intervalRef.current)
-            intervalRef.current = null
-            setStep('done')
-            onConnected()
-          }
-        } catch {
-          // Continue polling
-        }
-      }, (data.interval || 5) * 1000)
-    }
-  }
-
+function GoogleCalendarAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
   const handleDisconnect = async () => {
     try {
       await fetch('/api/auth/google/disconnect', { method: 'POST' })
-      setStep('idle')
       // Force page reload to reset state
       window.location.reload()
     } catch {
@@ -57,7 +16,20 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
     }
   }
 
-  if (connected || step === 'done') {
+  // Re-check connection status when the page gains focus (user returns from OAuth redirect)
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const res = await fetch('/api/auth/google/status')
+        const data = await res.json()
+        if (data.connected && !connected) onConnected()
+      } catch { /* ignore */ }
+    }
+    window.addEventListener('focus', checkStatus)
+    return () => window.removeEventListener('focus', checkStatus)
+  }, [connected, onConnected])
+
+  if (connected) {
     return (
       <ListItem
         title={
@@ -78,34 +50,12 @@ function DeviceFlowAuth({ connected, onConnected }: { connected: boolean; onConn
     )
   }
 
-  if (step === 'pending') {
-    return (
-      <div className="flex flex-col gap-3 p-4">
-        <p className="text-sm text-gray-600 dark:text-gray-300">Go to this URL and enter the code:</p>
-        <a
-          href={verifyUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-blue-600 underline dark:text-blue-400"
-        >
-          {verifyUrl}
-        </a>
-        <div className="rounded-xl bg-gray-50 p-4 text-center dark:bg-gray-900">
-          <span className="font-mono text-2xl font-bold tracking-[0.2em] text-black dark:text-white">
-            {userCode}
-          </span>
-        </div>
-        <p className="text-center text-xs text-gray-400">Waiting for authorization...</p>
-      </div>
-    )
-  }
-
   return (
     <ListItem
       title={<span className="text-black dark:text-white">Google Calendar</span>}
       subtitle="Not connected"
       after={
-        <Button small rounded onClick={startAuth}>
+        <Button small rounded onClick={() => { window.location.href = '/api/auth/google' }}>
           Connect
         </Button>
       }
@@ -300,7 +250,7 @@ export default function Settings() {
         <div>
           <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Integrations</BlockTitle>
           <List strong inset>
-            <DeviceFlowAuth connected={calConnected} onConnected={() => {
+            <GoogleCalendarAuth connected={calConnected} onConnected={() => {
               setCalConnected(true)
               updateSettings({ calendarSync: true })
             }} />

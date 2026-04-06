@@ -532,21 +532,9 @@ export default function Timer() {
       const data = await res.json()
       setSaveError(null)
 
-      if (data.completed && settings.calendarSync && data.session) {
-        fetch('/api/calendar/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            intention: data.session.intention,
-            category: data.session.category,
-            type: data.session.type,
-            startedAt: data.session.startedAt,
-            endedAt: data.session.endedAt,
-            targetMs: data.session.targetMs,
-            actualMs: data.session.actualMs,
-            overflowMs: data.session.overflowMs,
-          }),
-        }).catch(() => {})
+      // Calendar sync is now handled server-side in POST /api/timer
+      if (data.calendar?.error) {
+        console.warn('[calendar] sync error:', data.calendar.error)
       }
 
       if (data.timer?.updatedAt) serverUpdatedAtRef.current = data.timer.updatedAt
@@ -592,7 +580,7 @@ export default function Timer() {
     clearTimerState()
     postSwMessage('TIMER_STOPPED')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.calendarSync, settings.focusDuration, settings.breakDuration, playChime, postSwMessage, tick, syncToServer])
+  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.focusDuration, settings.breakDuration, playChime, postSwMessage, tick, syncToServer])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }

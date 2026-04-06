@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
+import { syncSessionToGoogleCalendar } from '@/lib/google-calendar'
 export const dynamic = 'force-dynamic'
 
 interface SessionRow {
@@ -63,7 +64,20 @@ export async function POST(request: Request) {
       body.notes ?? '',
       body.todoistTaskId ?? null,
     )
-    return NextResponse.json({ ok: true })
+
+    // Google Calendar sync, non-fatal
+    const calendar = await syncSessionToGoogleCalendar({
+      intention: body.intention ?? '',
+      category: body.category ?? 'other',
+      type: body.type ?? body.sessionType ?? 'focus',
+      targetMs: body.targetMs ?? 0,
+      actualMs: body.actualMs ?? 0,
+      overflowMs: body.overflowMs ?? 0,
+      startedAt: body.startedAt,
+      endedAt: body.endedAt,
+    })
+
+    return NextResponse.json({ ok: true, calendar })
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
