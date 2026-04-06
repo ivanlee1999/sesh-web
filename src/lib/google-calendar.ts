@@ -12,6 +12,7 @@ interface OAuthTokens {
 }
 
 interface SessionData {
+  id?: string
   intention?: string
   category: string
   type: string
@@ -20,6 +21,8 @@ interface SessionData {
   targetMs: number
   actualMs: number
   overflowMs: number
+  googleEventId?: string
+  isSynced?: boolean
 }
 
 interface SyncResult {
@@ -78,6 +81,14 @@ async function getOrCreateSeshCalendar(accessToken: string): Promise<string> {
 async function createCalendarEvent(accessToken: string, calendarId: string, event: Record<string, unknown>) {
   return fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
     method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(event),
+  })
+}
+
+async function updateCalendarEvent(accessToken: string, calendarId: string, eventId: string, event: Record<string, unknown>) {
+  return fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, {
+    method: 'PUT',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(event),
   })
@@ -176,9 +187,12 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
     colorId: GOOGLE_CALENDAR_COLOR_IDS[session.category] || '8',
   }
 
-  // Create event, with one retry on 401
+  // Create or update event, with one retry on 401
+  const shouldUpdate = session.isSynced && !!session.googleEventId
   try {
-    let res = await createCalendarEvent(tokens.access_token, calendarId, event)
+    let res = shouldUpdate
+      ? await updateCalendarEvent(tokens.access_token, calendarId, session.googleEventId!, event)
+      : await createCalendarEvent(tokens.access_token, calendarId, event)
 
     if (res.status === 401 && tokens.refresh_token) {
       // Access token may have been invalidated; try refreshing once more
@@ -187,10 +201,17 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
         db.prepare(
           'UPDATE google_oauth SET access_token = ?, expires_at = ?, updated_at = ? WHERE id = 1'
         ).run(refreshed.access_token, refreshed.expires_at, Date.now())
-        res = await createCalendarEvent(refreshed.access_token, calendarId, event)
+        res = shouldUpdate
+          ? await updateCalendarEvent(refreshed.access_token, calendarId, session.googleEventId!, event)
+          : await createCalendarEvent(refreshed.access_token, calendarId, event)
       } catch {
         return { synced: false, error: 'Token refresh failed on retry' }
       }
+    }
+
+    // If PUT returned 404, the remote event was deleted — fall back to create
+    if (shouldUpdate && res.status === 404) {
+      res = await createCalendarEvent(tokens.access_token, calendarId, event)
     }
 
     if (res.status === 404) {
@@ -215,4 +236,26 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
   } catch (err) {
     return { synced: false, error: String(err) }
   }
+}
+
+/**
+ * Persist the calendar sync result back to the sessions table.
+ * On success: stores event ID and marks synced.
+ * On failure: marks unsynced but preserves existing google_event_id for retry.
+ */
+export function persistCalendarSyncResult(sessionId: string, result: SyncResult) {
+  const db = getDb()
+  if (result.synced && result.eventId) {
+    db.prepare(`
+      UPDATE sessions
+      SET google_event_id = ?, is_synced = 1
+      WHERE id = ?
+    `).run(result.eventId, sessionId)
+    return
+  }
+  db.prepare(`
+    UPDATE sessions
+    SET is_synced = 0
+    WHERE id = ?
+  `).run(sessionId)
 }

@@ -197,6 +197,8 @@ function PushNotificationToggle() {
 export default function Settings() {
   const { settings, updateSettings } = useSettings()
   const [calConnected, setCalConnected] = useState(false)
+  const [manualSyncBusy, setManualSyncBusy] = useState(false)
+  const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
     fetch('/api/auth/google/status')
@@ -204,6 +206,34 @@ export default function Settings() {
       .then(data => setCalConnected(data.connected))
       .catch(() => setCalConnected(false))
   }, [])
+
+  const handleManualSync = async () => {
+    setManualSyncBusy(true)
+    setSyncNotice(null)
+    try {
+      const res = await fetch('/api/calendar/sync-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 10 }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error ?? 'Sync failed')
+      }
+      if (data.failedCount > 0 && data.syncedCount === 0) {
+        throw new Error('All sessions failed to sync')
+      }
+      if (data.syncedCount === 0 && data.results?.length === 0) {
+        setSyncNotice({ type: 'success', message: 'All sessions already synced' })
+      } else {
+        setSyncNotice({ type: 'success', message: `Synced ${data.syncedCount} session(s)` })
+      }
+    } catch (err) {
+      setSyncNotice({ type: 'error', message: err instanceof Error ? err.message : 'Sync failed' })
+    } finally {
+      setManualSyncBusy(false)
+    }
+  }
 
   return (
     <div className="px-5 pb-24 pt-6">
@@ -265,7 +295,28 @@ export default function Settings() {
                 }
               />
             )}
+            {calConnected && (
+              <ListItem
+                title={<span className="text-black dark:text-white">Manual sync</span>}
+                subtitle="Sync recent unsynced sessions"
+                after={
+                  <Button
+                    small
+                    rounded
+                    disabled={manualSyncBusy}
+                    onClick={handleManualSync}
+                  >
+                    {manualSyncBusy ? 'Syncing...' : 'Sync Now'}
+                  </Button>
+                }
+              />
+            )}
           </List>
+          {syncNotice && (
+            <p className={`mt-2 px-4 text-sm ${syncNotice.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              {syncNotice.message}
+            </p>
+          )}
         </div>
 
         {/* Appearance */}

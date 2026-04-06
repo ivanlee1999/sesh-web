@@ -36,7 +36,9 @@ function initSchema(d: Database.Database) {
       overflow_ms INTEGER NOT NULL DEFAULT 0,
       started_at INTEGER NOT NULL,
       ended_at INTEGER NOT NULL,
-      notes TEXT NOT NULL DEFAULT ''
+      notes TEXT NOT NULL DEFAULT '',
+      google_event_id TEXT NOT NULL DEFAULT '',
+      is_synced INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at);
 
@@ -82,6 +84,10 @@ function initSchema(d: Database.Database) {
   ensureColumn(d, 'sessions', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'notification_count', 'notification_count INTEGER NOT NULL DEFAULT 0')
+
+  // Migrations: add google_event_id and is_synced to sessions
+  ensureColumn(d, 'sessions', 'google_event_id', "google_event_id TEXT NOT NULL DEFAULT ''")
+  ensureColumn(d, 'sessions', 'is_synced', 'is_synced INTEGER NOT NULL DEFAULT 0')
 
   // Google OAuth migrations: cache calendar ID and track scope
   ensureColumn(d, 'google_oauth', 'calendar_id', "calendar_id TEXT NOT NULL DEFAULT ''")
