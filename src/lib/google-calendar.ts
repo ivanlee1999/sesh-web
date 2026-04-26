@@ -141,6 +141,10 @@ function isCalendarSyncEnabled(): boolean {
  * Non-fatal: returns a result object instead of throwing.
  */
 export async function syncSessionToGoogleCalendar(session: SessionData): Promise<SyncResult> {
+  if (session.type.trim().toLowerCase() === 'break') {
+    return { synced: false, skipped: 'rest_session' }
+  }
+
   // Check if calendar sync is enabled in settings
   if (!isCalendarSyncEnabled()) {
     return { synced: false, skipped: 'disabled' }
@@ -251,6 +255,14 @@ export function persistCalendarSyncResult(sessionId: string, result: SyncResult)
       SET google_event_id = ?, is_synced = 1
       WHERE id = ?
     `).run(result.eventId, sessionId)
+    return
+  }
+  if (result.skipped === 'rest_session') {
+    db.prepare(`
+      UPDATE sessions
+      SET google_event_id = '', is_synced = 1
+      WHERE id = ?
+    `).run(sessionId)
     return
   }
   db.prepare(`

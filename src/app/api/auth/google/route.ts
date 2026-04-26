@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const clientId = process.env.GOOGLE_CLIENT_ID
   if (!clientId) {
@@ -10,7 +12,11 @@ export async function GET() {
     client_id: clientId,
     redirect_uri: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/auth/google/callback`,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/calendar.events',
+    scope: [
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+      'https://www.googleapis.com/auth/calendar.calendars',
+    ].join(' '),
     access_type: 'offline',
     prompt: 'consent',
   })
