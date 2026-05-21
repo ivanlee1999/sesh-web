@@ -12,8 +12,10 @@ import TodoistTasks from './TodoistTasks'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
+import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
 import { getCategoryMeta } from '@/lib/categories'
+import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
 
 function interpolateColor(hex1: string, hex2: string, t: number): string {
@@ -464,6 +466,10 @@ export default function Timer() {
     const nextTargetMs = isIdle ? customDurationMsRef.current : activeTargetMsRef.current
 
     if (isIdle) {
+      void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
+    }
+
+    if (isIdle) {
       setStartedAt(now)
       setOverflowMs(0)
       setActiveTargetMs(nextTargetMs)
@@ -651,6 +657,27 @@ export default function Timer() {
 
   const showIdleIntentionInput = !todoistTaskId
   const catMeta = getCategoryMeta(category, categories)
+  const wakeLockActive = settings.keepScreenAwake && (phase === 'running' || phase === 'overflow')
+  const wakeLock = useScreenWakeLock(wakeLockActive)
+  const [oledSaver, setOledSaver] = useState(false)
+  const [oledSaverOffset, setOledSaverOffset] = useState({ x: 0, y: 0 })
+
+  useEffect(() => {
+    if (!wakeLockActive) setOledSaver(false)
+  }, [wakeLockActive])
+
+  useEffect(() => {
+    if (!oledSaver) return
+    const move = () => {
+      setOledSaverOffset({
+        x: Math.floor(Math.random() * 121) - 60,
+        y: Math.floor(Math.random() * 121) - 60,
+      })
+    }
+    move()
+    const interval = window.setInterval(move, 60_000)
+    return () => window.clearInterval(interval)
+  }, [oledSaver])
 
   return (
     <div className="relative mt-2 flex min-h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] w-full flex-col items-center px-4 pb-[calc(24px+env(safe-area-inset-bottom,0px))] pt-4" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
@@ -889,6 +916,22 @@ export default function Timer() {
             )}
           </div>
 
+          {wakeLockActive && (
+            <div className="flex flex-col items-center gap-1 text-center">
+              <button
+                type="button"
+                onClick={() => setOledSaver(true)}
+                className="rounded-full bg-black px-4 py-2 text-sm font-medium text-gray-400 active:scale-95 dark:bg-gray-900"
+              >
+                OLED saver
+              </button>
+              <p className="max-w-[300px] text-xs text-gray-500">
+                Keep-awake: {wakeLock.status === 'on' ? 'on' : wakeLock.status}
+                {wakeLock.error ? ` — ${wakeLock.error}` : ''}
+              </p>
+            </div>
+          )}
+
           {/* Abandon */}
           <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-500 hover:!text-red-500">
             <Square style={{ width: 14, height: 14, marginRight: 6 }} />
@@ -901,6 +944,38 @@ export default function Timer() {
               {saveError}
             </div>
           )}
+        </div>
+      )}
+
+      {oledSaver && wakeLockActive && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black text-gray-700">
+          <div
+            className="select-none text-center transition-transform duration-1000 ease-out"
+            style={{ transform: `translate(${oledSaverOffset.x}px, ${oledSaverOffset.y}px)` }}
+          >
+            <div className="font-mono text-[44px] font-light leading-none text-gray-500">
+              {formatTime(displayMs)}
+            </div>
+            <div className="mt-2 text-xs uppercase tracking-[0.24em] text-gray-700">
+              {isOverflow ? 'overflow' : sessionType === 'focus' ? 'focus' : 'rest'}
+            </div>
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setOledSaver(false)}
+                className="rounded-full border border-gray-800 px-4 py-2 text-sm text-gray-600 active:scale-95"
+              >
+                Show app
+              </button>
+              <button
+                type="button"
+                onClick={phase === 'running' || phase === 'overflow' ? pauseTimer : startTimer}
+                className="rounded-full border border-gray-800 px-4 py-2 text-sm text-gray-600 active:scale-95"
+              >
+                {phase === 'running' || phase === 'overflow' ? 'Pause' : 'Resume'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

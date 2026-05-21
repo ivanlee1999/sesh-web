@@ -1,7 +1,7 @@
 import { getDb } from '@/lib/server-db'
 
 const GOOGLE_CALENDAR_COLOR_IDS: Record<string, string> = {
-  development: '9', writing: '3', design: '6', learning: '5', exercise: '10', other: '8',
+  development: '9', writing: '3', design: '6', learning: '5', exercise: '10', fetch: '6', other: '8',
 }
 
 interface OAuthTokens {
@@ -21,6 +21,7 @@ interface SessionData {
   targetMs: number
   actualMs: number
   overflowMs: number
+  notes?: string
   googleEventId?: string
   isSynced?: boolean
 }
@@ -182,6 +183,7 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
   let description = `Category: ${categoryLabel}\nType: ${typeLabel}\nDuration: ${formatDuration(session.actualMs || (session.endedAt - session.startedAt))}`
   if (session.targetMs) description += `\nTarget: ${formatDuration(session.targetMs)}`
   if (session.overflowMs && session.overflowMs > 0) description += `\nOverflow: +${formatDuration(session.overflowMs)}`
+  if (session.notes?.trim()) description += `\n\nNotes:\n${session.notes.trim()}`
 
   const event = {
     summary: session.intention || (session.type === 'focus' ? 'Focus Session' : 'Break'),
@@ -192,7 +194,7 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
   }
 
   // Create or update event, with one retry on 401
-  const shouldUpdate = session.isSynced && !!session.googleEventId
+  const shouldUpdate = !!session.googleEventId
   try {
     let res = shouldUpdate
       ? await updateCalendarEvent(tokens.access_token, calendarId, session.googleEventId!, event)

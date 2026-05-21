@@ -22,7 +22,7 @@ export async function sendPushToAll(title: string, body: string) {
   const results = subs.map(sub =>
     webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify({ title, body })
+      JSON.stringify({ title, body, tag: `sesh-${Date.now()}`, url: '/' })
     ).catch((error: { statusCode?: number }) => {
       // Only remove subscriptions that are permanently invalid
       if (error.statusCode === 404 || error.statusCode === 410) {

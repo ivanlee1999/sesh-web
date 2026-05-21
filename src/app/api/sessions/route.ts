@@ -74,6 +74,7 @@ export async function POST(request: Request) {
       targetMs: body.targetMs ?? 0,
       actualMs: body.actualMs ?? 0,
       overflowMs: body.overflowMs ?? 0,
+      notes: body.notes ?? '',
       startedAt: body.startedAt,
       endedAt: body.endedAt,
       googleEventId: '',

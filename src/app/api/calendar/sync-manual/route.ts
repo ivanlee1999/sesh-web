@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
         targetMs: row.target_ms,
         actualMs: row.actual_ms,
         overflowMs: row.overflow_ms,
+        notes: row.notes,
         googleEventId: row.google_event_id || undefined,
         isSynced: row.is_synced === 1,
       })

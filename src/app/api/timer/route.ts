@@ -3,39 +3,16 @@ import { getDb } from '@/lib/server-db'
 import { sendPushToAll } from '@/lib/push'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
 import { syncSessionToGoogleCalendar, persistCalendarSyncResult } from '@/lib/google-calendar'
+import {
+  checkAndSendOverflowNotifications,
+  ensureTimerNotificationScheduler,
+  rowToTimerJson,
+  sendDiscordNotification,
+  shouldTimerNotificationSchedulerRun,
+  stopTimerNotificationScheduler,
+  type TimerRow,
+} from '@/lib/timer-notifications'
 export const dynamic = 'force-dynamic'
-
-interface TimerRow {
-  id: number
-  phase: string
-  session_type: string
-  intention: string
-  category: string
-  target_ms: number
-  remaining_ms: number
-  overflow_ms: number
-  started_at: number | null
-  paused_at: number | null
-  updated_at: number
-  todoist_task_id: string | null
-  notification_count: number
-}
-
-function rowToJson(row: TimerRow) {
-  return {
-    phase: row.phase,
-    sessionType: row.session_type,
-    intention: row.intention,
-    category: row.category,
-    targetMs: row.target_ms,
-    remainingMs: row.remaining_ms,
-    overflowMs: row.overflow_ms,
-    startedAt: row.started_at,
-    pausedAt: row.paused_at,
-    updatedAt: row.updated_at,
-    todoistTaskId: row.todoist_task_id,
-  }
-}
 
 /**
  * Sync Todoist duration after session completion (non-fatal).
@@ -51,138 +28,14 @@ async function syncTodoistDuration(todoistTaskId: string, actualMs: number) {
   }
 }
 
-/**
- * Check if an overflow notification should be sent.
- * The timer keeps running past target — notifications escalate at increasing intervals:
- *   count=0 → at target time (0 min overflow)
- *   count=1 → +5 min overflow
- *   count=2 → +15 min overflow  (5 + 10)
- *   count=3 → +30 min overflow  (5 + 10 + 15)
- *   count=4 → +50 min overflow  (5 + 10 + 15 + 20)
- *   Formula: threshold(N) = 5 * N*(N+1)/2 minutes for N >= 1, threshold(0) = 0
- */
-function checkOverflowNotifications(db: ReturnType<typeof getDb>) {
-  const selectTimer = db.prepare('SELECT * FROM timer_state WHERE id = 1')
-  const updateNotificationCount = db.prepare(
-    'UPDATE timer_state SET notification_count = ? WHERE id = 1 AND notification_count = ?'
-  )
-
-  const row = selectTimer.get() as TimerRow
-  if (!row || row.phase !== 'running' || !row.started_at || row.target_ms <= 0) {
-    return { notify: false, row }
-  }
-
-  // Use remainingMs at updatedAt to compute effective remaining time.
-  // This correctly handles pause/resume (startedAt doesn't account for paused time).
-  const elapsedSinceUpdate = Date.now() - row.updated_at
-  const effectiveRemaining = row.remaining_ms - elapsedSinceUpdate
-  if (effectiveRemaining > 0) {
-    return { notify: false, row }
-  }
-
-  const overflowMs = Math.abs(effectiveRemaining)
-  const overflowMinutes = overflowMs / 60000
-  const count = row.notification_count
-
-  // Compute next notification threshold in minutes
-  // count=0: threshold=0 (notify as soon as overflow starts)
-  // count=N (N>=1): threshold = 5 * N*(N+1)/2
-  const nextThresholdMinutes = count === 0 ? 0 : 5 * count * (count + 1) / 2
-
-  if (overflowMinutes >= nextThresholdMinutes) {
-    // Compare-and-swap to avoid duplicate notifications from concurrent requests
-    const result = updateNotificationCount.run(count + 1, count)
-    if (result.changes === 0) {
-      return { notify: false, row }
-    }
-
-    const isFirst = count === 0
-    const overflowMins = Math.round(overflowMinutes)
-
-    return {
-      notify: true,
-      row,
-      isFirst,
-      overflowMins,
-      notification: {
-        intention: row.intention,
-        sessionType: row.session_type,
-        targetMs: row.target_ms,
-        overflowMs: Math.round(overflowMs),
-        isFirst,
-        overflowMins,
-      },
-    }
-  }
-
-  return { notify: false, row }
-}
-
-function sendDiscordNotification(notification: {
-  intention: string
-  sessionType: string
-  targetMs: number
-  overflowMs: number
-  isFirst?: boolean
-  overflowMins?: number
-}) {
-  const webhookUrl = process.env.DISCORD_WEBHOOK_URL
-  if (!webhookUrl) return
-
-  const duration = Math.round(notification.targetMs / 60000)
-  const overflow = Math.round(notification.overflowMs / 60000)
-
-  let msg: string
-  if (notification.isFirst !== undefined) {
-    // Overflow notification (target reached or reminder)
-    if (notification.isFirst) {
-      msg = notification.intention
-        ? `⏰ **Target reached:** "${notification.intention}" (${duration}min ${notification.sessionType}) — timer still running`
-        : `⏰ **${notification.sessionType} target reached** (${duration}min) — timer still running`
-    } else {
-      msg = notification.intention
-        ? `⏰ **Still going:** "${notification.intention}" — +${notification.overflowMins}min overtime`
-        : `⏰ **Still going:** +${notification.overflowMins}min overtime on ${notification.sessionType}`
-    }
-  } else {
-    // Manual finish notification
-    msg = notification.intention
-      ? `✅ **Session complete:** "${notification.intention}" (${duration}min ${notification.sessionType}${overflow > 0 ? `, +${overflow}min overflow` : ''})`
-      : `✅ **${notification.sessionType} session complete** (${duration}min${overflow > 0 ? `, +${overflow}min overflow` : ''})`
-  }
-
-  void fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: msg }),
-  }).catch(() => {})
-}
 
 export async function GET() {
   try {
-    const db = getDb()
-
-    // Check if overflow notifications should be sent (timer keeps running)
-    const result = checkOverflowNotifications(db)
-    if (result.notify && result.notification) {
-      sendDiscordNotification(result.notification)
-      if (result.isFirst) {
-        await sendPushToAll(
-          'sesh — session complete',
-          result.notification.intention
-            ? `"${result.notification.intention}" — target reached! Timer still running.`
-            : `${result.notification.sessionType} target reached! Timer still running.`
-        )
-      } else {
-        await sendPushToAll(
-          'sesh — still going',
-          result.notification.intention
-            ? `"${result.notification.intention}" — +${result.notification.overflowMins}min overtime`
-            : `+${result.notification.overflowMins}min overtime on ${result.notification.sessionType}`
-        )
-      }
+    const result = await checkAndSendOverflowNotifications()
+    if (shouldTimerNotificationSchedulerRun(result.row)) {
+      ensureTimerNotificationScheduler()
     }
-    return NextResponse.json(rowToJson(result.row))
+    return NextResponse.json(rowToTimerJson(result.row))
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
@@ -276,6 +129,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ completed: false })
     }
 
+    stopTimerNotificationScheduler()
+
     // Send Discord notification on manual finish too
     if (result.session) {
       sendDiscordNotification({
@@ -308,7 +163,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       completed: true,
-      timer: result.row ? rowToJson(result.row) : null,
+      timer: result.row ? rowToTimerJson(result.row) : null,
       session: result.session,
       calendar,
     })
@@ -384,7 +239,12 @@ export async function PUT(request: Request) {
       resetNotifications ? 1 : 0,
     )
     const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
-    return NextResponse.json(rowToJson(row))
+    if (shouldTimerNotificationSchedulerRun(row)) {
+      ensureTimerNotificationScheduler()
+    } else {
+      stopTimerNotificationScheduler()
+    }
+    return NextResponse.json(rowToTimerJson(row))
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
