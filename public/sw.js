@@ -1,6 +1,6 @@
 // ── Offline cache ────────────────────────────────────────────────────────
-const CACHE_NAME = 'sesh-v5'
-const API_CACHE_NAME = 'sesh-api-v5'
+const CACHE_NAME = 'sesh-v6'
+const API_CACHE_NAME = 'sesh-api-v6'
 
 // Static assets to precache on install
 const STATIC_ASSETS = [
@@ -135,25 +135,42 @@ self.addEventListener('message', event => {
 
 // ── Web Push notifications ──────────────────────────────────────────
 self.addEventListener('push', (event) => {
-  const data = event.data?.json() || { title: 'sesh', body: 'Session complete!' }
+  let data = { title: 'sesh', body: 'Session complete!', url: '/' }
+  try {
+    data = { ...data, ...(event.data?.json() || {}) }
+  } catch {
+    data.body = event.data?.text() || data.body
+  }
+
+  const tag = data.tag || `sesh-timer-${Date.now()}`
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      tag: 'sesh-timer',
+      tag,
+      renotify: true,
+      silent: false,
+      data: { url: data.url || '/' },
     })
   )
 })
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
+  const targetUrl = event.notification.data?.url || '/'
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      if (clientList.length > 0) {
+      const target = new URL(targetUrl, self.location.origin).href
+      for (const client of clientList) {
+        if ('focus' in client && client.url === target) {
+          return client.focus()
+        }
+      }
+      if (clientList.length > 0 && 'focus' in clientList[0]) {
         return clientList[0].focus()
       }
-      return clients.openWindow('/')
+      return clients.openWindow(targetUrl)
     })
   )
 })

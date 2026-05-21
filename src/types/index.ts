@@ -39,6 +39,7 @@ export interface AppSettings {
   soundEnabled: boolean
   calendarSync: boolean
   darkMode: boolean
+  keepScreenAwake: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -47,4 +48,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   soundEnabled: true,
   calendarSync: false,
   darkMode: false,
+  keepScreenAwake: false,
 }

@@ -1,4 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import {
+  buildOverflowNotification,
+  nextOverflowNotificationThresholdMinutes,
+  shouldTimerNotificationSchedulerRun,
+  type TimerRow,
+} from '@/lib/timer-notification-logic'
 
 /**
  * Unit tests for timer API logic — specifically the coercion and conversion
@@ -136,39 +142,82 @@ describe('PUT handler numeric coercion logic', () => {
 // ── Notification threshold calculation ──────────────────────────────────
 
 describe('overflow notification threshold calculation', () => {
-  // Replicate the threshold formula from the GET handler
-  function nextThresholdMinutes(count: number): number {
-    return count === 0 ? 0 : 5 * count * (count + 1) / 2
-  }
-
   it('count=0 triggers at 0 minutes (immediately on overflow)', () => {
-    expect(nextThresholdMinutes(0)).toBe(0)
+    expect(nextOverflowNotificationThresholdMinutes(0)).toBe(0)
   })
 
   it('count=1 triggers at 5 minutes', () => {
-    expect(nextThresholdMinutes(1)).toBe(5)
+    expect(nextOverflowNotificationThresholdMinutes(1)).toBe(5)
   })
 
   it('count=2 triggers at 15 minutes', () => {
-    expect(nextThresholdMinutes(2)).toBe(15)
+    expect(nextOverflowNotificationThresholdMinutes(2)).toBe(15)
   })
 
   it('count=3 triggers at 30 minutes', () => {
-    expect(nextThresholdMinutes(3)).toBe(30)
+    expect(nextOverflowNotificationThresholdMinutes(3)).toBe(30)
   })
 
   it('count=4 triggers at 50 minutes', () => {
-    expect(nextThresholdMinutes(4)).toBe(50)
+    expect(nextOverflowNotificationThresholdMinutes(4)).toBe(50)
   })
 
   it('intervals increase: each gap is 5 minutes longer than the last', () => {
-    const thresholds = [0, 1, 2, 3, 4, 5].map(nextThresholdMinutes)
+    const thresholds = [0, 1, 2, 3, 4, 5].map(nextOverflowNotificationThresholdMinutes)
     // gaps: 5, 10, 15, 20, 25
     for (let i = 2; i < thresholds.length; i++) {
       const gap = thresholds[i] - thresholds[i - 1]
       const prevGap = thresholds[i - 1] - thresholds[i - 2]
       expect(gap - prevGap).toBe(5)
     }
+  })
+})
+
+// ── Server-side scheduler notification logic ───────────────────────────
+
+describe('server-side timer notification scheduler logic', () => {
+  const baseRow: TimerRow = {
+    id: 1,
+    phase: 'running',
+    session_type: 'focus',
+    intention: 'Deep work',
+    category: 'development',
+    target_ms: 25 * 60 * 1000,
+    remaining_ms: 1000,
+    overflow_ms: 0,
+    started_at: 1700000000000,
+    paused_at: null,
+    updated_at: 1700000000000,
+    todoist_task_id: null,
+    notification_count: 0,
+  }
+
+  it('keeps the server scheduler running for an active timer even without browser clients', () => {
+    expect(shouldTimerNotificationSchedulerRun(baseRow)).toBe(true)
+  })
+
+  it('does not keep polling when the timer is idle or paused', () => {
+    expect(shouldTimerNotificationSchedulerRun({ ...baseRow, phase: 'idle' })).toBe(false)
+    expect(shouldTimerNotificationSchedulerRun({ ...baseRow, phase: 'paused' })).toBe(false)
+    expect(shouldTimerNotificationSchedulerRun({ ...baseRow, started_at: null })).toBe(false)
+  })
+
+  it('builds the first target-reached notification when effective remaining time crosses zero', () => {
+    const notification = buildOverflowNotification(baseRow, baseRow.updated_at + 1000)
+    expect(notification).toEqual({
+      intention: 'Deep work',
+      sessionType: 'focus',
+      targetMs: 25 * 60 * 1000,
+      overflowMs: 0,
+      isFirst: true,
+      overflowMins: 0,
+    })
+  })
+
+  it('waits for the next escalating overflow threshold after the first notification', () => {
+    const notifiedOnce = { ...baseRow, remaining_ms: 0, notification_count: 1 }
+    expect(buildOverflowNotification(notifiedOnce, notifiedOnce.updated_at + 4 * 60 * 1000)).toBeNull()
+    expect(buildOverflowNotification(notifiedOnce, notifiedOnce.updated_at + 5 * 60 * 1000)?.overflowMins).toBe(5)
   })
 })
 

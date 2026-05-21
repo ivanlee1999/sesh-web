@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
       targetMs: body.targetMs ?? 0,
       actualMs: body.actualMs ?? 0,
       overflowMs: body.overflowMs ?? 0,
+      notes: body.notes ?? '',
     })
 
     if (result.error) {

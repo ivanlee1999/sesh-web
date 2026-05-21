@@ -3,6 +3,7 @@ import React from 'react'
 import { useSettings } from '@/context/SettingsContext'
 import { useEffect, useState } from 'react'
 import { List, ListItem, BlockTitle, Toggle, Button } from 'konsta/react'
+import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
 
 function GoogleCalendarAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
   const handleDisconnect = async () => {
@@ -63,17 +64,6 @@ function GoogleCalendarAuth({ connected, onConnected }: { connected: boolean; on
   )
 }
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - base64String.length % 4) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-  const rawData = window.atob(base64)
-  const output = new Uint8Array(rawData.length)
-  for (let i = 0; i < rawData.length; i++) {
-    output[i] = rawData.charCodeAt(i)
-  }
-  return output
-}
-
 function PushNotificationToggle() {
   const [pushSupported, setPushSupported] = useState<boolean | null>(null)
   const [pushEnabled, setPushEnabled] = useState(false)
@@ -82,12 +72,7 @@ function PushNotificationToggle() {
 
   useEffect(() => {
     const initPush = async () => {
-      const supported =
-        typeof window !== 'undefined' &&
-        'serviceWorker' in navigator &&
-        'PushManager' in window &&
-        'Notification' in window
-
+      const supported = isPushSupported()
       setPushSupported(supported)
       if (!supported) return
 
@@ -98,11 +83,11 @@ function PushNotificationToggle() {
         const sub = await reg.pushManager.getSubscription()
         setPushEnabled(!!sub)
         if (!sub) {
-          try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
+          clearPushSubscriptionConfirmed()
         }
       } catch {
         setPushEnabled(false)
-        try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
+        clearPushSubscriptionConfirmed()
       }
     }
 
@@ -112,40 +97,12 @@ function PushNotificationToggle() {
   const enablePush = async () => {
     setPushBusy(true)
     try {
-      const vapidRes = await fetch('/api/push/vapid', { cache: 'no-store' })
-      const { publicKey } = await vapidRes.json()
-      if (!publicKey) throw new Error('Missing public key')
-
-      const permission = Notification.permission === 'granted'
-        ? 'granted'
-        : await Notification.requestPermission()
-
-      setPushPermission(permission)
-      if (permission !== 'granted') return
-
-      const reg = await navigator.serviceWorker.ready
-      let sub = await reg.pushManager.getSubscription()
-
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(publicKey),
-        })
-      }
-
-      const res = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub),
-      })
-
-      if (!res.ok) {
-        await sub.unsubscribe()
-        throw new Error('Server failed to save push subscription')
-      }
-
-      try { localStorage.setItem('pushSubscriptionConfirmed', '1') } catch {}
-      setPushEnabled(true)
+      const enabled = await ensurePushSubscription({ requestPermission: true })
+      setPushPermission(Notification.permission)
+      setPushEnabled(enabled)
+    } catch {
+      setPushPermission(Notification.permission)
+      setPushEnabled(false)
     } finally {
       setPushBusy(false)
     }
@@ -164,7 +121,7 @@ function PushNotificationToggle() {
         })
         await sub.unsubscribe()
       }
-      try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {}
+      clearPushSubscriptionConfirmed()
       setPushEnabled(false)
     } finally {
       setPushBusy(false)
@@ -269,6 +226,16 @@ export default function Settings() {
                 <Toggle
                   checked={settings.soundEnabled}
                   onChange={() => updateSettings({ soundEnabled: !settings.soundEnabled })}
+                />
+              }
+            />
+            <ListItem
+              title={<span className="text-black dark:text-white">Keep screen awake</span>}
+              subtitle="Only while a session is running in this PWA"
+              after={
+                <Toggle
+                  checked={settings.keepScreenAwake}
+                  onChange={() => updateSettings({ keepScreenAwake: !settings.keepScreenAwake })}
                 />
               }
             />
