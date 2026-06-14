@@ -36,7 +36,7 @@ function CategoryForm({
         maxLength={40}
         autoFocus
         onKeyDown={e => { if (e.key === 'Enter') onSubmit() }}
-        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-black outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-base text-black outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
       />
       <div className="grid grid-cols-6 gap-2">
         {CATEGORY_PALETTE.map(c => (
@@ -142,7 +142,7 @@ export default function Categories() {
   }
 
   return (
-    <div className="px-4 pb-4 pt-16 md:pt-20">
+    <div className="px-4 pb-6 pt-16 md:pt-20">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-black dark:text-white">Categories</h1>
         {!showForm && !editingId && (

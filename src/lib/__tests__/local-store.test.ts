@@ -9,6 +9,8 @@ import {
   removeQueuedSession,
   cacheCategories,
   getCachedCategories,
+  getRecentCategoryNames,
+  markCategoryUsed,
   type LocalTimerState,
   type QueuedSession,
 } from '../local-store'
@@ -258,7 +260,7 @@ describe('category caching', () => {
   it('overwrites previous cache', () => {
     cacheCategories([{ id: '1', name: 'old' }])
     cacheCategories([{ id: '2', name: 'new' }])
-    const cached = getCachedCategories()
+    const cached = getCachedCategories<{ id: string; name: string }>()
     expect(cached).toHaveLength(1)
     expect(cached![0].name).toBe('new')
   })
@@ -266,5 +268,25 @@ describe('category caching', () => {
   it('returns null for corrupted cache', () => {
     localStorage.setItem('sesh:categories', '{not-json')
     expect(getCachedCategories()).toBeNull()
+  })
+})
+
+// ── Category recency ─────────────────────────────────────────────────────
+
+describe('category recency', () => {
+  it('returns empty list when no category recency is stored', () => {
+    expect(getRecentCategoryNames()).toEqual([])
+  })
+
+  it('moves the latest used category to the front', () => {
+    expect(markCategoryUsed('study')).toEqual(['study'])
+    expect(markCategoryUsed('work')).toEqual(['work', 'study'])
+    expect(markCategoryUsed('study')).toEqual(['study', 'work'])
+    expect(getRecentCategoryNames()).toEqual(['study', 'work'])
+  })
+
+  it('ignores corrupted recency storage', () => {
+    localStorage.setItem('sesh:categoryRecency', '{not-json')
+    expect(getRecentCategoryNames()).toEqual([])
   })
 })

@@ -122,7 +122,7 @@ export default function History() {
   const groups = groupByDate(sessions)
 
   return (
-    <div className="h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+    <div className="px-4 pb-6 pt-16 md:pt-20">
       <h1 className="mb-4 text-xl font-semibold text-black dark:text-white">History</h1>
       {error && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
@@ -226,7 +226,7 @@ export default function History() {
                 value={editIntention}
                 onChange={e => setEditIntention(e.target.value)}
                 placeholder="What did you focus on?"
-                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               />
             </label>
 
@@ -235,7 +235,7 @@ export default function History() {
               <select
                 value={editCategory}
                 onChange={e => setEditCategory(e.target.value)}
-                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               >
                 {categories.map(category => (
                   <option key={category.id} value={category.name}>{category.label}</option>
@@ -250,7 +250,7 @@ export default function History() {
                 onChange={e => setEditNotes(e.target.value)}
                 rows={4}
                 placeholder="Optional notes"
-                className="w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className="w-full resize-none rounded-2xl border border-gray-200 bg-white px-4 py-3 text-base text-black outline-none transition-colors focus:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
               />
             </label>
 

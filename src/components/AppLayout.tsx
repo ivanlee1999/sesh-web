@@ -10,6 +10,14 @@ import Categories from './Categories'
 import Settings from './Settings'
 import TabBar, { type AppTab } from './TabBar'
 
+const tabs: { id: AppTab; Component: () => JSX.Element; scrollable: boolean }[] = [
+  { id: 'timer', Component: Timer, scrollable: false },
+  { id: 'history', Component: History, scrollable: true },
+  { id: 'analytics', Component: Analytics, scrollable: true },
+  { id: 'categories', Component: Categories, scrollable: true },
+  { id: 'settings', Component: Settings, scrollable: true },
+]
+
 export default function AppLayout() {
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
   const { settings } = useSettings()
@@ -32,27 +40,21 @@ export default function AppLayout() {
   return (
     <App theme="ios" dark={settings.darkMode} safeAreas>
       <div className="app-shell">
-        <div className="view-stack">
-          <div style={{ display: activeTab === 'timer' ? 'block' : 'none' }}>
-            <Timer />
-          </div>
-          <div style={{ display: activeTab === 'history' ? 'block' : 'none' }}>
-            <History />
-          </div>
-          <div style={{ display: activeTab === 'analytics' ? 'block' : 'none' }}>
-            <Analytics />
-          </div>
-          <div style={{ display: activeTab === 'categories' ? 'block' : 'none' }}>
-            <Categories />
-          </div>
-          <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
-            <Settings />
-          </div>
+        <div className="app-content">
+          {tabs.map(({ id, Component, scrollable }) => (
+            <section
+              key={id}
+              data-active={activeTab === id}
+              data-scroll={scrollable}
+              className="app-tabpanel"
+            >
+              <Component />
+            </section>
+          ))}
         </div>
-      </div>
 
-      {/* TabBar is OUTSIDE app-shell to ensure position:fixed works */}
-      <TabBar activeTab={activeTab} onChange={setActiveTab} />
+        <TabBar activeTab={activeTab} onChange={setActiveTab} />
+      </div>
     </App>
   )
 }

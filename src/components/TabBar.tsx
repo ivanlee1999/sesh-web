@@ -19,7 +19,7 @@ const tabs: { id: AppTab; label: string; Icon: React.ComponentType<{ className?:
 export default function TabBar({ activeTab, onChange }: TabBarProps) {
   return (
     <div className="tabbar-frosted">
-      <div className="mx-auto flex max-w-[480px] items-end justify-around px-2 pb-[calc(8px+env(safe-area-inset-bottom))] pt-2">
+      <div className="mx-auto flex max-w-[480px] items-end justify-around px-2 pb-2 pt-2">
         {tabs.map(({ id, label, Icon }) => {
           const active = activeTab === id
           return (

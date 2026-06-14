@@ -29,6 +29,44 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## App Login Protection
+
+`sesh-web` can be protected with a shared app login that uses a signed HTTP-only session cookie. This is a better fit for a PWA than browser Basic Auth: users sign in once inside the app, then the installed PWA stays gated until logout or session expiry.
+
+### Required env vars
+
+- `APP_AUTH_USERNAME` — shared login username
+- `APP_AUTH_PASSWORD` — shared login password
+- `NEXTAUTH_SECRET` — signing secret for the session cookie
+
+Supported legacy fallback names:
+- `BASIC_AUTH_USERNAME`
+- `BASIC_AUTH_PASSWORD`
+
+Optional escape hatch for local/dev only:
+- `DISABLE_APP_AUTH=true` (also supports legacy `DISABLE_BASIC_AUTH=true`)
+
+### Behavior
+
+- Unauthenticated page visits are redirected to `/login`.
+- Unauthenticated API requests return HTTP `401`.
+- If auth is enabled but required credentials/signing secret are missing, the app fails closed with HTTP `503` instead of serving publicly.
+- The installed PWA is forced through the network for page navigations so cached shells do not bypass login.
+- Users can log out from the Settings tab.
+
+### Running the production standalone build locally
+
+For PWA verification, do **not** run `node .next/standalone/server.js` immediately after `next build` by itself. The standalone server needs the generated `public/` assets and `._next/static` copied into the standalone runtime tree, otherwise the PWA endpoints (`/manifest.json`, `/sw.js`, `/_next/static/*`) will 404 and installed PWAs may keep using an old shell.
+
+Use:
+
+```bash
+npm run build:standalone
+APP_AUTH_USERNAME=... APP_AUTH_PASSWORD=... NEXTAUTH_SECRET=... npm run start:standalone
+```
+
+The Dockerfile already performs these copies for containerized deployments.
+
 ## Background Timer Auto-Completion
 
 When a timer expires while no client tab is actively running, the server can auto-complete the session:
@@ -42,6 +80,14 @@ When a timer expires while no client tab is actively running, the server can aut
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Operations Notes
+
+For production redeploys and incident recovery of push notifications / PWA alerts and Google Calendar sync, see:
+
+- [`DEPLOYMENT-NOTIFICATIONS-CALENDAR.md`](./DEPLOYMENT-NOTIFICATIONS-CALENDAR.md)
+
+It documents the env vars, runtime behavior, failure modes we hit in production, and the post-redeploy verification checklist.
 
 ## Testing
 

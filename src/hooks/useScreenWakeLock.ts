@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type WakeLockSentinel = EventTarget & {
   released: boolean
@@ -32,87 +32,96 @@ export function useScreenWakeLock(active: boolean) {
     activeRef.current = active
   }, [active])
 
-  useEffect(() => {
-    let cancelled = false
-
-    const releaseWakeLock = async () => {
-      const current = wakeLockRef.current
-      wakeLockRef.current = null
-      if (current && !current.released) {
-        try {
-          await current.release()
-        } catch {
-          // Ignore release failures; the browser may have already released it.
-        }
-      }
-    }
-
-    const requestWakeLock = async () => {
-      const wakeLockApi = (navigator as WakeLockNavigator).wakeLock
-      if (!wakeLockApi) {
-        setStatus('unsupported')
-        setError('Screen wake lock is not supported by this browser/iOS version.')
-        return
-      }
-
-      if (wakeLockRef.current && !wakeLockRef.current.released) {
-        setStatus('on')
-        return
-      }
-
-      setStatus('requesting')
-      setError(null)
-
+  const release = useCallback(async () => {
+    const current = wakeLockRef.current
+    wakeLockRef.current = null
+    if (current && !current.released) {
       try {
-        const sentinel = await wakeLockApi.request('screen')
-        if (cancelled || !activeRef.current) {
-          if (!sentinel.released) await sentinel.release()
-          return
-        }
-
-        wakeLockRef.current = sentinel
-        sentinel.addEventListener('release', () => {
-          if (wakeLockRef.current === sentinel) {
-            wakeLockRef.current = null
-          }
-          setStatus(activeRef.current ? 'released' : 'off')
-        })
-        setStatus('on')
-      } catch (err) {
-        wakeLockRef.current = null
-        setStatus('blocked')
-        setError(err instanceof Error ? err.message : 'The browser blocked screen wake lock.')
+        await current.release()
+      } catch {
+        // Ignore release failures; the browser may have already released it.
       }
     }
+    if (!activeRef.current) {
+      setStatus(isScreenWakeLockSupported() ? 'off' : 'unsupported')
+      setError(null)
+    }
+  }, [])
 
-    const syncWakeLock = () => {
-      if (!active) {
+  const request = useCallback(async (options?: { allowWhileInactive?: boolean }) => {
+    const wakeLockApi = (navigator as WakeLockNavigator).wakeLock
+    if (!wakeLockApi) {
+      setStatus('unsupported')
+      setError('Screen wake lock is not supported by this browser/iOS version.')
+      return false
+    }
+
+    if (document.visibilityState !== 'visible') {
+      setStatus('blocked')
+      setError('Screen wake lock can only start while the app is visible.')
+      return false
+    }
+
+    if (wakeLockRef.current && !wakeLockRef.current.released) {
+      setStatus('on')
+      return true
+    }
+
+    setStatus('requesting')
+    setError(null)
+
+    try {
+      const sentinel = await wakeLockApi.request('screen')
+      if (!activeRef.current && !options?.allowWhileInactive) {
+        if (!sentinel.released) await sentinel.release()
         setStatus(isScreenWakeLockSupported() ? 'off' : 'unsupported')
-        setError(null)
-        void releaseWakeLock()
-        return
+        return false
       }
 
-      if (document.visibilityState === 'visible') {
-        void requestWakeLock()
-      }
+      wakeLockRef.current = sentinel
+      sentinel.addEventListener('release', () => {
+        if (wakeLockRef.current === sentinel) {
+          wakeLockRef.current = null
+        }
+        setStatus(activeRef.current ? 'released' : 'off')
+      })
+      setStatus('on')
+      return true
+    } catch (err) {
+      wakeLockRef.current = null
+      setStatus('blocked')
+      setError(err instanceof Error ? err.message : 'The browser blocked screen wake lock.')
+      return false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!active) {
+      void release()
+      return
     }
 
+    if (document.visibilityState === 'visible') {
+      void request()
+    }
+  }, [active, release, request])
+
+  useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible' && activeRef.current) {
-        void requestWakeLock()
+        void request()
       }
     }
 
-    syncWakeLock()
     document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [request])
 
+  useEffect(() => {
     return () => {
-      cancelled = true
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-      void releaseWakeLock()
+      void release()
     }
-  }, [active])
+  }, [release])
 
-  return { supported: isScreenWakeLockSupported(), status, error }
+  return { supported: isScreenWakeLockSupported(), status, error, request, release }
 }

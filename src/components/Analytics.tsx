@@ -70,7 +70,7 @@ export default function Analytics() {
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
         <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
         <div className="py-16 text-center text-gray-400">
           <p className="text-sm">Loading…</p>
@@ -81,7 +81,7 @@ export default function Analytics() {
 
   if (error) {
     return (
-      <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
         <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
           {error}
@@ -115,7 +115,7 @@ export default function Analytics() {
 
   if (isEmpty) {
     return (
-      <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
         <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
         <div className="py-16 text-center text-gray-400">
           <p className="text-lg">Start tracking to see your stats</p>
@@ -125,7 +125,7 @@ export default function Analytics() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 pt-16 [-webkit-overflow-scrolling:touch] md:pt-20">
+    <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
       <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
 
       {/* Today summary */}

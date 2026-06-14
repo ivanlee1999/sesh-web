@@ -193,7 +193,7 @@ export default function Settings() {
   }
 
   return (
-    <div className="px-5 pb-24 pt-6">
+    <div className="px-5 pb-6 pt-6">
       <h1 className="mb-7 text-3xl font-bold text-black dark:text-white">Settings</h1>
 
       <div className="flex flex-col gap-6">
@@ -297,6 +297,22 @@ export default function Settings() {
                   checked={settings.darkMode}
                   onChange={() => updateSettings({ darkMode: !settings.darkMode })}
                 />
+              }
+            />
+          </List>
+        </div>
+
+        {/* Security */}
+        <div>
+          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Security</BlockTitle>
+          <List strong inset>
+            <ListItem
+              title={<span className="text-black dark:text-white">App session</span>}
+              subtitle="Sign out of this device"
+              after={
+                <Button small rounded onClick={() => { window.location.href = '/api/logout' }}>
+                  Log Out
+                </Button>
               }
             />
           </List>

@@ -3,31 +3,61 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --app-viewport-height: 100dvh;
+    --tabbar-height: 58px;
+  }
+
   html, body {
     height: 100%;
     overscroll-behavior: none;
   }
+
   body {
     margin: 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
   }
 }
 
 @layer utilities {
   .app-shell {
-    @apply mx-auto max-w-[480px] min-h-dvh bg-white dark:bg-[#1c1c1e];
+    @apply mx-auto flex max-w-[480px] flex-col bg-white dark:bg-[#1c1c1e];
+    height: var(--app-viewport-height);
+    max-height: var(--app-viewport-height);
+    overflow: hidden;
   }
-  .view-stack {
+
+  .app-content {
     flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .app-tabpanel {
+    flex: 1;
+    min-height: 0;
+    display: none;
+  }
+
+  .app-tabpanel[data-active='true'] {
+    display: flex;
+  }
+
+  .app-tabpanel[data-scroll='true'] {
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: calc(83px + env(safe-area-inset-bottom, 0px));
   }
+
   .tabbar-frosted {
-    @apply fixed bottom-0 left-0 right-0 z-50 border-t border-black/10 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/80;
+    @apply border-t border-black/10 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/80;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    min-height: calc(var(--tabbar-height) + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
   }
   .hide-scrollbar {
     scrollbar-width: none;
@@ -69,43 +99,25 @@
 
 /* iOS PWA native behavior */
 @layer base {
-  /* Prevent zoom on double-tap and pinch */
   html {
     touch-action: manipulation;
     -webkit-text-size-adjust: 100%;
   }
 
-  /* Prevent pull-to-refresh / elastic scroll on body */
   body {
     overscroll-behavior: none;
-    position: fixed;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
   }
 
-  /* Prevent text selection on UI elements (not inputs) */
   button, label, [role="button"], .tabbar-frosted, nav {
     -webkit-user-select: none;
     user-select: none;
   }
 
-  /* Prevent iOS callout on long press */
   a, button, img {
     -webkit-touch-callout: none;
   }
 
-  /* Remove tap highlight */
   * {
     -webkit-tap-highlight-color: transparent;
-  }
-
-  /* Smooth scrolling for content areas */
-  .view-stack {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
   }
 }

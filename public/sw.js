@@ -1,10 +1,11 @@
 // ── Offline cache ────────────────────────────────────────────────────────
-const CACHE_NAME = 'sesh-v6'
-const API_CACHE_NAME = 'sesh-api-v6'
+const CACHE_NAME = 'sesh-v7'
+const API_CACHE_NAME = 'sesh-api-v7'
 
-// Static assets to precache on install
+// Static assets to precache on install.
+// Do NOT precache '/' or any HTML page: navigations must always hit the
+// network first so server-side auth can challenge before private content loads.
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
 ]
 
@@ -32,6 +33,14 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return
 
   const url = new URL(event.request.url)
+
+  // Never serve navigations/pages from cache first.
+  // This ensures HTTP Basic Auth in middleware is enforced for PWA launches,
+  // browser refreshes, and direct visits to app pages.
+  if (event.request.mode === 'navigate' || (event.request.headers.get('accept') || '').includes('text/html')) {
+    event.respondWith(fetch(event.request))
+    return
+  }
 
   // ── API GET requests: stale-while-revalidate ──
   if (url.pathname.startsWith('/api/')) {

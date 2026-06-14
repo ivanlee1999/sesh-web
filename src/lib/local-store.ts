@@ -10,6 +10,7 @@
 const TIMER_KEY = 'sesh:timer'
 const SESSION_QUEUE_KEY = 'sesh:sessionQueue'
 const CATEGORIES_CACHE_KEY = 'sesh:categories'
+const CATEGORY_RECENCY_KEY = 'sesh:categoryRecency'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -137,5 +138,30 @@ export function getCachedCategories<T>(): T[] | null {
     return JSON.parse(raw) as T[]
   } catch {
     return null
+  }
+}
+
+// ── Category recency ─────────────────────────────────────────────────────
+export function getRecentCategoryNames(): string[] {
+  try {
+    const raw = localStorage.getItem(CATEGORY_RECENCY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((value): value is string => typeof value === 'string' && value.length > 0)
+  } catch {
+    return []
+  }
+}
+
+export function markCategoryUsed(categoryName: string): string[] {
+  if (!categoryName) return getRecentCategoryNames()
+
+  try {
+    const next = [categoryName, ...getRecentCategoryNames().filter(name => name !== categoryName)]
+    localStorage.setItem(CATEGORY_RECENCY_KEY, JSON.stringify(next))
+    return next
+  } catch {
+    return [categoryName, ...getRecentCategoryNames().filter(name => name !== categoryName)]
   }
 }

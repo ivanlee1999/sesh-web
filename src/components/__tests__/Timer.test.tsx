@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+let keepScreenAwake = false
 
 // Mock dependencies before importing Timer
 vi.mock('@/context/SettingsContext', () => ({
@@ -10,6 +12,7 @@ vi.mock('@/context/SettingsContext', () => ({
       soundEnabled: false,
       calendarSync: false,
       darkMode: false,
+      keepScreenAwake,
     },
     updateSettings: vi.fn(),
   }),
@@ -47,6 +50,8 @@ vi.mock('@/lib/local-store', () => ({
   removeQueuedSession: vi.fn(),
   cacheCategories: vi.fn(),
   getCachedCategories: vi.fn(() => null),
+  getRecentCategoryNames: vi.fn(() => []),
+  markCategoryUsed: vi.fn((categoryName: string) => [categoryName]),
 }))
 
 // Mock the TodoistTasks sub-component to avoid its own fetch calls
@@ -59,8 +64,29 @@ vi.mock('../TodoistTasks', () => ({
 }))
 
 import Timer from '../Timer'
+import * as localStore from '@/lib/local-store'
 
 beforeEach(() => {
+  keepScreenAwake = false
+  vi.clearAllMocks()
+  vi.mocked(localStore.getRecentCategoryNames).mockReturnValue([])
+  vi.mocked(localStore.markCategoryUsed).mockImplementation((categoryName: string) => [categoryName])
+
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => 'visible',
+  })
+
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn(() => ({ matches: false })),
+  })
+
+  Object.defineProperty(navigator, 'wakeLock', {
+    configurable: true,
+    value: undefined,
+  })
+
   // Mock fetch to return idle timer state
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = typeof input === 'string' ? input : (input as Request).url
@@ -107,7 +133,7 @@ describe('Timer', () => {
 
   it('renders the intention input with proper placeholder', () => {
     render(<Timer />)
-    const input = screen.getByPlaceholderText('What are you working on?')
+    const input = screen.getByPlaceholderText('Intention')
     expect(input).toBeTruthy()
   })
 
@@ -117,25 +143,136 @@ describe('Timer', () => {
     expect(screen.getByText('Study')).toBeTruthy()
   })
 
-  it('renders time display with bold theme-aware text', () => {
+  it('sorts category chips by most recently used first', async () => {
+    vi.mocked(localStore.getRecentCategoryNames).mockReturnValue(['study', 'work'])
+
+    render(<Timer />)
+
+    const categorySelector = await screen.findByTestId('timer-category-selector')
+    const orderedLabels = Array.from(categorySelector.querySelectorAll('button')).map(button =>
+      button.textContent?.trim() ?? ''
+    )
+
+    expect(orderedLabels.slice(0, 2)).toEqual(['Study', 'Work'])
+  })
+
+  it('promotes a selected category to the front of the selector order', async () => {
+    const markCategoryUsedMock = vi.mocked(localStore.markCategoryUsed)
+    markCategoryUsedMock.mockImplementation((categoryName: string) => {
+      if (categoryName === 'work') return ['work', 'study']
+      return ['study', 'work']
+    })
+
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByText('Study'))
+
+    await waitFor(() => {
+      const categorySelector = screen.getByTestId('timer-category-selector')
+      const orderedLabels = Array.from(categorySelector.querySelectorAll('button')).map(button =>
+        button.textContent?.trim() ?? ''
+      )
+      expect(orderedLabels.slice(0, 2)).toEqual(['Study', 'Work'])
+    })
+  })
+
+  it('renders time display with large theme-aware text', () => {
     render(<Timer />)
     const timeDisplay = screen.getByText('25:00')
     expect(timeDisplay).toBeTruthy()
-    expect(timeDisplay.className).toContain('text-black')
-    expect(timeDisplay.className).toContain('dark:text-white')
-    expect(timeDisplay.className).toContain('text-[48px]')
+    expect(timeDisplay.className).toContain('text-gray-600')
+    expect(timeDisplay.className).toContain('dark:text-gray-100')
+    expect(timeDisplay.className).toMatch(/text-\[(34|36|40|44)px\]/)
     expect(timeDisplay.className).toContain('font-light')
+    expect(timeDisplay.className).toContain('[font-variant-numeric:tabular-nums]')
   })
 
-  it('renders START SESSION button text', () => {
+  it('renders START FOCUS button text by default', () => {
     render(<Timer />)
-    expect(screen.getByText('START SESSION')).toBeTruthy()
+    expect(screen.getByText('START FOCUS')).toBeTruthy()
   })
 
-  it('renders session type segmented control', () => {
+  it('renders the focus prompt heading', () => {
     render(<Timer />)
-    expect(screen.getByText('Focus')).toBeTruthy()
-    expect(screen.getByText('Rest')).toBeTruthy()
+    expect(screen.getByText("What's your focus?")).toBeTruthy()
+  })
+
+  it('shows focus session badge by default', () => {
+    render(<Timer />)
+    expect(screen.getByText('FOCUS SESSION')).toBeTruthy()
+  })
+
+  it('uses the selected category color for the start button', async () => {
+    render(<Timer />)
+
+    const startButton = await screen.findByRole('button', { name: 'START FOCUS' })
+    expect(startButton).toHaveStyle({ backgroundColor: '#3b82f6' })
+  })
+
+  it('preserves the green rest accent for the start button and selected category chip', () => {
+    render(<Timer />)
+
+    fireEvent.click(screen.getByTestId('idle-mode-rest'))
+
+    const startButton = screen.getByRole('button', { name: 'START REST' })
+    expect(startButton).toHaveStyle({ backgroundColor: '#34C759' })
+
+    const selectedCategoryChip = screen.getByText('Work').closest('button')
+    expect(selectedCategoryChip).toHaveStyle({ backgroundColor: '#34C759' })
+  })
+
+  it('uses the selected category color for the active focus toggle', async () => {
+    render(<Timer />)
+
+    const focusToggle = await screen.findByTestId('idle-mode-focus')
+    expect(focusToggle).toHaveStyle({ backgroundColor: '#3b82f6' })
+  })
+
+  it('lets the user switch to rest mode in idle state', async () => {
+    render(<Timer />)
+
+    fireEvent.click(screen.getByTestId('idle-mode-rest'))
+
+    await waitFor(() => {
+      const fetchMock = vi.mocked(globalThis.fetch)
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/timer',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('"sessionType":"break"'),
+        })
+      )
+    })
+  })
+
+  it('defaults back to focus when server returns idle break state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/timer')) {
+        return new Response(JSON.stringify({
+          phase: 'idle',
+          sessionType: 'break',
+          intention: '',
+          category: 'work',
+          targetMs: 5 * 60 * 1000,
+          remainingMs: 5 * 60 * 1000,
+          overflowMs: 0,
+          startedAt: null,
+          pausedAt: null,
+          updatedAt: Date.now(),
+          todoistTaskId: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response('{}', { status: 200 })
+    })
+
+    render(<Timer />)
+
+    await waitFor(() => {
+      expect(screen.getByText('FOCUS SESSION')).toBeTruthy()
+    })
+    expect(screen.getByText("What's your focus?")).toBeTruthy()
+    expect(screen.getByText('25:00')).toBeTruthy()
   })
 
   it('shows active controls from running state', async () => {
@@ -195,6 +332,29 @@ describe('Timer', () => {
     await vi.waitFor(() => {
       expect(screen.getByText('OVERFLOW')).toBeTruthy()
     })
+  })
+
+  it('requests screen wake lock directly from the start tap when keep-awake is enabled', async () => {
+    keepScreenAwake = true
+    const release = vi.fn(async () => {})
+    const sentinel = new EventTarget() as EventTarget & {
+      released: boolean
+      type: 'screen'
+      release: () => Promise<void>
+    }
+    sentinel.released = false
+    sentinel.type = 'screen'
+    sentinel.release = release
+    const request = vi.fn(async () => sentinel)
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: { request },
+    })
+
+    render(<Timer />)
+    fireEvent.click(screen.getByText('START FOCUS'))
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith('screen'))
   })
 
   it('copies selected Todoist task content into intention', () => {

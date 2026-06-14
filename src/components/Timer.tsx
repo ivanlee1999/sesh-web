@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Play, Pause, SkipForward, Square } from 'lucide-react'
 import {
   Button,
@@ -13,7 +13,7 @@ import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
-import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, type QueuedSession } from '@/lib/local-store'
+import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, getRecentCategoryNames, markCategoryUsed, type QueuedSession } from '@/lib/local-store'
 import { getCategoryMeta } from '@/lib/categories'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
@@ -98,6 +98,8 @@ export default function Timer() {
   const lastMultiplePulseMinuteRef = useRef<number | null>(null)
   const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
   const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
+  const [recentCategoryNames, setRecentCategoryNames] = useState<string[]>([])
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastPutRef = useRef<number>(0)
@@ -125,6 +127,21 @@ export default function Timer() {
   useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
   useEffect(() => { intentionRef.current = intention }, [intention])
   useEffect(() => { categoryRef.current = category }, [category])
+
+  useEffect(() => {
+    const updateViewportSize = () => {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight })
+    }
+
+    updateViewportSize()
+    window.addEventListener('resize', updateViewportSize)
+
+    return () => window.removeEventListener('resize', updateViewportSize)
+  }, [])
+
+  useEffect(() => {
+    setRecentCategoryNames(getRecentCategoryNames())
+  }, [])
 
   // ── Persist timer state to localStorage for offline resilience ──
   useEffect(() => {
@@ -154,6 +171,32 @@ export default function Timer() {
     if (defaultCat) setCategory(defaultCat.name)
   }, [categories, byName, category])
 
+  useEffect(() => {
+    setRecentCategoryNames(getRecentCategoryNames())
+  }, [])
+
+  const rememberCategoryOrder = useCallback((nextCategory: Category) => {
+    setRecentCategoryNames(markCategoryUsed(nextCategory))
+  }, [])
+
+  const sortedCategories = useMemo(() => {
+    const recentOrder = new Map(recentCategoryNames.map((name, index) => [name, index]))
+
+    return [...categories].sort((a, b) => {
+      const aRecentIndex = recentOrder.get(a.name)
+      const bRecentIndex = recentOrder.get(b.name)
+
+      if (aRecentIndex !== undefined || bRecentIndex !== undefined) {
+        if (aRecentIndex === undefined) return 1
+        if (bRecentIndex === undefined) return -1
+        if (aRecentIndex !== bRecentIndex) return aRecentIndex - bRecentIndex
+      }
+
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+      return a.label.localeCompare(b.label)
+    })
+  }, [categories, recentCategoryNames])
+
   const todoistTaskIdRef = useRef<string | null>(null)
   useEffect(() => { todoistTaskIdRef.current = todoistTaskId }, [todoistTaskId])
 
@@ -166,8 +209,24 @@ export default function Timer() {
   const defaultDurationMs = sessionType === 'focus'
     ? settings.focusDuration * 60 * 1000
     : settings.breakDuration * 60 * 1000
+  const focusDurationMs = settings.focusDuration * 60 * 1000
+  const breakDurationMs = settings.breakDuration * 60 * 1000
+
+  const compactViewport = viewportSize.height > 0 && viewportSize.height <= 840
+  const veryCompactViewport = viewportSize.height > 0 && viewportSize.height <= 760
+  const narrowViewport = viewportSize.width > 0 && viewportSize.width <= 430
+  const ringSize = (() => {
+    if (!viewportSize.width || !viewportSize.height) return 288
+
+    const widthBound = viewportSize.width - (narrowViewport ? 136 : 104)
+    const heightBound = viewportSize.height - (veryCompactViewport ? 520 : compactViewport ? 500 : 440)
+    return Math.max(208, Math.min(narrowViewport ? 268 : compactViewport ? 280 : 296, widthBound, heightBound))
+  })()
 
   const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
+  const wakeLockActive = settings.keepScreenAwake && (phase === 'running' || phase === 'overflow')
+  const wakeLock = useScreenWakeLock(wakeLockActive)
+  const requestWakeLock = wakeLock.request
 
   useEffect(() => {
     if (phase === 'idle') {
@@ -255,6 +314,28 @@ export default function Timer() {
     } catch { setSynced(false) }
   }, [])
 
+  const selectIdleSessionType = useCallback((nextType: SessionType) => {
+    const nextDurationMs = nextType === 'focus' ? focusDurationMs : breakDurationMs
+    setSessionType(nextType)
+    setCustomDurationMs(nextDurationMs)
+    setActiveTargetMs(nextDurationMs)
+    setRemainingMs(nextDurationMs)
+    setOverflowMs(0)
+
+    syncToServer({
+      phase: 'idle',
+      sessionType: nextType,
+      intention,
+      category,
+      targetMs: nextDurationMs,
+      remainingMs: nextDurationMs,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+      todoistTaskId: todoistTaskIdRef.current,
+    })
+  }, [breakDurationMs, category, focusDurationMs, intention, syncToServer])
+
   const applyServerState = useCallback((rawData: ServerTimerState) => {
     const data = normalizeTimerState(rawData)
     if (data.phase === 'running' && data.startedAt) {
@@ -313,11 +394,10 @@ export default function Timer() {
         setOverflowMs(local.overflowMs)
         setPhase('paused')
       } else {
-        if (local.remainingMs) {
-          setCustomDurationMs(local.remainingMs)
-          setActiveTargetMs(local.remainingMs)
-          setRemainingMs(local.remainingMs)
-        }
+        setSessionType('focus')
+        setCustomDurationMs(focusDurationMs)
+        setActiveTargetMs(focusDurationMs)
+        setRemainingMs(focusDurationMs)
         postSwMessage('TIMER_STOPPED')
       }
     }
@@ -335,14 +415,12 @@ export default function Timer() {
         } else {
           if (data.phase === 'idle') {
             suppressIdleResetRef.current = true
-            if (data.sessionType) setSessionType(data.sessionType as SessionType)
+            setSessionType('focus')
             if (data.category) setCategory(data.category as Category)
             if (data.intention) setIntention(data.intention)
-            if (data.remainingMs) {
-              setCustomDurationMs(data.remainingMs)
-              setActiveTargetMs(data.remainingMs)
-              setRemainingMs(data.remainingMs)
-            }
+            setCustomDurationMs(focusDurationMs)
+            setActiveTargetMs(focusDurationMs)
+            setRemainingMs(focusDurationMs)
           }
           postSwMessage('TIMER_STOPPED')
         }
@@ -357,7 +435,7 @@ export default function Timer() {
       if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyServerState, postSwMessage])
+  }, [applyServerState, postSwMessage, focusDurationMs])
 
   // Poll every 2s
   useEffect(() => {
@@ -375,33 +453,31 @@ export default function Timer() {
           applyServerState(data)
         } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
           if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-          const idleDuration = data.remainingMs || data.targetMs
           suppressIdleResetRef.current = true
           setPhase('idle')
-          setSessionType(data.sessionType as SessionType)
+          setSessionType('focus')
           setCategory(data.category as Category)
-          setCustomDurationMs(idleDuration)
-          setActiveTargetMs(idleDuration)
-          setRemainingMs(idleDuration)
+          setCustomDurationMs(focusDurationMs)
+          setActiveTargetMs(focusDurationMs)
+          setRemainingMs(focusDurationMs)
           setOverflowMs(0)
           setStartedAt(0)
           setIntention(data.intention)
           setTodoistTaskId(null)
           postSwMessage('TIMER_STOPPED')
         } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
-          const idleDuration = data.remainingMs || data.targetMs
           suppressIdleResetRef.current = true
-          setSessionType(data.sessionType as SessionType)
+          setSessionType('focus')
           setCategory(data.category as Category)
-          setCustomDurationMs(idleDuration)
-          setActiveTargetMs(idleDuration)
-          setRemainingMs(idleDuration)
+          setCustomDurationMs(focusDurationMs)
+          setActiveTargetMs(focusDurationMs)
+          setRemainingMs(focusDurationMs)
           setIntention(data.intention)
         }
       } catch { setSynced(false) }
     }, 2000)
     return () => clearInterval(poll)
-  }, [applyServerState, postSwMessage])
+  }, [applyServerState, postSwMessage, focusDurationMs])
 
   // Re-sync on visibility change
   useEffect(() => {
@@ -420,14 +496,13 @@ export default function Timer() {
           applyServerState(data)
         } else if (data.phase === 'idle') {
           if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-          const idleDuration = data.remainingMs || data.targetMs || targetMs
           suppressIdleResetRef.current = true
           setPhase('idle')
-          setSessionType(data.sessionType as SessionType)
+          setSessionType('focus')
           setCategory(data.category as Category)
-          setCustomDurationMs(idleDuration)
-          setActiveTargetMs(idleDuration)
-          setRemainingMs(idleDuration)
+          setCustomDurationMs(focusDurationMs)
+          setActiveTargetMs(focusDurationMs)
+          setRemainingMs(focusDurationMs)
           setOverflowMs(0)
           setStartedAt(0)
           setIntention(data.intention)
@@ -445,7 +520,7 @@ export default function Timer() {
       window.removeEventListener('focus', onFocus)
       window.removeEventListener('pageshow', onPageShow)
     }
-  }, [applyServerState, targetMs])
+  }, [applyServerState, focusDurationMs])
 
   const handleIntentionChange = useCallback((value: string) => {
     setIntention(value)
@@ -460,6 +535,12 @@ export default function Timer() {
   }, [buildTimerPayload, syncToServer])
 
   const startTimer = useCallback(() => {
+    if (settings.keepScreenAwake) {
+      // iOS is most reliable when the wake-lock request starts directly from
+      // the Start/Resume tap, not later in a post-render effect.
+      void requestWakeLock({ allowWhileInactive: true })
+    }
+
     const isIdle = phaseRef.current === 'idle'
     const now = Date.now()
     const newStartedAt = isIdle ? now : startedAtRef.current
@@ -467,6 +548,7 @@ export default function Timer() {
 
     if (isIdle) {
       void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
+      rememberCategoryOrder(category)
     }
 
     if (isIdle) {
@@ -491,7 +573,7 @@ export default function Timer() {
       todoistTaskId: todoistTaskIdRef.current,
     })
     postSwMessage('TIMER_STARTED')
-  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, remainingMs, overflowMs])
+  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, remainingMs, overflowMs, settings.keepScreenAwake, requestWakeLock, rememberCategoryOrder])
 
   const pauseTimer = useCallback(() => {
     setPhase('paused')
@@ -571,22 +653,18 @@ export default function Timer() {
 
     if (navigator.vibrate) navigator.vibrate([200, 100, 200])
 
-    // Auto-cycle: pre-select the next type but stay in idle
-    const nextType: SessionType = sessionType === 'focus' ? 'break' : 'focus'
-    const nextDurationMs = nextType === 'focus'
-      ? settings.focusDuration * 60 * 1000
-      : settings.breakDuration * 60 * 1000
-
     setPhase('idle')
-    setSessionType(nextType)
-    setCustomDurationMs(nextDurationMs)
-    setRemainingMs(nextDurationMs)
+    setSessionType('focus')
+    setCustomDurationMs(focusDurationMs)
+    setRemainingMs(focusDurationMs)
+    setActiveTargetMs(focusDurationMs)
     setOverflowMs(0)
+    setIntention('')
     setTodoistTaskId(null)
     clearTimerState()
     postSwMessage('TIMER_STOPPED')
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, defaultDurationMs, settings.soundEnabled, settings.focusDuration, settings.breakDuration, playChime, postSwMessage, tick, syncToServer])
+  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, settings.soundEnabled, focusDurationMs, playChime, postSwMessage, tick, syncToServer])
 
   const abandonSession = useCallback(() => {
     if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
@@ -657,8 +735,13 @@ export default function Timer() {
 
   const showIdleIntentionInput = !todoistTaskId
   const catMeta = getCategoryMeta(category, categories)
-  const wakeLockActive = settings.keepScreenAwake && (phase === 'running' || phase === 'overflow')
-  const wakeLock = useScreenWakeLock(wakeLockActive)
+  const isFocusMode = sessionType === 'focus'
+  const restAccentColor = '#34C759'
+  const accentColor = isFocusMode ? catMeta.color : restAccentColor
+  const idleModeLabel = isFocusMode ? 'FOCUS SESSION' : 'REST SESSION'
+  const idleModeAccentClass = isFocusMode
+    ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200'
+    : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
   const [oledSaver, setOledSaver] = useState(false)
   const [oledSaverOffset, setOledSaverOffset] = useState({ x: 0, y: 0 })
 
@@ -680,7 +763,7 @@ export default function Timer() {
   }, [oledSaver])
 
   return (
-    <div className="relative mt-2 flex min-h-[calc(100dvh-83px-env(safe-area-inset-bottom,0px))] w-full flex-col items-center px-4 pb-[calc(24px+env(safe-area-inset-bottom,0px))] pt-4" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
+    <div className="relative flex h-full min-h-full w-full flex-col items-center overflow-hidden px-4 pb-4 pt-3" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
       {/* Sync indicator */}
       <div className="absolute right-4 top-4 flex items-center gap-1.5">
         <div
@@ -693,76 +776,106 @@ export default function Timer() {
 
       {phase === 'idle' ? (
         /* ═══════ IDLE STATE ═══════ */
-        <div className="mt-2 flex w-full flex-col items-center justify-start gap-8">
-          <div className="mx-auto w-full max-w-[361px] space-y-3">
-            {/* Intention input */}
+        <div className="flex w-full flex-1 flex-col items-center overflow-hidden">
+          <div className={`flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2 pt-2' : compactViewport ? 'gap-3 pt-3' : 'gap-5 pt-6'}`}>
+            <div className="flex items-center justify-center gap-2 text-gray-300 dark:text-gray-600">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <span
+                  key={index}
+                  className={`h-2.5 w-2.5 rounded-full ${index === 0 ? 'bg-gray-400 dark:bg-gray-400' : 'bg-current opacity-55'}`}
+                />
+              ))}
+            </div>
+
+            <div className={`flex w-full flex-col items-center text-center ${veryCompactViewport ? 'gap-2' : 'gap-3'}`}>
+              <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${idleModeAccentClass}`}>
+                {idleModeLabel}
+              </div>
+
+              <div className="inline-flex rounded-full border border-gray-200 bg-white p-1 shadow-[0_1px_4px_rgba(0,0,0,0.04)] dark:border-gray-700 dark:bg-gray-900">
+                {(['focus', 'break'] as SessionType[]).map((type) => {
+                  const active = sessionType === type
+                  const label = type === 'focus' ? 'Focus' : 'Rest'
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      data-testid={type === 'focus' ? 'idle-mode-focus' : 'idle-mode-rest'}
+                      onClick={() => selectIdleSessionType(type)}
+                      className={`rounded-full px-4 py-2 text-[14px] font-medium transition-colors duration-150 ${
+                        active
+                          ? type === 'focus'
+                            ? 'text-white shadow-sm'
+                            : 'bg-emerald-600 text-white shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                      style={active && type === 'focus' ? { backgroundColor: catMeta.color } : undefined}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <h1 className={`${veryCompactViewport ? 'text-[24px]' : compactViewport ? 'text-[26px]' : 'text-[28px]'} font-normal tracking-[-0.04em] text-gray-700 dark:text-gray-100 sm:text-[34px]`}>
+                {isFocusMode ? 'What\'s your focus?' : 'Ready to rest?'}
+              </h1>
+
+              <div
+                data-testid="timer-category-selector"
+                className="hide-scrollbar flex w-full items-center justify-start gap-2 overflow-x-auto px-4 [-webkit-overflow-scrolling:touch]"
+              >
+                {sortedCategories.map(cat => {
+                  const selected = category === cat.name
+                  return (
+                    <button
+                      key={cat.name}
+                      onClick={() => {
+                        setCategory(cat.name)
+                        rememberCategoryOrder(cat.name)
+                        syncToServer({
+                          phase: 'idle', sessionType, intention, category: cat.name,
+                          targetMs: customDurationMs, remainingMs: customDurationMs,
+                          overflowMs: 0, startedAt: null, pausedAt: null,
+                        })
+                      }}
+                      className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full border ${veryCompactViewport ? 'px-3 py-1.5 text-[13px]' : 'px-3.5 py-2 text-[14px]'} font-medium transition-colors duration-200 ${
+                        selected
+                          ? 'border-transparent text-white shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400'
+                      }`}
+                      style={selected ? { backgroundColor: isFocusMode ? cat.color : restAccentColor } : undefined}
+                    >
+                      <span
+                        className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full border border-white/40"
+                        style={{ backgroundColor: selected ? 'rgba(255,255,255,0.9)' : cat.color }}
+                      />
+                      {cat.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {showIdleIntentionInput && (
-              <div className="w-full">
+              <div className={`w-full max-w-[390px] ${veryCompactViewport ? 'pt-0.5' : 'pt-1'}`}>
                 <input
                   type="text"
-                  placeholder="What are you working on?"
+                  placeholder="Intention"
                   value={intention}
                   onChange={(e) => handleIntentionChange(e.target.value)}
                   maxLength={120}
-                  className="w-full rounded-xl border border-gray-300 bg-gray-100 px-3 py-2.5 text-sm text-black placeholder-gray-400 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                  className={`w-full rounded-[18px] border border-gray-200 bg-white px-5 ${veryCompactViewport ? 'py-3' : 'py-3.5'} text-[16px] font-normal text-gray-700 placeholder-gray-300 shadow-[0_1px_4px_rgba(0,0,0,0.04)] outline-none focus:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder-gray-500 sm:px-6 sm:py-4 sm:text-[18px]`}
                 />
               </div>
             )}
-
-            {/* Category chips */}
-            <div className="hide-scrollbar flex gap-2 overflow-x-auto px-1">
-              {categories.map(cat => {
-                const selected = category === cat.name
-                return (
-                  <button
-                    key={cat.name}
-                    onClick={() => {
-                      setCategory(cat.name)
-                      syncToServer({
-                        phase: 'idle', sessionType, intention, category: cat.name,
-                        targetMs: customDurationMs, remainingMs: customDurationMs,
-                        overflowMs: 0, startedAt: null, pausedAt: null,
-                      })
-                    }}
-                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[15px] font-medium transition-colors duration-200 ${
-                      selected
-                        ? 'text-black dark:text-white'
-                        : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-                    }`}
-                    style={selected ? { backgroundColor: `${cat.color}1A`, color: cat.color } : undefined}
-                  >
-                    <span
-                      className="inline-block h-2 w-2 flex-shrink-0 rounded-full"
-                      style={{ backgroundColor: cat.color }}
-                    />
-                    {cat.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Session type selector */}
-            <Segmented strong rounded>
-              {(['focus', 'break'] as SessionType[]).map(t => (
-                <SegmentedButton
-                  key={t}
-                  strong
-                  rounded
-                  active={sessionType === t}
-                  onClick={() => setSessionType(t)}
-                >
-                  {t === 'focus' ? 'Focus' : 'Rest'}
-                </SegmentedButton>
-              ))}
-            </Segmented>
           </div>
 
-          {/* Ring with time display INSIDE */}
-          <div className="flex flex-col items-center gap-3">
+          <div className={`flex w-full flex-1 flex-col items-center justify-center ${veryCompactViewport ? 'gap-1.5 pt-1.5' : compactViewport ? 'gap-2.5 pt-2' : 'gap-3 pt-4'}`}>
             <ProgressRing
               progress={progress}
               color={ringColor}
-              size={240}
+              size={ringSize}
               strokeWidth={14}
               interactive={true}
               onProgressChange={(p) => {
@@ -791,44 +904,74 @@ export default function Timer() {
                 })
               }}
             >
-              <span className={`font-mono text-[48px] font-light leading-none text-black dark:text-white transition-transform duration-150 ${isMultipleOf5 ? "scale-110" : "scale-100"}`}>
-                {formatTime(displayMs)}
-              </span>
+              <div className="flex w-full items-center justify-center px-6">
+                <div className={`w-full max-w-[200px] rounded-[26px] border border-white/70 bg-white/90 ${veryCompactViewport ? 'px-4 py-2.5' : 'px-5 py-3'} text-center shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/85`}>
+                  <div
+                    className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500"
+                    style={{ color: `${accentColor}CC` }}
+                  >
+                    {isFocusMode ? 'Focus length' : 'Rest length'}
+                  </div>
+                  <span className={`font-mono [font-variant-numeric:tabular-nums] ${veryCompactViewport ? 'text-[34px]' : compactViewport ? 'text-[36px]' : 'text-[40px]'} font-light leading-none tracking-[-0.06em] text-gray-600 transition-transform duration-150 dark:text-gray-100 ${isMultipleOf5 ? 'scale-110' : 'scale-100'}`}>
+                    {formatTime(displayMs)}
+                  </span>
+                </div>
+              </div>
             </ProgressRing>
 
-            {/* Time range chip */}
-            <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-              {(() => {
-                const now = new Date()
-                const end = new Date(now.getTime() + (customDurationMs || remainingMs))
-                const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
-                return `${fmt(now)} → ${fmt(end)}`
-              })()}
-            </span>
+            <div className="flex flex-col items-center text-center">
+              <span className={`rounded-full border border-gray-200/80 bg-white/85 ${veryCompactViewport ? 'px-3 py-1 text-[12px]' : 'px-3.5 py-1.5 text-[13px]'} font-medium tracking-[0.04em] text-gray-500 shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/80 dark:text-gray-300 sm:text-[14px]`}>
+                {(() => {
+                  const now = new Date()
+                  const end = new Date(now.getTime() + (customDurationMs || remainingMs))
+                  const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
+                  return `Ends ${fmt(end)}`
+                })()}
+              </span>
+            </div>
           </div>
 
-          {/* START button */}
-          <div className="flex w-full justify-center">
+          <div className={`flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2 pb-0 pt-2' : compactViewport ? 'gap-3 pb-1 pt-3' : 'gap-4 pb-2 pt-5'}`}>
             <button
               onClick={startTimer}
-              className="press-in w-full max-w-[361px] rounded-full bg-[#007AFF] py-[14px] text-[17px] font-semibold text-white active:scale-[0.97]"
-              style={{ minHeight: 50, transition: 'transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94)' }}
+              className={`press-in w-full max-w-[360px] rounded-full px-8 ${veryCompactViewport ? 'py-[13px]' : 'py-[15px]'} text-[16px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_14px_30px_rgba(139,92,246,0.22)] active:scale-[0.97] sm:py-[17px] sm:text-[17px]`}
+              style={{
+                minHeight: veryCompactViewport ? 48 : compactViewport ? 52 : 58,
+                transition: 'transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+                backgroundColor: accentColor,
+                boxShadow: `0 14px 30px ${accentColor}33`,
+              }}
             >
-              START SESSION
+              {isFocusMode ? 'START FOCUS' : 'START REST'}
             </button>
-          </div>
 
-          {/* Todoist picker */}
-          <div className="mx-auto w-full max-w-[361px]">
-            <TodoistTasks
-              selectedTaskId={todoistTaskId}
-              onSelectTask={handleTodoistTaskSelect}
-            />
+            <div className={`w-full max-w-[390px] ${veryCompactViewport ? 'scale-[0.97]' : ''} origin-top`}>
+              <TodoistTasks
+                selectedTaskId={todoistTaskId}
+                onSelectTask={handleTodoistTaskSelect}
+              />
+            </div>
+
+            <div className="sr-only">
+              <Segmented strong rounded>
+                {(['focus', 'break'] as SessionType[]).map(t => (
+                  <SegmentedButton
+                    key={t}
+                    strong
+                    rounded
+                    active={sessionType === t}
+                    onClick={() => selectIdleSessionType(t)}
+                  >
+                    {t === 'focus' ? 'Focus' : 'Rest'}
+                  </SegmentedButton>
+                ))}
+              </Segmented>
+            </div>
           </div>
         </div>
       ) : (
         /* ═══════ ACTIVE STATE ═══════ */
-        <div className="mt-2 flex w-full flex-col items-center gap-3">
+        <div className={`mt-2 flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2.5' : compactViewport ? 'gap-3' : 'gap-4'}`}>
           {/* Editable intention */}
           <input
             type="text"
@@ -839,21 +982,23 @@ export default function Timer() {
               handleIntentionChange(value)
             }}
             maxLength={120}
-            className="w-full max-w-[320px] rounded-xl border border-gray-300 bg-gray-100 px-3 py-2.5 text-sm text-black placeholder-gray-400 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="w-full max-w-[360px] rounded-[24px] border border-gray-200/80 bg-white/90 px-5 py-3 text-[16px] text-black shadow-[0_14px_32px_rgba(15,23,42,0.06)] outline-none backdrop-blur-sm transition focus:border-blue-400 dark:border-gray-700/80 dark:bg-gray-900/85 dark:text-white dark:placeholder-gray-500"
           />
 
+
           {/* Phase label + category chip */}
-          <div className="flex items-center justify-center gap-2">
+          <div className={`flex flex-wrap items-center justify-center ${veryCompactViewport ? 'gap-2' : 'gap-2.5'}`}>
             <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
               {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'REST'}
             </p>
             <Chip
               outline
               onClick={() => {
-                const names = categories.map(c => c.name)
+                const names = sortedCategories.map(c => c.name)
                 const idx = names.indexOf(category)
                 const next = names[(idx + 1) % names.length] || category
                 setCategory(next)
+                rememberCategoryOrder(next)
                 syncToServer(buildTimerPayload({
                   category: next,
                   pausedAt: phase === 'paused' ? Date.now() : null,
@@ -864,7 +1009,7 @@ export default function Timer() {
               <span
                 slot="media"
                 className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: catMeta.color }}
+                style={{ backgroundColor: accentColor }}
               />
               {catMeta.label}
             </Chip>
@@ -874,29 +1019,35 @@ export default function Timer() {
           <ProgressRing
             progress={progress}
             color={ringColor}
-            size={240}
+            size={Math.min(ringSize, narrowViewport ? 268 : 288)}
             strokeWidth={14}
             interactive={false}
           >
-            <div className="flex flex-col items-center">
+            <div className={`flex flex-col items-center rounded-[26px] border border-white/70 bg-white/85 ${veryCompactViewport ? 'px-4 py-3' : 'px-5 py-3.5'} shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/80`}>
+              <span
+                className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500"
+                style={{ color: isOverflow ? '#f97316' : `${accentColor}CC` }}
+              >
+                {isOverflow ? 'Overtime' : phase === 'paused' ? 'Paused' : 'Remaining'}
+              </span>
               {isOverflow && (
                 <span className="overflow-pulse mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
               )}
-              <span className="font-mono text-[48px] font-light leading-none text-black dark:text-white">
+              <span className={`font-mono ${veryCompactViewport ? 'text-[38px]' : compactViewport ? 'text-[42px]' : 'text-[48px]'} font-light leading-none tracking-[-0.06em] text-gray-800 [font-variant-numeric:tabular-nums] dark:text-white`}>
                 {formatTime(displayMs)}
               </span>
             </div>
           </ProgressRing>
 
           {/* Controls */}
-          <div className="flex items-center gap-3">
+          <div className={`flex w-full max-w-[360px] flex-wrap items-center justify-center ${veryCompactViewport ? 'gap-2' : 'gap-2.5'}`}>
             {(phase === 'running' || phase === 'overflow') && (
               <>
-                <Button clear rounded onClick={pauseTimer} className="!min-h-[44px]">
+                <Button clear rounded onClick={pauseTimer} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
                   <Pause style={{ width: 18, height: 18, marginRight: 6 }} />
                   Pause
                 </Button>
-                <Button clear rounded onClick={finishSession} className="!min-h-[44px]">
+                <Button clear rounded onClick={finishSession} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
                   <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
                   Finish
                 </Button>
@@ -904,11 +1055,11 @@ export default function Timer() {
             )}
             {phase === 'paused' && (
               <>
-                <Button rounded onClick={startTimer} className="!min-h-[44px]">
+                <Button rounded onClick={startTimer} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
                   <Play style={{ width: 16, height: 16, fill: '#fff', marginRight: 6 }} />
                   Resume
                 </Button>
-                <Button clear rounded onClick={finishSession} className="!min-h-[44px]">
+                <Button clear rounded onClick={finishSession} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
                   <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
                   Finish
                 </Button>
@@ -917,11 +1068,11 @@ export default function Timer() {
           </div>
 
           {wakeLockActive && (
-            <div className="flex flex-col items-center gap-1 text-center">
+            <div className="flex w-full max-w-[360px] flex-col items-center gap-1.5 text-center">
               <button
                 type="button"
                 onClick={() => setOledSaver(true)}
-                className="rounded-full bg-black px-4 py-2 text-sm font-medium text-gray-400 active:scale-95 dark:bg-gray-900"
+                className="rounded-full bg-black px-4 py-2 text-sm font-medium text-gray-400 shadow-[0_12px_30px_rgba(0,0,0,0.18)] active:scale-95 dark:bg-gray-900"
               >
                 OLED saver
               </button>
@@ -933,7 +1084,7 @@ export default function Timer() {
           )}
 
           {/* Abandon */}
-          <Button clear small onClick={abandonSession} className="!min-h-[44px] !text-gray-500 hover:!text-red-500">
+          <Button clear small onClick={abandonSession} className="!min-h-[44px] !rounded-full !px-4 !text-gray-500 hover:!text-red-500">
             <Square style={{ width: 14, height: 14, marginRight: 6 }} />
             Abandon
           </Button>

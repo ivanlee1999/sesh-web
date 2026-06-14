@@ -48,5 +48,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   soundEnabled: true,
   calendarSync: false,
   darkMode: false,
-  keepScreenAwake: false,
+  keepScreenAwake: true,
 }
