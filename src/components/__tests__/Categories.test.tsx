@@ -42,11 +42,11 @@ describe('Categories', () => {
     const input = screen.getByPlaceholderText('Category name')
     expect(input).toBeTruthy()
 
-    // Check that color swatch buttons exist (12 palette colors)
+    // Check that color swatch buttons exist (handoff palette colors)
     const swatchButtons = screen.getAllByRole('button').filter(
       btn => btn.getAttribute('aria-label')?.startsWith('Color #')
     )
-    expect(swatchButtons.length).toBe(12)
+    expect(swatchButtons.length).toBe(8)
   })
 
   it('renders category list with labels', () => {
@@ -112,7 +112,7 @@ describe('Categories', () => {
     await waitFor(() => {
       expect(mockCreateCategory).toHaveBeenCalledWith({
         label: 'New Category',
-        color: '#3b82f6',
+        color: '#BE6E45',
       })
     })
   })

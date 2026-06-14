@@ -109,13 +109,16 @@ describe('SettingsContext – theme synchronization', () => {
     })
   })
 
-  it('initializes React state from localStorage synchronously (no flash)', () => {
+  it('hydrates React state from localStorage after a stable first render', async () => {
     localStorage.setItem('sesh-settings', JSON.stringify({ darkMode: true }))
 
     const { result } = renderHook(() => useSettings(), { wrapper })
 
-    // The very first render should already have darkMode: true
-    expect(result.current.settings.darkMode).toBe(true)
+    expect(result.current.settings.darkMode).toBe(false)
+
+    await waitFor(() => {
+      expect(result.current.settings.darkMode).toBe(true)
+    })
   })
 
   it('updates theme-color meta tag when dark mode is toggled on', async () => {

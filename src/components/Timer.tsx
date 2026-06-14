@@ -1,56 +1,16 @@
 'use client'
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Play, Pause, SkipForward, Square } from 'lucide-react'
-import {
-  Button,
-  Segmented,
-  SegmentedButton,
-  Chip,
-} from 'konsta/react'
-import ProgressRing from './ProgressRing'
-import TodoistTasks from './TodoistTasks'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Category, CategoryRecord, SessionType, TodoistTask } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
-import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
-import { saveTimerState, loadTimerState, clearTimerState, enqueueSession, getRecentCategoryNames, markCategoryUsed, type QueuedSession } from '@/lib/local-store'
-import { getCategoryMeta } from '@/lib/categories'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
-import type { Category, SessionType, TimerPhase, TodoistTask } from '@/types'
+import { clearTimerState, enqueueSession, getRecentCategoryNames, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
+import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
+import type { PendingFocus } from './Tasks'
 
-function interpolateColor(hex1: string, hex2: string, t: number): string {
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
-  const parse = (hex: string) => {
-    const h = hex.replace('#', '')
-    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]
-  }
-  const [r1, g1, b1] = parse(hex1)
-  const [r2, g2, b2] = parse(hex2)
-  const r = clamp(r1 + (r2 - r1) * t)
-  const g = clamp(g1 + (g2 - g1) * t)
-  const b = clamp(b1 + (b2 - b1) * t)
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-}
-
-function formatTime(ms: number): string {
-  const safe = Number.isFinite(ms) ? ms : 0
-  const totalSec = Math.floor(Math.abs(safe) / 1000)
-  const m = Math.floor(totalSec / 60)
-  const s = totalSec % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-/** Coerce a value to epoch-ms number, handling ISO strings from legacy clients */
-function toEpochMs(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
-    const n = Number(value)
-    if (Number.isFinite(n)) return n
-    const t = Date.parse(value)
-    if (Number.isFinite(t)) return t
-  }
-  return null
-}
+type TimerRunPhase = 'idle' | 'running' | 'paused' | 'reflect'
 
 interface ServerTimerState {
   phase: string
@@ -66,7 +26,30 @@ interface ServerTimerState {
   todoistTaskId: string | null
 }
 
-/** Ensure all numeric timer fields are valid numbers */
+interface ReflectionDraft {
+  id: string
+  intention: string
+  category: string
+  type: SessionType
+  targetMs: number
+  actualMs: number
+  overflowMs: number
+  startedAt: number
+  endedAt: number
+  todoistTaskId: string | null
+}
+
+function toEpochMs(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
+    const t = Date.parse(value)
+    if (Number.isFinite(t)) return t
+  }
+  return null
+}
+
 function normalizeTimerState(data: ServerTimerState): ServerTimerState {
   return {
     ...data,
@@ -79,166 +62,296 @@ function normalizeTimerState(data: ServerTimerState): ServerTimerState {
   }
 }
 
-export default function Timer() {
+function ratingWord(rating: number) {
+  return ['', 'Tough', 'Slow', 'Okay', 'Good', 'Flow'][rating] || ''
+}
+
+function categoryByName(categories: CategoryRecord[], name: string): CategoryRecord | null {
+  return categories.find(category => category.name === name) ?? categories[0] ?? null
+}
+
+function taskCategory(task: TodoistTask, categories: CategoryRecord[], fallback: string): string {
+  const candidates = [task.category, ...(task.labels ?? [])].filter(Boolean).map(value => String(value).toLowerCase())
+  for (const candidate of candidates) {
+    const found = categories.find(category => category.name.toLowerCase() === candidate || category.label.toLowerCase() === candidate)
+    if (found) return found.name
+  }
+  return fallback
+}
+
+function TaskPickerSheet({
+  open,
+  onClose,
+  onPick,
+  activeId,
+  categories,
+  fallbackCategory,
+}: {
+  open: boolean
+  onClose: () => void
+  onPick: (task: TodoistTask, categoryName: string) => void
+  activeId: string | null
+  categories: CategoryRecord[]
+  fallbackCategory: string
+}) {
+  const [tasks, setTasks] = useState<TodoistTask[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoading(true)
+    fetch('/api/todoist/tasks?filter=all')
+      .then(res => res.ok ? res.json() : { tasks: [] })
+      .then(data => { if (!cancelled) setTasks((data.tasks ?? []).filter((task: TodoistTask) => !task.completed)) })
+      .catch(() => { if (!cancelled) setTasks([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [open])
+
+  const today = tasks.filter(task => task.due === 'today')
+  const rest = tasks.filter(task => task.due !== 'today')
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Focus on a task">
+      <div className="flex max-h-[380px] flex-col gap-[14px] overflow-y-auto">
+        {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading Todoist...</div>}
+        <TaskGroup label="Today" items={today} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+        <TaskGroup label="Upcoming & no date" items={rest} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+        {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left in Todoist.</div>}
+      </div>
+    </Sheet>
+  )
+}
+
+function TaskGroup({
+  label,
+  items,
+  categories,
+  activeId,
+  fallbackCategory,
+  onPick,
+}: {
+  label: string
+  items: TodoistTask[]
+  categories: CategoryRecord[]
+  activeId: string | null
+  fallbackCategory: string
+  onPick: (task: TodoistTask, categoryName: string) => void
+}) {
+  if (!items.length) return null
+  return (
+    <div>
+      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">{label}</div>
+      <div className="flex flex-col gap-2">
+        {items.map(task => {
+          const categoryName = taskCategory(task, categories, fallbackCategory)
+          const category = categoryByName(categories, categoryName)
+          const active = activeId === task.id
+          return (
+            <button
+              type="button"
+              key={task.id}
+              onClick={() => onPick(task, categoryName)}
+              className="flex items-center gap-3 rounded-[var(--r-md)] border px-[14px] py-3 text-left"
+              style={{
+                borderColor: active ? 'var(--accent)' : 'var(--line)',
+                borderWidth: active ? 1.5 : 1,
+                background: active ? 'var(--accent-soft)' : 'var(--surface)',
+              }}
+            >
+              <span className="h-4 w-4 flex-shrink-0 rounded-full border-2" style={{ borderColor: category?.color ?? 'var(--line-strong)' }} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
+                <span className="mt-0.5 block text-[12.5px] text-[var(--ink-3)]">{task.projectName ?? 'Todoist'}</span>
+              </span>
+              {category && <span className="h-2 w-2 rounded-full" style={{ background: category.color }} />}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function IntentionSheet({
+  open,
+  intention,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  intention: string
+  onClose: () => void
+  onSave: (value: string) => void
+}) {
+  const [value, setValue] = useState(intention)
+  useEffect(() => { if (open) setValue(intention) }, [open, intention])
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Focus intention">
+      <textarea
+        autoFocus
+        value={value}
+        onChange={event => setValue(event.target.value)}
+        rows={2}
+        placeholder="e.g. Draft the Q3 strategy memo — optional"
+        className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[18px] font-semibold leading-snug tracking-[-0.02em] text-[var(--ink)] outline-none"
+      />
+      <p className="mx-0.5 mb-0 mt-3 text-[13px] leading-normal text-[var(--ink-3)]">A one-line focus for this session. Leave it blank to just track the category.</p>
+      <div className="mt-[22px]">
+        <Btn full size="lg" onClick={() => onSave(value.trim())}>{value.trim() ? 'Set intention' : 'Continue without one'}</Btn>
+      </div>
+    </Sheet>
+  )
+}
+
+function Reflection({
+  draft,
+  category,
+  onSave,
+  onSkip,
+}: {
+  draft: ReflectionDraft
+  category: CategoryRecord | null
+  onSave: (rating: number, notes: string) => void
+  onSkip: () => void
+}) {
+  const [rating, setRating] = useState(4)
+  const [notes, setNotes] = useState('')
+  const accent = category?.color ?? 'var(--accent)'
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto px-[26px] pb-[calc(22px+var(--safe-b))] pt-[calc(42px+var(--safe-t))]">
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-[22px]">
+        <div className="text-center">
+          <div className="mx-auto mb-4 grid h-[58px] w-[58px] place-items-center rounded-full" style={{ background: tint(accent, 16) }}>
+            <Icon name="check" size={32} color={accent} stroke={2} />
+          </div>
+          <h1 className="m-0 font-[var(--font-display)] text-[27px] font-bold tracking-[-0.035em]">Session complete</h1>
+          <p className="mb-0 mt-[10px] text-[16px] text-[var(--ink-2)]">
+            {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
+            {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
+          </p>
+        </div>
+
+        <div>
+          <div className="mb-[14px] text-center text-[13px] tracking-[0.02em] text-[var(--ink-3)]">How did it feel?</div>
+          <div className="flex justify-center gap-[10px]">
+            {[1, 2, 3, 4, 5].map(n => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setRating(n)}
+                className="h-[46px] w-[46px] rounded-full border-0 text-[15px] font-bold transition-transform"
+                style={{
+                  background: n <= rating ? accent : 'var(--surface-2)',
+                  color: n <= rating ? '#fff' : 'var(--ink-3)',
+                  transform: n === rating ? 'scale(1.12)' : 'scale(1)',
+                }}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 h-[18px] text-center text-[14px] font-semibold" style={{ color: accent }}>{ratingWord(rating)}</div>
+        </div>
+
+        <div>
+          <div className="mb-[9px] text-[13px] tracking-[0.02em] text-[var(--ink-3)]">What did you get done?</div>
+          <textarea
+            value={notes}
+            onChange={event => setNotes(event.target.value)}
+            rows={3}
+            placeholder="A line for your future self..."
+            className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[16px] leading-normal text-[var(--ink)] outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
+        <Btn full size="lg" onClick={() => onSave(rating, notes)}>Save to journal</Btn>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="rounded-[var(--r-pill)] border-0 bg-[var(--surface-2)] px-5 text-[16px] font-semibold text-[var(--ink-2)]"
+        >
+          Skip
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function Timer({
+  onImmersive,
+  pendingFocus,
+  clearPendingFocus,
+}: {
+  onImmersive?: (immersive: boolean) => void
+  pendingFocus?: PendingFocus | null
+  clearPendingFocus?: () => void
+}) {
   const { settings } = useSettings()
   const { categories, byName } = useCategories()
-  const online = useOnlineStatus()
-  const [phase, setPhase] = useState<TimerPhase>('idle')
+  const [phase, setPhase] = useState<TimerRunPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
   const [intention, setIntention] = useState('')
   const [category, setCategory] = useState<Category>('')
-  const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60 * 1000)
-  const [overflowMs, setOverflowMs] = useState(0)
-  const [startedAt, setStartedAt] = useState<number>(0)
-  const [synced, setSynced] = useState<boolean | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60000)
+  const [targetMs, setTargetMs] = useState(settings.focusDuration * 60000)
+  const [startedAt, setStartedAt] = useState(0)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [isMultipleOf5, setIsMultipleOf5] = useState(false)
-  const multipleOf5TimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastMultiplePulseMinuteRef = useRef<number | null>(null)
-  const [customDurationMs, setCustomDurationMs] = useState(settings.focusDuration * 60 * 1000)
-  const [activeTargetMs, setActiveTargetMs] = useState(settings.focusDuration * 60 * 1000)
-  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 })
-  const [recentCategoryNames, setRecentCategoryNames] = useState<string[]>([])
-
+  const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
+  const [recentCategories, setRecentCategories] = useState<string[]>([])
+  const [todoistOpenCount, setTodoistOpenCount] = useState(0)
+  const [draft, setDraft] = useState<ReflectionDraft | null>(null)
+  const [streak, setStreak] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastPutRef = useRef<number>(0)
-  const phaseRef = useRef<TimerPhase>('idle')
-  const startedAtRef = useRef<number>(0)
-  const remainingMsRef = useRef(remainingMs)
-  const overflowMsRef = useRef(overflowMs)
-  const sessionTypeRef = useRef(sessionType)
-  const intentionRef = useRef(intention)
-  const categoryRef = useRef(category)
-  const serverUpdatedAtRef = useRef(0)
-  const intentionSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const finishingRef = useRef(false)
 
-  // Cleanup multipleOf5 timeout on unmount
+  const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
+
   useEffect(() => {
-    return () => {
-      if (multipleOf5TimeoutRef.current) clearTimeout(multipleOf5TimeoutRef.current)
-    }
+    onImmersive?.(phase === 'running' || phase === 'paused' || phase === 'reflect')
+  }, [onImmersive, phase])
+
+  useEffect(() => {
+    setRecentCategories(getRecentCategoryNames())
+    fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
+    fetch('/api/todoist/tasks?filter=all')
+      .then(res => res.ok ? res.json() : { tasks: [] })
+      .then(data => setTodoistOpenCount((data.tasks ?? []).filter((task: TodoistTask) => !task.completed).length))
+      .catch(() => setTodoistOpenCount(0))
   }, [])
 
-  useEffect(() => { phaseRef.current = phase }, [phase])
-  useEffect(() => { startedAtRef.current = startedAt }, [startedAt])
-  useEffect(() => { remainingMsRef.current = remainingMs }, [remainingMs])
-  useEffect(() => { overflowMsRef.current = overflowMs }, [overflowMs])
-  useEffect(() => { sessionTypeRef.current = sessionType }, [sessionType])
-  useEffect(() => { intentionRef.current = intention }, [intention])
-  useEffect(() => { categoryRef.current = category }, [category])
-
-  useEffect(() => {
-    const updateViewportSize = () => {
-      setViewportSize({ width: window.innerWidth, height: window.innerHeight })
-    }
-
-    updateViewportSize()
-    window.addEventListener('resize', updateViewportSize)
-
-    return () => window.removeEventListener('resize', updateViewportSize)
-  }, [])
-
-  useEffect(() => {
-    setRecentCategoryNames(getRecentCategoryNames())
-  }, [])
-
-  // ── Persist timer state to localStorage for offline resilience ──
-  useEffect(() => {
-    if (phase === 'idle') {
-      saveTimerState({
-        phase, sessionType, intention, category,
-        targetMs: customDurationMs, remainingMs: customDurationMs,
-        overflowMs: 0, startedAt: null, pausedAt: null,
-        todoistTaskId, savedAt: Date.now(),
-      })
-    } else {
-      saveTimerState({
-        phase, sessionType, intention, category,
-        targetMs: activeTargetMs, remainingMs,
-        overflowMs, startedAt: startedAt || null,
-        pausedAt: phase === 'paused' ? Date.now() : null,
-        todoistTaskId, savedAt: Date.now(),
-      })
-    }
-  }, [phase, sessionType, intention, category, customDurationMs, activeTargetMs, remainingMs, overflowMs, startedAt, todoistTaskId])
-
-  // Ensure selected category is valid
   useEffect(() => {
     if (categories.length === 0) return
     if (category && byName[category]) return
-    const defaultCat = categories.find(c => c.isDefault) ?? categories[0]
-    if (defaultCat) setCategory(defaultCat.name)
-  }, [categories, byName, category])
+    const defaultCategory = categories.find(item => item.isDefault) ?? categories[0]
+    setCategory(defaultCategory.name)
+  }, [byName, categories, category])
 
   useEffect(() => {
-    setRecentCategoryNames(getRecentCategoryNames())
+    if (!pendingFocus) return
+    setIntention(pendingFocus.intention)
+    if (pendingFocus.category && byName[pendingFocus.category]) setCategory(pendingFocus.category)
+    setTodoistTaskId(pendingFocus.taskId)
+    setSessionType('focus')
+    setRemainingMs(settings.focusDuration * 60000)
+    setTargetMs(settings.focusDuration * 60000)
+    clearPendingFocus?.()
+  }, [byName, clearPendingFocus, pendingFocus, settings.focusDuration])
+
+  const syncToServer = useCallback(async (body: Record<string, unknown>) => {
+    try {
+      await fetch('/api/timer', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch {}
   }, [])
-
-  const rememberCategoryOrder = useCallback((nextCategory: Category) => {
-    setRecentCategoryNames(markCategoryUsed(nextCategory))
-  }, [])
-
-  const sortedCategories = useMemo(() => {
-    const recentOrder = new Map(recentCategoryNames.map((name, index) => [name, index]))
-
-    return [...categories].sort((a, b) => {
-      const aRecentIndex = recentOrder.get(a.name)
-      const bRecentIndex = recentOrder.get(b.name)
-
-      if (aRecentIndex !== undefined || bRecentIndex !== undefined) {
-        if (aRecentIndex === undefined) return 1
-        if (bRecentIndex === undefined) return -1
-        if (aRecentIndex !== bRecentIndex) return aRecentIndex - bRecentIndex
-      }
-
-      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-      return a.label.localeCompare(b.label)
-    })
-  }, [categories, recentCategoryNames])
-
-  const todoistTaskIdRef = useRef<string | null>(null)
-  useEffect(() => { todoistTaskIdRef.current = todoistTaskId }, [todoistTaskId])
-
-  const customDurationMsRef = useRef(customDurationMs)
-  useEffect(() => { customDurationMsRef.current = customDurationMs }, [customDurationMs])
-  const activeTargetMsRef = useRef(activeTargetMs)
-  useEffect(() => { activeTargetMsRef.current = activeTargetMs }, [activeTargetMs])
-  const suppressIdleResetRef = useRef(false)
-
-  const defaultDurationMs = sessionType === 'focus'
-    ? settings.focusDuration * 60 * 1000
-    : settings.breakDuration * 60 * 1000
-  const focusDurationMs = settings.focusDuration * 60 * 1000
-  const breakDurationMs = settings.breakDuration * 60 * 1000
-
-  const compactViewport = viewportSize.height > 0 && viewportSize.height <= 840
-  const veryCompactViewport = viewportSize.height > 0 && viewportSize.height <= 760
-  const narrowViewport = viewportSize.width > 0 && viewportSize.width <= 430
-  const ringSize = (() => {
-    if (!viewportSize.width || !viewportSize.height) return 288
-
-    const widthBound = viewportSize.width - (narrowViewport ? 136 : 104)
-    const heightBound = viewportSize.height - (veryCompactViewport ? 520 : compactViewport ? 500 : 440)
-    return Math.max(208, Math.min(narrowViewport ? 268 : compactViewport ? 280 : 296, widthBound, heightBound))
-  })()
-
-  const targetMs = phase === 'idle' ? customDurationMs : activeTargetMs
-  const wakeLockActive = settings.keepScreenAwake && (phase === 'running' || phase === 'overflow')
-  const wakeLock = useScreenWakeLock(wakeLockActive)
-  const requestWakeLock = wakeLock.request
-
-  useEffect(() => {
-    if (phase === 'idle') {
-      if (suppressIdleResetRef.current) {
-        suppressIdleResetRef.current = false
-        return
-      }
-      setCustomDurationMs(defaultDurationMs)
-      setRemainingMs(defaultDurationMs)
-      setActiveTargetMs(defaultDurationMs)
-    }
-  }, [defaultDurationMs, sessionType, phase])
 
   const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
     if (!('serviceWorker' in navigator)) return
@@ -248,887 +361,491 @@ export default function Timer() {
     } catch {}
   }, [])
 
-  const playChime = useCallback(() => {
-    if (!settings.soundEnabled) return
-    try {
-      const ctx = new AudioContext()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.3)
-      gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8)
-      osc.start()
-      osc.stop(ctx.currentTime + 0.8)
-    } catch {}
-  }, [settings.soundEnabled])
-
-  const buildTimerPayload = useCallback((overrides?: Partial<{
-    phase: TimerPhase
-    sessionType: SessionType
-    intention: string
-    category: Category
-    remainingMs: number
-    overflowMs: number
-    startedAt: number | null
-    pausedAt: number | null
-  }>) => ({
-    phase: overrides?.phase ?? phaseRef.current,
-    sessionType: overrides?.sessionType ?? sessionTypeRef.current,
-    intention: overrides?.intention ?? intentionRef.current,
-    category: overrides?.category ?? categoryRef.current,
-    targetMs,
-    remainingMs: overrides?.remainingMs ?? remainingMsRef.current,
-    overflowMs: overrides?.overflowMs ?? overflowMsRef.current,
-    startedAt: overrides?.startedAt !== undefined ? overrides.startedAt : startedAtRef.current,
-    pausedAt: overrides?.pausedAt !== undefined ? overrides.pausedAt : (phaseRef.current === 'paused' ? Date.now() : null),
-    todoistTaskId: todoistTaskIdRef.current,
-  }), [targetMs])
-
-  const tick = useCallback(() => {
-    setRemainingMs(prev => {
-      if (prev <= 0) {
-        setOverflowMs(o => o + 100)
-        setPhase('overflow')
-        return prev - 100
-      }
-      return prev - 100
-    })
-  }, [])
-
-  const syncToServer = useCallback(async (body: Record<string, unknown>) => {
-    if (!navigator.onLine) { setSynced(false); return }
-    lastPutRef.current = Date.now()
-    try {
-      const res = await fetch('/api/timer', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) { setSynced(false); return }
-      const data: ServerTimerState = await res.json()
-      serverUpdatedAtRef.current = data.updatedAt
-      setSynced(true)
-    } catch { setSynced(false) }
-  }, [])
-
-  const selectIdleSessionType = useCallback((nextType: SessionType) => {
-    const nextDurationMs = nextType === 'focus' ? focusDurationMs : breakDurationMs
-    setSessionType(nextType)
-    setCustomDurationMs(nextDurationMs)
-    setActiveTargetMs(nextDurationMs)
-    setRemainingMs(nextDurationMs)
-    setOverflowMs(0)
-
-    syncToServer({
-      phase: 'idle',
-      sessionType: nextType,
-      intention,
-      category,
-      targetMs: nextDurationMs,
-      remainingMs: nextDurationMs,
-      overflowMs: 0,
-      startedAt: null,
-      pausedAt: null,
-      todoistTaskId: todoistTaskIdRef.current,
-    })
-  }, [breakDurationMs, category, focusDurationMs, intention, syncToServer])
-
-  const applyServerState = useCallback((rawData: ServerTimerState) => {
-    const data = normalizeTimerState(rawData)
+  const applyRemote = useCallback((raw: ServerTimerState) => {
+    const data = normalizeTimerState(raw)
     if (data.phase === 'running' && data.startedAt) {
-      const elapsedSinceUpdate = Date.now() - data.updatedAt
-      const newRemaining = data.remainingMs - elapsedSinceUpdate
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      setPhase(newRemaining > 0 ? 'running' : 'overflow')
+      const elapsed = Date.now() - data.updatedAt
+      const nextRemaining = data.remainingMs - elapsed
       setSessionType(data.sessionType as SessionType)
       setIntention(data.intention)
       setCategory(data.category as Category)
-      setRemainingMs(newRemaining)
-      setOverflowMs(newRemaining > 0 ? data.overflowMs : Math.abs(newRemaining))
+      setTargetMs(data.targetMs)
       setStartedAt(data.startedAt)
-      setActiveTargetMs(data.targetMs)
-      setTodoistTaskId(data.todoistTaskId ?? null)
-      intervalRef.current = setInterval(tick, 100)
+      setTodoistTaskId(data.todoistTaskId)
+      if (nextRemaining > 0) {
+        setPhase('running')
+        setRemainingMs(nextRemaining)
+      } else if (data.sessionType === 'focus') {
+        setDraft({
+          id: `manual-${data.startedAt}`,
+          intention: data.intention,
+          category: data.category,
+          type: 'focus',
+          targetMs: data.targetMs,
+          actualMs: data.targetMs,
+          overflowMs: 0,
+          startedAt: data.startedAt,
+          endedAt: Date.now(),
+          todoistTaskId: data.todoistTaskId,
+        })
+        setRemainingMs(0)
+        setPhase('reflect')
+      } else {
+        setRemainingMs(settings.focusDuration * 60000)
+        setPhase('idle')
+      }
     } else if (data.phase === 'paused') {
-      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
       setPhase('paused')
       setSessionType(data.sessionType as SessionType)
       setIntention(data.intention)
       setCategory(data.category as Category)
       setRemainingMs(data.remainingMs)
-      setOverflowMs(data.overflowMs)
-      setActiveTargetMs(data.targetMs)
-      if (data.startedAt) setStartedAt(data.startedAt)
-      setTodoistTaskId(data.todoistTaskId ?? null)
+      setTargetMs(data.targetMs)
+      setStartedAt(data.startedAt ?? 0)
+      setTodoistTaskId(data.todoistTaskId)
+    } else if (data.phase === 'idle') {
+      setPhase('idle')
+      if (data.category) setCategory(data.category as Category)
+      if (data.intention) setIntention(data.intention)
+      setSessionType('focus')
+      setTargetMs(settings.focusDuration * 60000)
+      setRemainingMs(settings.focusDuration * 60000)
+      setStartedAt(0)
     }
-  }, [tick])
+  }, [settings.focusDuration])
 
-  // On mount: fetch server state, fall back to localStorage when offline
   useEffect(() => {
-    const restoreFromLocal = () => {
+    const restoreLocal = () => {
       const local = loadTimerState()
       if (!local) return
-      suppressIdleResetRef.current = true
-      if (local.sessionType) setSessionType(local.sessionType as SessionType)
-      if (local.category) setCategory(local.category as Category)
-      if (local.intention) setIntention(local.intention)
-      setTodoistTaskId(local.todoistTaskId ?? null)
-
-      if ((local.phase === 'running' || local.phase === 'overflow') && local.startedAt) {
-        const elapsedSinceSave = Date.now() - local.savedAt
-        const newRemaining = local.remainingMs - elapsedSinceSave
-        setActiveTargetMs(local.targetMs)
+      setSessionType(local.sessionType as SessionType)
+      setIntention(local.intention)
+      setCategory(local.category)
+      setTargetMs(local.targetMs)
+      setTodoistTaskId(local.todoistTaskId)
+      if (local.phase === 'running' && local.startedAt) {
+        const nextRemaining = local.remainingMs - (Date.now() - local.savedAt)
+        setPhase(nextRemaining > 0 ? 'running' : 'idle')
+        setRemainingMs(Math.max(0, nextRemaining))
         setStartedAt(local.startedAt)
-        setRemainingMs(newRemaining)
-        setOverflowMs(newRemaining > 0 ? 0 : Math.abs(newRemaining))
-        setPhase(newRemaining > 0 ? 'running' : 'overflow')
-        intervalRef.current = setInterval(tick, 100)
-        postSwMessage('TIMER_STARTED')
       } else if (local.phase === 'paused') {
-        setActiveTargetMs(local.targetMs)
-        if (local.startedAt) setStartedAt(local.startedAt)
-        setRemainingMs(local.remainingMs)
-        setOverflowMs(local.overflowMs)
         setPhase('paused')
-      } else {
-        setSessionType('focus')
-        setCustomDurationMs(focusDurationMs)
-        setActiveTargetMs(focusDurationMs)
-        setRemainingMs(focusDurationMs)
-        postSwMessage('TIMER_STOPPED')
+        setRemainingMs(local.remainingMs)
+        setStartedAt(local.startedAt ?? 0)
       }
     }
 
-    const init = async () => {
-      try {
-        const res = await fetch('/api/timer')
-        if (!res.ok) { setSynced(false); restoreFromLocal(); return }
-        const data: ServerTimerState = normalizeTimerState(await res.json())
-        setSynced(true)
-        serverUpdatedAtRef.current = data.updatedAt
-        if (data.phase === 'running' || data.phase === 'paused') {
-          applyServerState(data)
-          postSwMessage('TIMER_STARTED')
-        } else {
-          if (data.phase === 'idle') {
-            suppressIdleResetRef.current = true
-            setSessionType('focus')
-            if (data.category) setCategory(data.category as Category)
-            if (data.intention) setIntention(data.intention)
-            setCustomDurationMs(focusDurationMs)
-            setActiveTargetMs(focusDurationMs)
-            setRemainingMs(focusDurationMs)
-          }
-          postSwMessage('TIMER_STOPPED')
-        }
-      } catch {
-        setSynced(false)
-        restoreFromLocal()
-      }
+    fetch('/api/timer')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) applyRemote(data); else restoreLocal() })
+      .catch(restoreLocal)
+  }, [applyRemote])
+
+  useEffect(() => {
+    if (phase === 'reflect') return
+    saveTimerState({
+      phase,
+      sessionType,
+      intention,
+      category,
+      targetMs,
+      remainingMs,
+      overflowMs: Math.max(0, -remainingMs),
+      startedAt: startedAt || null,
+      pausedAt: phase === 'paused' ? Date.now() : null,
+      todoistTaskId,
+      savedAt: Date.now(),
+    })
+  }, [category, intention, phase, remainingMs, sessionType, startedAt, targetMs, todoistTaskId])
+
+  useEffect(() => {
+    if (phase !== 'running') {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      intervalRef.current = null
+      return
     }
-    init()
+    intervalRef.current = setInterval(() => {
+      setRemainingMs(prev => Math.max(0, prev - 1000))
+    }, 1000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
-      if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
+      intervalRef.current = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyServerState, postSwMessage, focusDurationMs])
+  }, [phase])
 
-  // Poll every 2s
-  useEffect(() => {
-    const poll = setInterval(async () => {
-      if (Date.now() - lastPutRef.current < 3000) return
-      try {
-        const res = await fetch('/api/timer')
-        if (!res.ok) { setSynced(false); return }
-        const data: ServerTimerState = normalizeTimerState(await res.json())
-        setSynced(true)
-        if (data.updatedAt <= serverUpdatedAtRef.current) return
-        serverUpdatedAtRef.current = data.updatedAt
+  const selectedCategory = categoryByName(categories, category)
+  const sortedCategories = useMemo(() => {
+    const order = new Map(recentCategories.map((name, index) => [name, index]))
+    return [...categories].sort((a, b) => {
+      const ao = order.get(a.name)
+      const bo = order.get(b.name)
+      if (ao !== undefined || bo !== undefined) {
+        if (ao === undefined) return 1
+        if (bo === undefined) return -1
+        return ao - bo
+      }
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+      return a.label.localeCompare(b.label)
+    })
+  }, [categories, recentCategories])
 
-        if (data.phase === 'running' || data.phase === 'paused') {
-          applyServerState(data)
-        } else if (data.phase === 'idle' && phaseRef.current !== 'idle') {
-          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-          suppressIdleResetRef.current = true
-          setPhase('idle')
-          setSessionType('focus')
-          setCategory(data.category as Category)
-          setCustomDurationMs(focusDurationMs)
-          setActiveTargetMs(focusDurationMs)
-          setRemainingMs(focusDurationMs)
-          setOverflowMs(0)
-          setStartedAt(0)
-          setIntention(data.intention)
-          setTodoistTaskId(null)
-          postSwMessage('TIMER_STOPPED')
-        } else if (data.phase === 'idle' && phaseRef.current === 'idle') {
-          suppressIdleResetRef.current = true
-          setSessionType('focus')
-          setCategory(data.category as Category)
-          setCustomDurationMs(focusDurationMs)
-          setActiveTargetMs(focusDurationMs)
-          setRemainingMs(focusDurationMs)
-          setIntention(data.intention)
-        }
-      } catch { setSynced(false) }
-    }, 2000)
-    return () => clearInterval(poll)
-  }, [applyServerState, postSwMessage, focusDurationMs])
+  const totalMs = targetMs || (sessionType === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+  const progress = phase === 'idle' ? 0 : 1 - (remainingMs / Math.max(totalMs, 1))
+  const isFocus = sessionType === 'focus'
+  const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
+  const remainingSec = Math.ceil(remainingMs / 1000)
 
-  // Re-sync on visibility change
-  useEffect(() => {
-    let lastResync = 0
-    const resync = async () => {
-      const now = Date.now()
-      if (now - lastResync < 500) return
-      lastResync = now
-      try {
-        const res = await fetch('/api/timer', { cache: 'no-store' })
-        if (!res.ok) return
-        const data: ServerTimerState = normalizeTimerState(await res.json())
-        setSynced(true)
-        serverUpdatedAtRef.current = data.updatedAt
-        if (data.phase === 'running' || data.phase === 'paused') {
-          applyServerState(data)
-        } else if (data.phase === 'idle') {
-          if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-          suppressIdleResetRef.current = true
-          setPhase('idle')
-          setSessionType('focus')
-          setCategory(data.category as Category)
-          setCustomDurationMs(focusDurationMs)
-          setActiveTargetMs(focusDurationMs)
-          setRemainingMs(focusDurationMs)
-          setOverflowMs(0)
-          setStartedAt(0)
-          setIntention(data.intention)
-        }
-      } catch {}
-    }
-    const onVisible = () => { if (!document.hidden) resync() }
-    const onFocus = () => resync()
-    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) resync() }
-    document.addEventListener('visibilitychange', onVisible)
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('pageshow', onPageShow)
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible)
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('pageshow', onPageShow)
-    }
-  }, [applyServerState, focusDurationMs])
+  const selectSessionType = (next: SessionType) => {
+    const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+    setSessionType(next)
+    setTargetMs(nextTarget)
+    setRemainingMs(nextTarget)
+    syncToServer({
+      phase: 'idle',
+      sessionType: next,
+      intention,
+      category,
+      targetMs: nextTarget,
+      remainingMs: nextTarget,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+      todoistTaskId,
+    })
+  }
 
-  const handleIntentionChange = useCallback((value: string) => {
-    setIntention(value)
-    if (phaseRef.current === 'idle') return
-    if (intentionSyncTimeoutRef.current) clearTimeout(intentionSyncTimeoutRef.current)
-    intentionSyncTimeoutRef.current = setTimeout(() => {
-      syncToServer(buildTimerPayload({
-        intention: value,
-        pausedAt: phaseRef.current === 'paused' ? Date.now() : null,
-      }))
-    }, 500)
-  }, [buildTimerPayload, syncToServer])
-
-  const startTimer = useCallback(() => {
-    if (settings.keepScreenAwake) {
-      // iOS is most reliable when the wake-lock request starts directly from
-      // the Start/Resume tap, not later in a post-render effect.
-      void requestWakeLock({ allowWhileInactive: true })
-    }
-
-    const isIdle = phaseRef.current === 'idle'
+  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId) => {
+    const nextTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
     const now = Date.now()
-    const newStartedAt = isIdle ? now : startedAtRef.current
-    const nextTargetMs = isIdle ? customDurationMsRef.current : activeTargetMsRef.current
-
-    if (isIdle) {
-      void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
-      rememberCategoryOrder(category)
-    }
-
-    if (isIdle) {
-      setStartedAt(now)
-      setOverflowMs(0)
-      setActiveTargetMs(nextTargetMs)
-      setRemainingMs(nextTargetMs)
-    }
+    if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
+    if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
     setPhase('running')
-    intervalRef.current = setInterval(tick, 100)
+    setSessionType(type)
+    setStartedAt(now)
+    setTargetMs(nextTarget)
+    setRemainingMs(nextTarget)
+    setIntention(startingIntention)
+    setCategory(startingCategory)
+    setTodoistTaskId(startingTaskId)
+    if (startingCategory) setRecentCategories(markCategoryUsed(startingCategory))
+    syncToServer({
+      phase: 'running',
+      sessionType: type,
+      intention: startingIntention,
+      category: startingCategory,
+      targetMs: nextTarget,
+      remainingMs: nextTarget,
+      overflowMs: 0,
+      startedAt: now,
+      pausedAt: null,
+      todoistTaskId: startingTaskId,
+    })
+    postSwMessage('TIMER_STARTED')
+  }, [category, intention, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, todoistTaskId, wakeLock])
 
+  const pause = () => {
+    setPhase('paused')
+    syncToServer({
+      phase: 'paused',
+      sessionType,
+      intention,
+      category,
+      targetMs,
+      remainingMs,
+      overflowMs: 0,
+      startedAt,
+      pausedAt: Date.now(),
+      todoistTaskId,
+    })
+    postSwMessage('TIMER_STOPPED')
+  }
+
+  const resume = () => {
+    if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
+    setPhase('running')
     syncToServer({
       phase: 'running',
       sessionType,
       intention,
       category,
-      targetMs: nextTargetMs,
-      remainingMs: isIdle ? nextTargetMs : remainingMs,
-      overflowMs: isIdle ? 0 : overflowMs,
-      startedAt: newStartedAt,
+      targetMs,
+      remainingMs,
+      overflowMs: 0,
+      startedAt,
       pausedAt: null,
-      todoistTaskId: todoistTaskIdRef.current,
+      todoistTaskId,
     })
     postSwMessage('TIMER_STARTED')
-  }, [tick, syncToServer, postSwMessage, sessionType, intention, category, remainingMs, overflowMs, settings.keepScreenAwake, requestWakeLock, rememberCategoryOrder])
+  }
 
-  const pauseTimer = useCallback(() => {
-    setPhase('paused')
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-    syncToServer({
-      phase: 'paused', sessionType, intention, category, targetMs,
-      remainingMs, overflowMs, startedAt, pausedAt: Date.now(),
-      todoistTaskId: todoistTaskIdRef.current,
-    })
-    postSwMessage('TIMER_STOPPED')
-  }, [syncToServer, postSwMessage, sessionType, intention, category, targetMs, remainingMs, overflowMs, startedAt])
-
-  const finishSession = useCallback(async () => {
-    if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-
-    const now = Date.now()
-    const actualMs = startedAt ? now - startedAt : 0
-    const curOverflowMs = Math.max(0, overflowMs)
-
-    const effectiveStartedAt = startedAt || now
-    const offlineSession: QueuedSession = {
-      id: `offline-${effectiveStartedAt}`,
+  const makeDraft = useCallback((natural: boolean): ReflectionDraft | null => {
+    if (!startedAt) return null
+    const endedAt = Date.now()
+    const actualMs = natural ? targetMs : Math.max(60000, endedAt - startedAt)
+    return {
+      id: `manual-${startedAt}`,
       intention,
       category,
       type: sessionType,
-      targetMs: activeTargetMs,
+      targetMs,
       actualMs,
-      overflowMs: curOverflowMs,
-      startedAt: effectiveStartedAt,
-      endedAt: now,
-      notes: '',
-      todoistTaskId: todoistTaskIdRef.current,
-      queuedAt: now,
+      overflowMs: Math.max(0, actualMs - targetMs),
+      startedAt,
+      endedAt,
+      todoistTaskId,
     }
+  }, [category, intention, sessionType, startedAt, targetMs, todoistTaskId])
 
-    try {
-      const res = await fetch('/api/timer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startedAt, intention, category, notes: '' }),
+  const finish = useCallback((natural: boolean) => {
+    if (finishingRef.current) return
+    finishingRef.current = true
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    if (sessionType === 'break') {
+      clearTimerState()
+      setPhase('idle')
+      setSessionType('focus')
+      setTargetMs(settings.focusDuration * 60000)
+      setRemainingMs(settings.focusDuration * 60000)
+      setStartedAt(0)
+      syncToServer({
+        phase: 'idle',
+        sessionType: 'focus',
+        intention: '',
+        category,
+        targetMs: settings.focusDuration * 60000,
+        remainingMs: settings.focusDuration * 60000,
+        overflowMs: 0,
+        startedAt: null,
+        pausedAt: null,
+        todoistTaskId: null,
       })
-      if (!res.ok) throw new Error('Failed to save session')
-      const data = await res.json()
-      setSaveError(null)
-
-      // Calendar sync is now handled server-side in POST /api/timer
-      if (data.calendar?.error) {
-        console.warn('[calendar] sync error:', data.calendar.error)
-      }
-
-      if (data.timer?.updatedAt) serverUpdatedAtRef.current = data.timer.updatedAt
-    } catch {
-      enqueueSession(offlineSession)
-      setSaveError(null)
+      postSwMessage('TIMER_STOPPED')
+      finishingRef.current = false
+      return
     }
-
-    if (settings.soundEnabled) playChime()
-
-    if (Notification.permission === 'granted') {
-      let pushActive = false
-      try {
-        const flagSet = localStorage.getItem('pushSubscriptionConfirmed') === '1'
-        if (flagSet && 'serviceWorker' in navigator) {
-          const reg = await navigator.serviceWorker.ready
-          const sub = await reg.pushManager.getSubscription()
-          if (sub) { pushActive = true } else { localStorage.removeItem('pushSubscriptionConfirmed') }
-        }
-      } catch { try { localStorage.removeItem('pushSubscriptionConfirmed') } catch {} }
-      if (!pushActive) {
-        new Notification('sesh — session complete', {
-          body: intention || `${sessionType} finished`,
-          icon: '/icons/icon-192.png',
-        })
-      }
+    const nextDraft = makeDraft(natural)
+    if (!nextDraft) {
+      finishingRef.current = false
+      return
     }
-
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200])
-
-    setPhase('idle')
-    setSessionType('focus')
-    setCustomDurationMs(focusDurationMs)
-    setRemainingMs(focusDurationMs)
-    setActiveTargetMs(focusDurationMs)
-    setOverflowMs(0)
-    setIntention('')
-    setTodoistTaskId(null)
+    setDraft(nextDraft)
+    setPhase('reflect')
     clearTimerState()
-    postSwMessage('TIMER_STOPPED')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startedAt, intention, category, sessionType, activeTargetMs, overflowMs, settings.soundEnabled, focusDurationMs, playChime, postSwMessage, tick, syncToServer])
-
-  const abandonSession = useCallback(() => {
-    if (intentionSyncTimeoutRef.current) { clearTimeout(intentionSyncTimeoutRef.current); intentionSyncTimeoutRef.current = null }
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
-    setPhase('idle')
-    setCustomDurationMs(defaultDurationMs)
-    setRemainingMs(defaultDurationMs)
-    setOverflowMs(0)
-    setIntention('')
-    setTodoistTaskId(null)
     syncToServer({
-      phase: 'idle', sessionType, intention: '', category,
-      targetMs: defaultDurationMs, remainingMs: defaultDurationMs,
-      overflowMs: 0, startedAt: null, pausedAt: null, todoistTaskId: null,
+      phase: 'idle',
+      sessionType: 'focus',
+      intention: '',
+      category,
+      targetMs: settings.focusDuration * 60000,
+      remainingMs: settings.focusDuration * 60000,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+      todoistTaskId: null,
     })
     postSwMessage('TIMER_STOPPED')
-  }, [defaultDurationMs, syncToServer, postSwMessage, sessionType, category])
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.code === 'Space') {
-        e.preventDefault()
-        if (phase === 'running') pauseTimer()
-        else if (phase === 'paused' || phase === 'overflow') startTimer()
-      }
-      if (e.code === 'Enter' && phase === 'idle') startTimer()
-      if (e.code === 'Escape' && (phase === 'running' || phase === 'paused' || phase === 'overflow')) abandonSession()
+    if (settings.soundEnabled) {
+      try {
+        const ctx = new AudioContext()
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.frequency.setValueAtTime(880, ctx.currentTime)
+        gain.gain.setValueAtTime(0.25, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7)
+        osc.start()
+        osc.stop(ctx.currentTime + 0.7)
+      } catch {}
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [phase, startTimer, pauseTimer, abandonSession])
-
-  const handleTodoistTaskSelect = useCallback((task: TodoistTask | null) => {
-    setTodoistTaskId(task?.id ?? null)
-    if (task?.content) {
-      setIntention(task.content)
-    }
-  }, [])
-
-  // ── Derived display values ──
-  const isOverflow = remainingMs < 0
-
-  const displayMs = phase === 'idle'
-    ? customDurationMs
-    : isOverflow ? Math.abs(remainingMs) : remainingMs
-
-  const progress = phase === 'idle'
-    ? customDurationMs / (60 * 60 * 1000)
-    : isOverflow ? 1 : Math.max(0, remainingMs / activeTargetMs)
-
-  const getRingColor = () => {
-    if (sessionType !== 'focus') {
-      if (isOverflow) return '#FF9500'
-      return '#34C759'
-    }
-    if (isOverflow) return '#FF9500'
-    const meta = getCategoryMeta(category, categories)
-    const categoryColor = meta.color
-    if (phase === 'idle') return categoryColor
-    const timeRatio = remainingMs / activeTargetMs
-    if (timeRatio > 0.2) return categoryColor
-    const urgencyRatio = timeRatio / 0.2
-    return interpolateColor(categoryColor, '#FF9500', 1 - urgencyRatio)
-  }
-  const ringColor = getRingColor()
-
-  const showIdleIntentionInput = !todoistTaskId
-  const catMeta = getCategoryMeta(category, categories)
-  const isFocusMode = sessionType === 'focus'
-  const restAccentColor = '#34C759'
-  const accentColor = isFocusMode ? catMeta.color : restAccentColor
-  const idleModeLabel = isFocusMode ? 'FOCUS SESSION' : 'REST SESSION'
-  const idleModeAccentClass = isFocusMode
-    ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-200'
-    : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200'
-  const [oledSaver, setOledSaver] = useState(false)
-  const [oledSaverOffset, setOledSaverOffset] = useState({ x: 0, y: 0 })
+    if (navigator.vibrate) navigator.vibrate([160, 80, 160])
+    finishingRef.current = false
+  }, [category, makeDraft, postSwMessage, sessionType, settings.focusDuration, settings.soundEnabled, syncToServer])
 
   useEffect(() => {
-    if (!wakeLockActive) setOledSaver(false)
-  }, [wakeLockActive])
+    if (phase === 'running' && remainingMs <= 0) finish(true)
+  }, [finish, phase, remainingMs])
 
-  useEffect(() => {
-    if (!oledSaver) return
-    const move = () => {
-      setOledSaverOffset({
-        x: Math.floor(Math.random() * 121) - 60,
-        y: Math.floor(Math.random() * 121) - 60,
+  const saveReflection = async (rating: number, notes: string) => {
+    if (!draft) return
+    const session = { ...draft, notes, rating }
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(session),
       })
+      if (!res.ok) throw new Error('Failed to save session')
+      if (draft.todoistTaskId) {
+        void fetch(`/api/todoist/tasks/${draft.todoistTaskId}/duration`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ add_minutes: Math.max(1, Math.round(draft.actualMs / 60000)) }),
+        }).catch(() => {})
+        if (settings.todoistAutoComplete) {
+          void fetch(`/api/todoist/tasks/${draft.todoistTaskId}/close`, { method: 'POST' }).catch(() => {})
+        }
+      }
+    } catch {
+      const offline: QueuedSession = {
+        ...session,
+        queuedAt: Date.now(),
+      }
+      enqueueSession(offline)
     }
-    move()
-    const interval = window.setInterval(move, 60_000)
-    return () => window.clearInterval(interval)
-  }, [oledSaver])
+
+    setDraft(null)
+    setIntention('')
+    setTodoistTaskId(null)
+    setStartedAt(0)
+    if (settings.autoStartBreak) {
+      start('break', '', category, null)
+    } else {
+      setPhase('idle')
+      setSessionType('focus')
+      setTargetMs(settings.focusDuration * 60000)
+      setRemainingMs(settings.focusDuration * 60000)
+    }
+  }
+
+  const greeting = (() => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 18) return 'Good afternoon'
+    return 'Good evening'
+  })()
+
+  if (phase === 'running' || phase === 'paused') {
+    return (
+      <div className="absolute inset-0 z-[150] flex flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
+        <div className="min-h-[56px] text-center">
+          <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
+            {isFocus ? selectedCategory?.label ?? 'Focus' : 'Break'}
+          </div>
+          {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
+        </div>
+
+        <div className="flex flex-1 items-center">
+          <Ring progress={progress} size={296} stroke={4} track="var(--line)" tint={ringTint} ticks={60} tickColor="var(--ink-2)" dot={isFocus}>
+            <div className="text-[66px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
+            <div className="mt-[14px] text-[12px] uppercase tracking-[0.18em] text-[var(--ink-3)]">{phase === 'paused' ? 'paused' : isFocus ? 'in session' : 'take a breath'}</div>
+          </Ring>
+        </div>
+
+        <div className="flex w-full flex-col items-center gap-[26px]">
+          <div className="flex items-center gap-[26px]">
+            <button type="button" aria-label="Stop session" onClick={() => finish(false)} className="grid h-[58px] w-[58px] place-items-center rounded-full border-[1.5px] border-[var(--line-strong)] bg-transparent text-[var(--ink)]">
+              <Icon name="stop" size={20} />
+            </button>
+            <button
+              type="button"
+              aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
+              onClick={() => phase === 'paused' ? resume() : pause()}
+              className="grid h-[86px] w-[86px] place-items-center rounded-full border-0 text-white shadow-[0_10px_30px_rgba(30,22,12,0.18)]"
+              style={{ background: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)', color: isFocus ? '#fff' : 'var(--bg)' }}
+            >
+              <Icon name={phase === 'paused' ? 'play' : 'pause'} size={32} />
+            </button>
+            <div className="w-[58px]" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (phase === 'reflect' && draft) {
+    return <Reflection draft={draft} category={categoryByName(categories, draft.category)} onSave={saveReflection} onSkip={() => saveReflection(0, '')} />
+  }
 
   return (
-    <div className="relative flex h-full min-h-full w-full flex-col items-center overflow-hidden px-4 pb-4 pt-3" style={{ overscrollBehavior: 'contain', boxSizing: 'border-box' }}>
-      {/* Sync indicator */}
-      <div className="absolute right-4 top-4 flex items-center gap-1.5">
-        <div
-          className="h-[7px] w-[7px] rounded-full transition-colors duration-300"
-          style={{
-            background: !online ? '#FF9500' : synced === null ? '#8E8E93' : synced ? '#34C759' : '#FF9500',
-          }}
-        />
+    <div className="flex h-full flex-col px-[22px] pb-[calc(110px+var(--safe-b))] pt-[calc(58px+var(--safe-t))]">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-[14px] text-[var(--ink-3)]">{greeting},</div>
+          <div className="font-[var(--font-display)] text-[26px] font-bold tracking-[-0.035em]">Ivan</div>
+        </div>
+        <div className="flex items-center gap-[7px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-2">
+          <Icon name="flame" size={17} color="var(--accent)" />
+          <span className="text-[15px] font-bold [font-variant-numeric:tabular-nums]">{streak}</span>
+        </div>
       </div>
 
-      {phase === 'idle' ? (
-        /* ═══════ IDLE STATE ═══════ */
-        <div className="flex w-full flex-1 flex-col items-center overflow-hidden">
-          <div className={`flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2 pt-2' : compactViewport ? 'gap-3 pt-3' : 'gap-5 pt-6'}`}>
-            <div className="flex items-center justify-center gap-2 text-gray-300 dark:text-gray-600">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <span
-                  key={index}
-                  className={`h-2.5 w-2.5 rounded-full ${index === 0 ? 'bg-gray-400 dark:bg-gray-400' : 'bg-current opacity-55'}`}
-                />
+      <div className="flex flex-1 flex-col items-center justify-center gap-6">
+        <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
+        <Ring progress={0} size={272} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
+          <div className="text-[68px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
+          <div className="mt-3 text-[12.5px] tracking-[0.04em] text-[var(--ink-3)]">{isFocus ? `${settings.focusDuration} minute focus` : `${settings.breakDuration} minute break`}</div>
+        </Ring>
+
+        {isFocus && (
+          <div className="flex w-full max-w-[340px] flex-col gap-3">
+            <div data-testid="timer-category-selector" className="flex flex-wrap justify-center gap-2">
+              {sortedCategories.map(cat => (
+                <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
+                  setCategory(cat.name)
+                  setRecentCategories(markCategoryUsed(cat.name))
+                  syncToServer({
+                    phase: 'idle',
+                    sessionType,
+                    intention,
+                    category: cat.name,
+                    targetMs,
+                    remainingMs,
+                    overflowMs: 0,
+                    startedAt: null,
+                    pausedAt: null,
+                    todoistTaskId,
+                  })
+                }}>{cat.label}</Chip>
               ))}
             </div>
-
-            <div className={`flex w-full flex-col items-center text-center ${veryCompactViewport ? 'gap-2' : 'gap-3'}`}>
-              <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${idleModeAccentClass}`}>
-                {idleModeLabel}
-              </div>
-
-              <div className="inline-flex rounded-full border border-gray-200 bg-white p-1 shadow-[0_1px_4px_rgba(0,0,0,0.04)] dark:border-gray-700 dark:bg-gray-900">
-                {(['focus', 'break'] as SessionType[]).map((type) => {
-                  const active = sessionType === type
-                  const label = type === 'focus' ? 'Focus' : 'Rest'
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      data-testid={type === 'focus' ? 'idle-mode-focus' : 'idle-mode-rest'}
-                      onClick={() => selectIdleSessionType(type)}
-                      className={`rounded-full px-4 py-2 text-[14px] font-medium transition-colors duration-150 ${
-                        active
-                          ? type === 'focus'
-                            ? 'text-white shadow-sm'
-                            : 'bg-emerald-600 text-white shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400'
-                      }`}
-                      style={active && type === 'focus' ? { backgroundColor: catMeta.color } : undefined}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-
-              <h1 className={`${veryCompactViewport ? 'text-[24px]' : compactViewport ? 'text-[26px]' : 'text-[28px]'} font-normal tracking-[-0.04em] text-gray-700 dark:text-gray-100 sm:text-[34px]`}>
-                {isFocusMode ? 'What\'s your focus?' : 'Ready to rest?'}
-              </h1>
-
-              <div
-                data-testid="timer-category-selector"
-                className="hide-scrollbar flex w-full items-center justify-start gap-2 overflow-x-auto px-4 [-webkit-overflow-scrolling:touch]"
-              >
-                {sortedCategories.map(cat => {
-                  const selected = category === cat.name
-                  return (
-                    <button
-                      key={cat.name}
-                      onClick={() => {
-                        setCategory(cat.name)
-                        rememberCategoryOrder(cat.name)
-                        syncToServer({
-                          phase: 'idle', sessionType, intention, category: cat.name,
-                          targetMs: customDurationMs, remainingMs: customDurationMs,
-                          overflowMs: 0, startedAt: null, pausedAt: null,
-                        })
-                      }}
-                      className={`flex flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-full border ${veryCompactViewport ? 'px-3 py-1.5 text-[13px]' : 'px-3.5 py-2 text-[14px]'} font-medium transition-colors duration-200 ${
-                        selected
-                          ? 'border-transparent text-white shadow-sm'
-                          : 'border-gray-200 bg-white text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400'
-                      }`}
-                      style={selected ? { backgroundColor: isFocusMode ? cat.color : restAccentColor } : undefined}
-                    >
-                      <span
-                        className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full border border-white/40"
-                        style={{ backgroundColor: selected ? 'rgba(255,255,255,0.9)' : cat.color }}
-                      />
-                      {cat.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {showIdleIntentionInput && (
-              <div className={`w-full max-w-[390px] ${veryCompactViewport ? 'pt-0.5' : 'pt-1'}`}>
-                <input
-                  type="text"
-                  placeholder="Intention"
-                  value={intention}
-                  onChange={(e) => handleIntentionChange(e.target.value)}
-                  maxLength={120}
-                  className={`w-full rounded-[18px] border border-gray-200 bg-white px-5 ${veryCompactViewport ? 'py-3' : 'py-3.5'} text-[16px] font-normal text-gray-700 placeholder-gray-300 shadow-[0_1px_4px_rgba(0,0,0,0.04)] outline-none focus:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder-gray-500 sm:px-6 sm:py-4 sm:text-[18px]`}
-                />
-              </div>
-            )}
-          </div>
-
-          <div className={`flex w-full flex-1 flex-col items-center justify-center ${veryCompactViewport ? 'gap-1.5 pt-1.5' : compactViewport ? 'gap-2.5 pt-2' : 'gap-3 pt-4'}`}>
-            <ProgressRing
-              progress={progress}
-              color={ringColor}
-              size={ringSize}
-              strokeWidth={14}
-              interactive={true}
-              onProgressChange={(p) => {
-                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-                const ms = minutes * 60 * 1000
-                setCustomDurationMs(ms)
-                setRemainingMs(ms)
-                if (minutes % 5 === 0 && lastMultiplePulseMinuteRef.current !== minutes) {
-                  lastMultiplePulseMinuteRef.current = minutes
-                  setIsMultipleOf5(true)
-                  if (multipleOf5TimeoutRef.current) clearTimeout(multipleOf5TimeoutRef.current)
-                  multipleOf5TimeoutRef.current = setTimeout(() => setIsMultipleOf5(false), 400)
-                } else if (minutes % 5 !== 0) {
-                  lastMultiplePulseMinuteRef.current = null
-                  setIsMultipleOf5(false)
-                }
-              }}
-              onDragEnd={(p) => {
-                const minutes = Math.max(1, Math.min(60, Math.round(p * 60)))
-                const ms = minutes * 60 * 1000
-                syncToServer({
-                  phase: 'idle', sessionType: sessionTypeRef.current,
-                  intention: intentionRef.current, category: categoryRef.current,
-                  targetMs: ms, remainingMs: ms, overflowMs: 0,
-                  startedAt: null, pausedAt: null,
-                })
-              }}
-            >
-              <div className="flex w-full items-center justify-center px-6">
-                <div className={`w-full max-w-[200px] rounded-[26px] border border-white/70 bg-white/90 ${veryCompactViewport ? 'px-4 py-2.5' : 'px-5 py-3'} text-center shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/85`}>
-                  <div
-                    className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500"
-                    style={{ color: `${accentColor}CC` }}
-                  >
-                    {isFocusMode ? 'Focus length' : 'Rest length'}
-                  </div>
-                  <span className={`font-mono [font-variant-numeric:tabular-nums] ${veryCompactViewport ? 'text-[34px]' : compactViewport ? 'text-[36px]' : 'text-[40px]'} font-light leading-none tracking-[-0.06em] text-gray-600 transition-transform duration-150 dark:text-gray-100 ${isMultipleOf5 ? 'scale-110' : 'scale-100'}`}>
-                    {formatTime(displayMs)}
-                  </span>
-                </div>
-              </div>
-            </ProgressRing>
-
-            <div className="flex flex-col items-center text-center">
-              <span className={`rounded-full border border-gray-200/80 bg-white/85 ${veryCompactViewport ? 'px-3 py-1 text-[12px]' : 'px-3.5 py-1.5 text-[13px]'} font-medium tracking-[0.04em] text-gray-500 shadow-[0_10px_24px_rgba(15,23,42,0.05)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/80 dark:text-gray-300 sm:text-[14px]`}>
-                {(() => {
-                  const now = new Date()
-                  const end = new Date(now.getTime() + (customDurationMs || remainingMs))
-                  const fmt = (d: Date) => d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
-                  return `Ends ${fmt(end)}`
-                })()}
-              </span>
-            </div>
-          </div>
-
-          <div className={`flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2 pb-0 pt-2' : compactViewport ? 'gap-3 pb-1 pt-3' : 'gap-4 pb-2 pt-5'}`}>
             <button
-              onClick={startTimer}
-              className={`press-in w-full max-w-[360px] rounded-full px-8 ${veryCompactViewport ? 'py-[13px]' : 'py-[15px]'} text-[16px] font-semibold uppercase tracking-[0.08em] text-white shadow-[0_14px_30px_rgba(139,92,246,0.22)] active:scale-[0.97] sm:py-[17px] sm:text-[17px]`}
-              style={{
-                minHeight: veryCompactViewport ? 48 : compactViewport ? 52 : 58,
-                transition: 'transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                backgroundColor: accentColor,
-                boxShadow: `0 14px 30px ${accentColor}33`,
-              }}
+              type="button"
+              onClick={() => setSheet('intention')}
+              className="flex w-full items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-4 py-[14px] text-left"
             >
-              {isFocusMode ? 'START FOCUS' : 'START REST'}
+              <Icon name={todoistTaskId ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
+              <span className="min-w-0 flex-1 truncate text-[15.5px] font-semibold tracking-[-0.01em]" style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}>
+                {intention || 'Add an intention (optional)'}
+              </span>
             </button>
-
-            <div className={`w-full max-w-[390px] ${veryCompactViewport ? 'scale-[0.97]' : ''} origin-top`}>
-              <TodoistTasks
-                selectedTaskId={todoistTaskId}
-                onSelectTask={handleTodoistTaskSelect}
-              />
-            </div>
-
-            <div className="sr-only">
-              <Segmented strong rounded>
-                {(['focus', 'break'] as SessionType[]).map(t => (
-                  <SegmentedButton
-                    key={t}
-                    strong
-                    rounded
-                    active={sessionType === t}
-                    onClick={() => selectIdleSessionType(t)}
-                  >
-                    {t === 'focus' ? 'Focus' : 'Rest'}
-                  </SegmentedButton>
-                ))}
-              </Segmented>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* ═══════ ACTIVE STATE ═══════ */
-        <div className={`mt-2 flex w-full flex-col items-center ${veryCompactViewport ? 'gap-2.5' : compactViewport ? 'gap-3' : 'gap-4'}`}>
-          {/* Editable intention */}
-          <input
-            type="text"
-            placeholder="Tap to add intention..."
-            value={intention}
-            onChange={(e) => {
-              const value = e.target.value
-              handleIntentionChange(value)
-            }}
-            maxLength={120}
-            className="w-full max-w-[360px] rounded-[24px] border border-gray-200/80 bg-white/90 px-5 py-3 text-[16px] text-black shadow-[0_14px_32px_rgba(15,23,42,0.06)] outline-none backdrop-blur-sm transition focus:border-blue-400 dark:border-gray-700/80 dark:bg-gray-900/85 dark:text-white dark:placeholder-gray-500"
-          />
-
-
-          {/* Phase label + category chip */}
-          <div className={`flex flex-wrap items-center justify-center ${veryCompactViewport ? 'gap-2' : 'gap-2.5'}`}>
-            <p className={`m-0 text-[11px] font-semibold uppercase tracking-[1.4px] ${isOverflow ? 'text-orange-500' : 'text-black dark:text-white'}`}>
-              {isOverflow ? 'OVERFLOW' : phase === 'paused' ? 'PAUSED' : sessionType === 'focus' ? 'FOCUS' : 'REST'}
-            </p>
-            <Chip
-              outline
-              onClick={() => {
-                const names = sortedCategories.map(c => c.name)
-                const idx = names.indexOf(category)
-                const next = names[(idx + 1) % names.length] || category
-                setCategory(next)
-                rememberCategoryOrder(next)
-                syncToServer(buildTimerPayload({
-                  category: next,
-                  pausedAt: phase === 'paused' ? Date.now() : null,
-                }))
-              }}
-              className="!border-gray-400 dark:!border-gray-500 !text-black dark:!text-white"
-            >
-              <span
-                slot="media"
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: accentColor }}
-              />
-              {catMeta.label}
-            </Chip>
-          </div>
-
-          {/* Ring */}
-          <ProgressRing
-            progress={progress}
-            color={ringColor}
-            size={Math.min(ringSize, narrowViewport ? 268 : 288)}
-            strokeWidth={14}
-            interactive={false}
-          >
-            <div className={`flex flex-col items-center rounded-[26px] border border-white/70 bg-white/85 ${veryCompactViewport ? 'px-4 py-3' : 'px-5 py-3.5'} shadow-[0_18px_45px_rgba(15,23,42,0.08)] backdrop-blur-sm dark:border-gray-700/80 dark:bg-gray-900/80`}>
-              <span
-                className="mb-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-gray-400 dark:text-gray-500"
-                style={{ color: isOverflow ? '#f97316' : `${accentColor}CC` }}
-              >
-                {isOverflow ? 'Overtime' : phase === 'paused' ? 'Paused' : 'Remaining'}
-              </span>
-              {isOverflow && (
-                <span className="overflow-pulse mb-1 text-[13px] font-medium text-orange-500">+{formatTime(overflowMs)}</span>
-              )}
-              <span className={`font-mono ${veryCompactViewport ? 'text-[38px]' : compactViewport ? 'text-[42px]' : 'text-[48px]'} font-light leading-none tracking-[-0.06em] text-gray-800 [font-variant-numeric:tabular-nums] dark:text-white`}>
-                {formatTime(displayMs)}
-              </span>
-            </div>
-          </ProgressRing>
-
-          {/* Controls */}
-          <div className={`flex w-full max-w-[360px] flex-wrap items-center justify-center ${veryCompactViewport ? 'gap-2' : 'gap-2.5'}`}>
-            {(phase === 'running' || phase === 'overflow') && (
-              <>
-                <Button clear rounded onClick={pauseTimer} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
-                  <Pause style={{ width: 18, height: 18, marginRight: 6 }} />
-                  Pause
-                </Button>
-                <Button clear rounded onClick={finishSession} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
-                  <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
-                  Finish
-                </Button>
-              </>
-            )}
-            {phase === 'paused' && (
-              <>
-                <Button rounded onClick={startTimer} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
-                  <Play style={{ width: 16, height: 16, fill: '#fff', marginRight: 6 }} />
-                  Resume
-                </Button>
-                <Button clear rounded onClick={finishSession} className="!min-h-[46px] !rounded-full !px-5 !text-[16px] !font-semibold !tracking-[0.02em]">
-                  <SkipForward style={{ width: 18, height: 18, marginRight: 6 }} />
-                  Finish
-                </Button>
-              </>
+            {todoistOpenCount > 0 && (
+              <button type="button" onClick={() => setSheet('tasks')} className="flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
+                <Icon name="list" size={15} color="#E44332" />
+                Choose from Todoist
+              </button>
             )}
           </div>
+        )}
+      </div>
 
-          {wakeLockActive && (
-            <div className="flex w-full max-w-[360px] flex-col items-center gap-1.5 text-center">
-              <button
-                type="button"
-                onClick={() => setOledSaver(true)}
-                className="rounded-full bg-black px-4 py-2 text-sm font-medium text-gray-400 shadow-[0_12px_30px_rgba(0,0,0,0.18)] active:scale-95 dark:bg-gray-900"
-              >
-                OLED saver
-              </button>
-              <p className="max-w-[300px] text-xs text-gray-500">
-                Keep-awake: {wakeLock.status === 'on' ? 'on' : wakeLock.status}
-                {wakeLock.error ? ` — ${wakeLock.error}` : ''}
-              </p>
-            </div>
-          )}
+      <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
+        {isFocus ? 'Start focus' : 'Start break'}
+      </Btn>
 
-          {/* Abandon */}
-          <Button clear small onClick={abandonSession} className="!min-h-[44px] !rounded-full !px-4 !text-gray-500 hover:!text-red-500">
-            <Square style={{ width: 14, height: 14, marginRight: 6 }} />
-            Abandon
-          </Button>
-
-          {/* Save error */}
-          {saveError && (
-            <div className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">
-              {saveError}
-            </div>
-          )}
-        </div>
-      )}
-
-      {oledSaver && wakeLockActive && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black text-gray-700">
-          <div
-            className="select-none text-center transition-transform duration-1000 ease-out"
-            style={{ transform: `translate(${oledSaverOffset.x}px, ${oledSaverOffset.y}px)` }}
-          >
-            <div className="font-mono text-[44px] font-light leading-none text-gray-500">
-              {formatTime(displayMs)}
-            </div>
-            <div className="mt-2 text-xs uppercase tracking-[0.24em] text-gray-700">
-              {isOverflow ? 'overflow' : sessionType === 'focus' ? 'focus' : 'rest'}
-            </div>
-            <div className="mt-6 flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setOledSaver(false)}
-                className="rounded-full border border-gray-800 px-4 py-2 text-sm text-gray-600 active:scale-95"
-              >
-                Show app
-              </button>
-              <button
-                type="button"
-                onClick={phase === 'running' || phase === 'overflow' ? pauseTimer : startTimer}
-                className="rounded-full border border-gray-800 px-4 py-2 text-sm text-gray-600 active:scale-95"
-              >
-                {phase === 'running' || phase === 'overflow' ? 'Pause' : 'Resume'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <IntentionSheet
+        open={sheet === 'intention'}
+        intention={intention}
+        onClose={() => setSheet(null)}
+        onSave={(value) => {
+          setIntention(value)
+          setTodoistTaskId(null)
+          setSheet(null)
+        }}
+      />
+      <TaskPickerSheet
+        open={sheet === 'tasks'}
+        onClose={() => setSheet(null)}
+        categories={categories}
+        fallbackCategory={category}
+        activeId={todoistTaskId}
+        onPick={(task, categoryName) => {
+          setIntention(task.content)
+          setCategory(categoryName)
+          setTodoistTaskId(task.id)
+          setSheet(null)
+        }}
+      />
     </div>
   )
 }

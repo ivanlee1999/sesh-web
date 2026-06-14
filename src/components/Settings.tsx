@@ -1,115 +1,51 @@
 'use client'
-import React from 'react'
-import { useSettings } from '@/context/SettingsContext'
+
 import { useEffect, useState } from 'react'
-import { List, ListItem, BlockTitle, Toggle, Button } from 'konsta/react'
+import type { Session } from '@/types'
+import { useSettings } from '@/context/SettingsContext'
+import { useCategories } from '@/context/CategoriesContext'
+import { CATEGORY_PALETTE } from '@/lib/categories'
 import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
-
-function GoogleCalendarAuth({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
-  const handleDisconnect = async () => {
-    try {
-      await fetch('/api/auth/google/disconnect', { method: 'POST' })
-      // Force page reload to reset state
-      window.location.reload()
-    } catch {
-      // Fallback to GET for backwards compatibility
-      window.location.href = '/api/auth/google/disconnect'
-    }
-  }
-
-  // Re-check connection status when the page gains focus (user returns from OAuth redirect)
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const res = await fetch('/api/auth/google/status')
-        const data = await res.json()
-        if (data.connected && !connected) onConnected()
-      } catch { /* ignore */ }
-    }
-    window.addEventListener('focus', checkStatus)
-    return () => window.removeEventListener('focus', checkStatus)
-  }, [connected, onConnected])
-
-  if (connected) {
-    return (
-      <ListItem
-        title={
-          <span className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-black dark:text-white">Connected</span>
-          </span>
-        }
-        after={
-          <button
-            onClick={handleDisconnect}
-            className="border-none bg-transparent text-sm text-red-500 dark:text-red-400"
-          >
-            Disconnect
-          </button>
-        }
-      />
-    )
-  }
-
-  return (
-    <ListItem
-      title={<span className="text-black dark:text-white">Google Calendar</span>}
-      subtitle="Not connected"
-      after={
-        <Button small rounded onClick={() => { window.location.href = '/api/auth/google' }}>
-          Connect
-        </Button>
-      }
-    />
-  )
-}
+import { ACCENT_OPTIONS, Btn, Group, Icon, Row, ScreenHead, Sheet, Stepper, Toggle, Wordmark, fmtHM } from './sesh-ui'
 
 function PushNotificationToggle() {
   const [pushSupported, setPushSupported] = useState<boolean | null>(null)
   const [pushEnabled, setPushEnabled] = useState(false)
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default')
-  const [pushBusy, setPushBusy] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    const initPush = async () => {
+    const init = async () => {
       const supported = isPushSupported()
       setPushSupported(supported)
       if (!supported) return
-
       setPushPermission(Notification.permission)
-
       try {
         const reg = await navigator.serviceWorker.ready
         const sub = await reg.pushManager.getSubscription()
         setPushEnabled(!!sub)
-        if (!sub) {
-          clearPushSubscriptionConfirmed()
-        }
+        if (!sub) clearPushSubscriptionConfirmed()
       } catch {
         setPushEnabled(false)
         clearPushSubscriptionConfirmed()
       }
     }
-
-    initPush()
+    init()
   }, [])
 
-  const enablePush = async () => {
-    setPushBusy(true)
+  const enable = async () => {
+    setBusy(true)
     try {
       const enabled = await ensurePushSubscription({ requestPermission: true })
       setPushPermission(Notification.permission)
       setPushEnabled(enabled)
-    } catch {
-      setPushPermission(Notification.permission)
-      setPushEnabled(false)
     } finally {
-      setPushBusy(false)
+      setBusy(false)
     }
   }
 
-  const disablePush = async () => {
-    setPushBusy(true)
+  const disable = async () => {
+    setBusy(true)
     try {
       const reg = await navigator.serviceWorker.ready
       const sub = await reg.pushManager.getSubscription()
@@ -124,47 +60,194 @@ function PushNotificationToggle() {
       clearPushSubscriptionConfirmed()
       setPushEnabled(false)
     } finally {
-      setPushBusy(false)
+      setBusy(false)
     }
   }
 
-  const statusText = !pushSupported
+  const status = !pushSupported
     ? 'Not supported in this browser'
     : pushPermission === 'denied'
-    ? 'Permission denied'
-    : pushEnabled
-    ? 'Enabled'
-    : 'Disabled'
+      ? 'Permission denied'
+      : pushEnabled ? 'Enabled' : 'Disabled'
 
   return (
-    <ListItem
-      title={<span className="text-black dark:text-white">Session alerts</span>}
-      subtitle={statusText}
-      after={
-        <Toggle
-          checked={pushEnabled}
-          disabled={!pushSupported || pushPermission === 'denied' || pushBusy}
-          onChange={() => { if (pushEnabled) disablePush(); else enablePush() }}
-        />
-      }
+    <Row
+      icon="bell"
+      title="Session alerts"
+      sub={status}
+      right={<Toggle on={pushEnabled} disabled={!pushSupported || pushPermission === 'denied' || busy} onChange={() => { if (pushEnabled) disable(); else enable() }} />}
     />
+  )
+}
+
+function CategorySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { categories, createCategory, updateCategory, deleteCategory } = useCategories()
+  const [adding, setAdding] = useState(false)
+  const [label, setLabel] = useState('')
+  const [color, setColor] = useState(CATEGORY_PALETTE[0])
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const add = async () => {
+    if (!label.trim()) return
+    setBusy(true)
+    setError(null)
+    const result = await createCategory({ label: label.trim(), color })
+    if (!result.ok) setError(result.error ?? 'Failed to add category')
+    else {
+      setLabel('')
+      setColor(CATEGORY_PALETTE[categories.length % CATEGORY_PALETTE.length])
+      setAdding(false)
+    }
+    setBusy(false)
+  }
+
+  const remove = async (id: string) => {
+    setBusy(true)
+    setError(null)
+    const result = await deleteCategory(id)
+    if (!result.ok) {
+      setError(result.sessionCount ? `Cannot delete: ${result.sessionCount} sessions use this category` : result.error ?? 'Failed to delete category')
+    }
+    setBusy(false)
+  }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Categories">
+      <div className="flex max-h-[300px] flex-col gap-2 overflow-y-auto">
+        {categories.map(category => (
+          <div key={category.id} className="flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-3 py-[10px]">
+            <ColorDots value={category.color} onChange={(next) => updateCategory(category.id, { color: next })} compact />
+            <input
+              value={category.label}
+              onChange={event => updateCategory(category.id, { label: event.target.value })}
+              className="min-w-0 flex-1 border-0 bg-transparent text-[15px] font-semibold text-[var(--ink)] outline-none"
+            />
+            {categories.length > 1 && (
+              <button type="button" onClick={() => remove(category.id)} disabled={busy} className="border-0 bg-transparent p-1 text-[var(--ink-3)]">
+                <Icon name="trash" size={17} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {adding ? (
+        <div className="mt-[14px] rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-3">
+          <input
+            autoFocus
+            value={label}
+            onChange={event => setLabel(event.target.value)}
+            onKeyDown={event => { if (event.key === 'Enter') add() }}
+            placeholder="Category name"
+            className="mb-3 w-full border-0 border-b border-[var(--line)] bg-transparent px-0 py-2 text-[15px] font-semibold text-[var(--ink)] outline-none"
+          />
+          <ColorDots value={color} onChange={setColor} />
+          <div className="mt-[14px] flex gap-2">
+            <Btn full variant="soft" size="sm" onClick={() => setAdding(false)}>Cancel</Btn>
+            <Btn full size="sm" onClick={add} disabled={busy}>Add</Btn>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-[14px]">
+          <Btn full variant="outline" icon="plus" onClick={() => setAdding(true)}>New category</Btn>
+        </div>
+      )}
+      {error && <div className="mt-3 text-[13px] text-[#C2615A]">{error}</div>}
+      <div className="mt-[14px]"><Btn full size="lg" onClick={onClose}>Done</Btn></div>
+    </Sheet>
+  )
+}
+
+function ColorDots({ value, onChange, compact }: { value: string; onChange: (value: string) => void; compact?: boolean }) {
+  const colors = compact ? [value] : CATEGORY_PALETTE
+  return (
+    <div className="flex flex-wrap gap-[7px]">
+      {colors.map(col => (
+        <button
+          key={col}
+          type="button"
+          onClick={() => onChange(col)}
+          className="rounded-full p-0"
+          style={{
+            width: compact ? 22 : 30,
+            height: compact ? 22 : 30,
+            background: col,
+            border: value === col ? '2.5px solid var(--ink)' : '2.5px solid transparent',
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProfileScreen({ onBack }: { onBack: () => void }) {
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [stats, setStats] = useState<{ streak: number; todayMs: number } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/sessions').then(res => res.ok ? res.json() : []).then(setSessions).catch(() => setSessions([]))
+    fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(setStats).catch(() => setStats(null))
+  }, [])
+
+  const totalMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
+
+  return (
+    <div className="h-full overflow-y-auto pb-[calc(40px+var(--safe-b))]">
+      <div className="px-[22px] pt-[calc(58px+var(--safe-t))]">
+        <button type="button" onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
+          <Icon name="back" size={20} />
+        </button>
+      </div>
+
+      <div className="flex flex-col items-center px-[22px] pb-[26px] pt-[22px] text-center">
+        <div className="grid h-[86px] w-[86px] place-items-center rounded-full bg-[var(--accent)] text-[36px] font-bold text-white">I</div>
+        <h1 className="mb-[3px] mt-4 font-[var(--font-display)] text-[25px] font-bold tracking-[-0.03em]">Ivan</h1>
+        <div className="text-[14.5px] text-[var(--ink-3)]">Private sesh workspace</div>
+      </div>
+
+      <div className="px-[22px]">
+        <div className="mb-[22px] flex gap-3">
+          <MiniStat value={stats?.streak ?? 0} label="day streak" icon="flame" />
+          <MiniStat value={sessions.length} label="sessions" icon="check" />
+          <MiniStat value={fmtHM(totalMin)} label="focused" icon="timer" />
+        </div>
+        <Group label="Connected">
+          <Row icon="bell" title="Slack" sub="Auto-update status while focusing" right={<Toggle on onChange={() => {}} />} />
+          <Row icon="apple" title="Apple Health" sub="Mindful minutes" last right={<Toggle on={false} onChange={() => {}} />} />
+        </Group>
+        <div className="text-center text-[13px] text-[var(--ink-3)]">Member since 2024</div>
+      </div>
+    </div>
+  )
+}
+
+function MiniStat({ value, label, icon }: { value: string | number; label: string; icon: Parameters<typeof Icon>[0]['name'] }) {
+  return (
+    <div className="flex-1 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-3 py-4">
+      <Icon name={icon} size={18} color="var(--accent)" />
+      <div className="mt-2 text-[20px] font-bold tracking-[-0.03em]">{value}</div>
+      <div className="mt-1 text-[11.5px] text-[var(--ink-3)]">{label}</div>
+    </div>
   )
 }
 
 export default function Settings() {
   const { settings, updateSettings } = useSettings()
+  const { categories } = useCategories()
+  const [profile, setProfile] = useState(false)
+  const [catSheet, setCatSheet] = useState(false)
   const [calConnected, setCalConnected] = useState(false)
+  const [todoistConfigured, setTodoistConfigured] = useState(false)
   const [manualSyncBusy, setManualSyncBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
-    fetch('/api/auth/google/status')
-      .then(res => res.json())
-      .then(data => setCalConnected(data.connected))
-      .catch(() => setCalConnected(false))
+    fetch('/api/auth/google/status').then(res => res.json()).then(data => setCalConnected(!!data.connected)).catch(() => setCalConnected(false))
+    fetch('/api/todoist/status').then(res => res.ok ? res.json() : { configured: false }).then(data => setTodoistConfigured(!!data.configured)).catch(() => setTodoistConfigured(false))
   }, [])
 
-  const handleManualSync = async () => {
+  const manualSync = async () => {
     setManualSyncBusy(true)
     setSyncNotice(null)
     try {
@@ -174,17 +257,8 @@ export default function Settings() {
         body: JSON.stringify({ limit: 10 }),
       })
       const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.error ?? 'Sync failed')
-      }
-      if (data.failedCount > 0 && data.syncedCount === 0) {
-        throw new Error('All sessions failed to sync')
-      }
-      if (data.syncedCount === 0 && data.results?.length === 0) {
-        setSyncNotice({ type: 'success', message: 'All sessions already synced' })
-      } else {
-        setSyncNotice({ type: 'success', message: `Synced ${data.syncedCount} session(s)` })
-      }
+      if (!res.ok) throw new Error(data.error ?? 'Sync failed')
+      setSyncNotice({ type: 'success', message: data.syncedCount === 0 ? 'All sessions already synced' : `Synced ${data.syncedCount} session(s)` })
     } catch (err) {
       setSyncNotice({ type: 'error', message: err instanceof Error ? err.message : 'Sync failed' })
     } finally {
@@ -192,170 +266,95 @@ export default function Settings() {
     }
   }
 
+  if (profile) return <ProfileScreen onBack={() => setProfile(false)} />
+
   return (
-    <div className="px-5 pb-6 pt-6">
-      <h1 className="mb-7 text-3xl font-bold text-black dark:text-white">Settings</h1>
+    <div className="h-full overflow-y-auto pb-[calc(96px+var(--safe-b))]">
+      <ScreenHead title="Settings" />
+      <div className="px-[22px] py-4">
+        <button type="button" onClick={() => setProfile(true)} className="mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">
+          <div className="grid h-[52px] w-[52px] flex-shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[21px] font-bold text-white">I</div>
+          <div className="flex-1">
+            <div className="text-[17px] font-bold tracking-[-0.02em]">Ivan</div>
+            <div className="text-[13.5px] text-[var(--ink-3)]">Private sesh workspace</div>
+          </div>
+          <Icon name="chevron" size={18} color="var(--ink-3)" />
+        </button>
 
-      <div className="flex flex-col gap-6">
-        {/* Timer Durations */}
-        <div>
-          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Timer</BlockTitle>
-          <List strong inset>
-            <NumberRow
-              label="Focus duration"
-              value={settings.focusDuration}
-              min={1} max={120}
-              onChange={v => updateSettings({ focusDuration: v })}
+        <Group label="Timer">
+          <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={90} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
+          <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
+          <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" last right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
+        </Group>
+
+        <Group label="Categories">
+          {categories.map((category, i) => (
+            <Row
+              key={category.id}
+              title={category.label}
+              onClick={() => setCatSheet(true)}
+              last={i === categories.length - 1}
+              right={<span className="h-[18px] w-[18px] rounded-full" style={{ background: category.color }} />}
             />
-            <NumberRow
-              label="Rest duration"
-              value={settings.breakDuration}
-              min={1} max={60}
-              onChange={v => updateSettings({ breakDuration: v })}
-            />
-          </List>
+          ))}
+        </Group>
+        <div className="-mt-[10px] mb-[22px]">
+          <Btn full variant="soft" icon="plus" size="sm" onClick={() => setCatSheet(true)}>Manage categories</Btn>
         </div>
 
-        {/* Notifications */}
-        <div>
-          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Notifications</BlockTitle>
-          <List strong inset>
-            <ListItem
-              title={<span className="text-black dark:text-white">Sound</span>}
-              after={
-                <Toggle
-                  checked={settings.soundEnabled}
-                  onChange={() => updateSettings({ soundEnabled: !settings.soundEnabled })}
-                />
-              }
-            />
-            <ListItem
-              title={<span className="text-black dark:text-white">Keep screen awake</span>}
-              subtitle="Only while a session is running in this PWA"
-              after={
-                <Toggle
-                  checked={settings.keepScreenAwake}
-                  onChange={() => updateSettings({ keepScreenAwake: !settings.keepScreenAwake })}
-                />
-              }
-            />
-            <PushNotificationToggle />
-          </List>
-        </div>
+        <Group label="Integrations">
+          <Row icon="list" title="Todoist" sub={todoistConfigured ? 'Connected' : 'Not configured'} right={<Toggle on={todoistConfigured} disabled onChange={() => {}} />} />
+          <Row icon="check" title="Complete task on finish" sub="Tick off the task when a focus ends" right={<Toggle on={settings.todoistAutoComplete} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />} />
+          <Row
+            icon="calendar"
+            title="Google Calendar"
+            sub={calConnected ? 'Connected' : 'Not connected'}
+            right={calConnected ? <Btn size="sm" variant="soft" onClick={() => { window.location.href = '/api/auth/google/disconnect' }}>Disconnect</Btn> : <Btn size="sm" onClick={() => { window.location.href = '/api/auth/google' }}>Connect</Btn>}
+          />
+          {calConnected && <Row icon="sync" title="Auto-sync sessions" right={<Toggle on={settings.calendarSync} onChange={calendarSync => updateSettings({ calendarSync })} />} />}
+          {calConnected && <Row icon="cloud" title="Manual sync" sub="Sync recent unsynced sessions" last right={<Btn size="sm" variant="outline" disabled={manualSyncBusy} onClick={manualSync}>{manualSyncBusy ? 'Syncing...' : 'Sync'}</Btn>} />}
+        </Group>
+        {syncNotice && <p className={`-mt-4 mb-[22px] px-1 text-[13px] ${syncNotice.type === 'success' ? 'text-[#3F9142]' : 'text-[#C2615A]'}`}>{syncNotice.message}</p>}
 
-        {/* Integrations */}
-        <div>
-          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Integrations</BlockTitle>
-          <List strong inset>
-            <GoogleCalendarAuth connected={calConnected} onConnected={() => {
-              setCalConnected(true)
-              updateSettings({ calendarSync: true })
-            }} />
-            {calConnected && (
-              <ListItem
-                title={<span className="text-black dark:text-white">Auto-sync sessions</span>}
-                after={
-                  <Toggle
-                    checked={settings.calendarSync}
-                    onChange={() => updateSettings({ calendarSync: !settings.calendarSync })}
+        <Group label="Notifications">
+          <Row icon="sound" title="Sound" right={<Toggle on={settings.soundEnabled} onChange={soundEnabled => updateSettings({ soundEnabled })} />} />
+          <Row icon="shield" title="Keep screen awake" sub="Only while a session is running" right={<Toggle on={settings.keepScreenAwake} onChange={keepScreenAwake => updateSettings({ keepScreenAwake })} />} />
+          <PushNotificationToggle />
+        </Group>
+
+        <Group label="Appearance">
+          <Row icon={settings.darkMode ? 'moon' : 'sun'} title="Dark mode" right={<Toggle on={settings.darkMode} onChange={darkMode => updateSettings({ darkMode })} />} />
+          <Row
+            icon="circle"
+            title="Accent"
+            last
+            right={
+              <div className="flex gap-2">
+                {ACCENT_OPTIONS.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => updateSettings({ accentColor: color })}
+                    className="h-[24px] w-[24px] rounded-full p-0"
+                    style={{ background: color, border: settings.accentColor === color ? '2px solid var(--ink)' : '2px solid transparent' }}
                   />
-                }
-              />
-            )}
-            {calConnected && (
-              <ListItem
-                title={<span className="text-black dark:text-white">Manual sync</span>}
-                subtitle="Sync recent unsynced sessions"
-                after={
-                  <Button
-                    small
-                    rounded
-                    disabled={manualSyncBusy}
-                    onClick={handleManualSync}
-                  >
-                    {manualSyncBusy ? 'Syncing...' : 'Sync Now'}
-                  </Button>
-                }
-              />
-            )}
-          </List>
-          {syncNotice && (
-            <p className={`mt-2 px-4 text-sm ${syncNotice.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-              {syncNotice.message}
-            </p>
-          )}
-        </div>
+                ))}
+              </div>
+            }
+          />
+        </Group>
 
-        {/* Appearance */}
-        <div>
-          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Appearance</BlockTitle>
-          <List strong inset>
-            <ListItem
-              title={<span className="text-black dark:text-white">Dark mode</span>}
-              after={
-                <Toggle
-                  checked={settings.darkMode}
-                  onChange={() => updateSettings({ darkMode: !settings.darkMode })}
-                />
-              }
-            />
-          </List>
-        </div>
+        <Group label="Account">
+          <Row icon="sync" title="Sync" sub="Last synced just now" last right={<span className="text-[13px] font-semibold text-[var(--accent-ink)]">On</span>} />
+        </Group>
 
-        {/* Security */}
-        <div>
-          <BlockTitle className="!text-xs !font-semibold !uppercase !tracking-[0.06em] !text-gray-500 dark:!text-gray-400">Security</BlockTitle>
-          <List strong inset>
-            <ListItem
-              title={<span className="text-black dark:text-white">App session</span>}
-              subtitle="Sign out of this device"
-              after={
-                <Button small rounded onClick={() => { window.location.href = '/api/logout' }}>
-                  Log Out
-                </Button>
-              }
-            />
-          </List>
+        <div className="mt-1 flex flex-col gap-[10px]">
+          <Btn full variant="soft" onClick={() => { window.location.href = '/api/logout' }}>Sign out</Btn>
         </div>
+        <div className="mt-[14px] flex justify-center"><Wordmark size={18} /></div>
       </div>
-    </div>
-  )
-}
 
-function NumberRow({
-  label, value, min, max, onChange,
-}: {
-  label: string; value: number; min: number; max: number
-  onChange: (v: number) => void
-}) {
-  return (
-    <ListItem
-      title={<span className="text-black dark:text-white">{label}</span>}
-      after={
-        <div className="flex items-center gap-3">
-          <Button
-            small
-            outline
-            rounded
-            onClick={() => onChange(Math.max(min, value - 1))}
-            className="!h-8 !w-8 !p-0"
-          >
-            −
-          </Button>
-          <span className="w-12 text-center font-mono text-sm text-black dark:text-white">
-            {value}m
-          </span>
-          <Button
-            small
-            outline
-            rounded
-            onClick={() => onChange(Math.min(max, value + 1))}
-            className="!h-8 !w-8 !p-0"
-          >
-            +
-          </Button>
-        </div>
-      }
-    />
+      <CategorySheet open={catSheet} onClose={() => setCatSheet(false)} />
+    </div>
   )
 }

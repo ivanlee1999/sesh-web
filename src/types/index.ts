@@ -22,6 +22,7 @@ export interface Session {
   startedAt: number
   endedAt: number
   notes: string
+  rating?: number
   todoistTaskId?: string | null
 }
 
@@ -31,6 +32,12 @@ export interface TodoistTask {
   duration: { amount: number; unit: 'minute' } | null
   labels: string[]
   priority: number
+  projectId?: string | null
+  projectName?: string
+  due?: 'today' | 'tomorrow' | 'upcoming' | null
+  dueLabel?: string | null
+  category?: string | null
+  completed?: boolean
 }
 
 export interface AppSettings {
@@ -40,6 +47,9 @@ export interface AppSettings {
   calendarSync: boolean
   darkMode: boolean
   keepScreenAwake: boolean
+  autoStartBreak: boolean
+  todoistAutoComplete: boolean
+  accentColor: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -49,4 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   calendarSync: false,
   darkMode: false,
   keepScreenAwake: true,
+  autoStartBreak: true,
+  todoistAutoComplete: true,
+  accentColor: '#BE6E45',
 }

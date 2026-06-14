@@ -152,6 +152,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  if (!TODOIST_SECRET) {
+    return NextResponse.next()
+  }
+
   const existing = request.cookies.get(COOKIE_NAME)?.value
   if (existing && (await isValidTodoistToken(existing))) {
     return NextResponse.next()

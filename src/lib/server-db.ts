@@ -82,6 +82,7 @@ function initSchema(d: Database.Database) {
 
   // Migrations: add todoist_task_id to sessions and timer_state
   ensureColumn(d, 'sessions', 'todoist_task_id', 'todoist_task_id TEXT')
+  ensureColumn(d, 'sessions', 'rating', 'rating INTEGER NOT NULL DEFAULT 0')
   ensureColumn(d, 'timer_state', 'todoist_task_id', 'todoist_task_id TEXT')
   ensureColumn(d, 'timer_state', 'notification_count', 'notification_count INTEGER NOT NULL DEFAULT 0')
 
@@ -110,18 +111,49 @@ function initSchema(d: Database.Database) {
   const count = d.prepare('SELECT COUNT(*) as cnt FROM categories').get() as { cnt: number }
   if (count.cnt === 0) {
     const insert = d.prepare(
-      'INSERT INTO categories (id, name, label, color, sort_order, is_default) VALUES (?, ?, ?, ?, ?, 1)'
+      'INSERT INTO categories (id, name, label, color, sort_order, is_default) VALUES (?, ?, ?, ?, ?, ?)'
     )
     const defaults = [
-      ['development', 'Development', '#3b82f6', 0],
-      ['writing', 'Writing', '#8b5cf6', 1],
-      ['design', 'Design', '#ec4899', 2],
-      ['learning', 'Learning', '#f59e0b', 3],
-      ['exercise', 'Exercise', '#10b981', 4],
-      ['other', 'Other', '#6b7280', 5],
+      ['deep', 'Deep Work', '#BE6E45', 0, 1],
+      ['writing', 'Writing', '#6E86B0', 1, 0],
+      ['study', 'Study', '#7E9476', 2, 0],
+      ['reading', 'Reading', '#C8943A', 3, 0],
+      ['design', 'Design', '#9B6F8C', 4, 0],
     ] as const
-    for (const [name, label, color, order] of defaults) {
-      insert.run(crypto.randomUUID(), name, label, color, order)
+    for (const [name, label, color, order, isDefault] of defaults) {
+      insert.run(crypto.randomUUID(), name, label, color, order, isDefault)
     }
   }
+
+  migrateLegacyDefaultCategories(d)
+}
+
+function migrateLegacyDefaultCategories(d: Database.Database) {
+  const rows = d.prepare('SELECT name FROM categories ORDER BY name').all() as Array<{ name: string }>
+  const legacyNames = ['design', 'development', 'exercise', 'learning', 'other', 'writing']
+  const isExactLegacySet = rows.length === legacyNames.length
+    && rows.every((row, index) => row.name === legacyNames[index])
+
+  if (!isExactLegacySet) return
+
+  const update = d.prepare(`
+    UPDATE categories
+    SET label = ?, color = ?, sort_order = ?, is_default = ?
+    WHERE name = ?
+  `)
+  const legacyHandoffDefaults = [
+    ['development', 'Deep Work', '#BE6E45', 0, 1],
+    ['writing', 'Writing', '#6E86B0', 1, 0],
+    ['learning', 'Study', '#7E9476', 2, 0],
+    ['design', 'Design', '#9B6F8C', 3, 0],
+    ['exercise', 'Movement', '#5E9AA0', 4, 0],
+    ['other', 'Admin', '#8A7B5C', 5, 0],
+  ] as const
+
+  const migrate = d.transaction(() => {
+    for (const [name, label, color, sortOrder, isDefault] of legacyHandoffDefaults) {
+      update.run(label, color, sortOrder, isDefault, name)
+    }
+  })
+  migrate()
 }

@@ -1,33 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
-// Card import removed — using native divs for stat cards
+
+import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
-
-function msToHM(ms: number): string {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  if (h === 0) return `${m}m`
-  return `${h}h ${m}m`
-}
-
-function startOfDay(d: Date): number {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x.getTime()
-}
-
-const PALETTE = [
-  'bg-blue-500',
-  'bg-emerald-500',
-  'bg-amber-500',
-  'bg-rose-500',
-  'bg-cyan-500',
-  'bg-violet-500',
-  'bg-pink-500',
-  'bg-teal-500',
-]
+import { Icon, ScreenHead, fmtHM, msToHM, tint } from './sesh-ui'
 
 interface ServerAnalytics {
   todayMs: number
@@ -36,15 +13,27 @@ interface ServerAnalytics {
   days: { label: string; ms: number }[]
 }
 
+function StatCard({ value, label, icon, accent }: { value: string | number; label: string; icon: Parameters<typeof Icon>[0]['name']; accent?: boolean }) {
+  return (
+    <div className="flex-1 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[17px] py-4">
+      <Icon name={icon} size={19} color={accent ? 'var(--accent)' : 'var(--ink-3)'} />
+      <div className="mt-3 text-[27px] font-bold leading-none tracking-[-0.035em] [font-variant-numeric:tabular-nums]">{value}</div>
+      <div className="mt-[5px] text-[12.5px] text-[var(--ink-3)]">{label}</div>
+    </div>
+  )
+}
+
 export default function Analytics() {
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [serverStats, setServerStats] = useState<ServerAnalytics | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
   const { categories } = useCategories()
+  const [stats, setStats] = useState<ServerAnalytics | null>(null)
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [selected, setSelected] = useState(6)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const load = async () => {
+    let cancelled = false
+    async function load() {
       setLoading(true)
       setError(null)
       try {
@@ -52,198 +41,117 @@ export default function Analytics() {
           fetch('/api/analytics'),
           fetch('/api/sessions'),
         ])
-
-        if (!analyticsRes.ok || !sessionsRes.ok) {
-          throw new Error('Failed to load analytics')
+        if (!analyticsRes.ok || !sessionsRes.ok) throw new Error('Failed to load insights')
+        const [analytics, sessionData] = await Promise.all([analyticsRes.json(), sessionsRes.json()])
+        if (!cancelled) {
+          setStats(analytics)
+          setSessions(sessionData)
         }
-
-        setServerStats(await analyticsRes.json())
-        setSessions(await sessionsRes.json())
       } catch {
-        setError('Failed to load analytics data. Please try again.')
+        if (!cancelled) setError('Failed to load insights.')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
+    return () => { cancelled = true }
   }, [])
 
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
-        <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
-        <div className="py-16 text-center text-gray-400">
-          <p className="text-sm">Loading…</p>
-        </div>
-      </div>
-    )
-  }
+  const days = stats?.days ?? []
+  const maxMs = Math.max(60 * 60000, ...days.map(day => day.ms))
+  const weekTotalMs = days.reduce((sum, day) => sum + day.ms, 0)
 
-  if (error) {
-    return (
-      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
-        <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
-      </div>
-    )
-  }
+  const categoryRows = useMemo(() => {
+    const weekStart = Date.now() - 6 * 24 * 60 * 60 * 1000
+    const focus = sessions.filter(session => session.type === 'focus' && session.startedAt >= weekStart)
+    const grouped = new Map<string, number>()
+    for (const session of focus) {
+      grouped.set(session.category, (grouped.get(session.category) ?? 0) + session.actualMs)
+    }
+    const rows = Array.from(grouped.entries()).map(([name, ms]) => ({
+      name,
+      ms,
+      ...getCategoryMeta(name, categories),
+    }))
+    return rows.sort((a, b) => b.ms - a.ms)
+  }, [categories, sessions])
 
-  const todayMs = serverStats?.todayMs ?? 0
-  const todayCount = serverStats?.todayCount ?? 0
-  const streak = serverStats?.streak ?? 0
-  const days = serverStats?.days ?? []
-
-  const maxMs = Math.max(...days.map(d => d.ms), 1)
-
-  // Category breakdown (focus only)
-  const focusSessions = sessions.filter(s => s.type === 'focus')
-  const totalFocusMs = focusSessions.reduce((a, s) => a + s.actualMs, 0)
-  const groupedByCategory: Record<string, number> = {}
-  for (const s of focusSessions) {
-    groupedByCategory[s.category] = (groupedByCategory[s.category] ?? 0) + s.actualMs
-  }
-  const catBreakdown = Object.entries(groupedByCategory)
-    .map(([name, ms]) => {
-      const meta = getCategoryMeta(name, categories)
-      return { name, ms, pct: totalFocusMs ? Math.round((ms / totalFocusMs) * 100) : 0, ...meta }
-    })
-    .sort((a, b) => b.ms - a.ms)
-
-  const isEmpty = todayMs === 0 && todayCount === 0 && sessions.length === 0
-
-  if (isEmpty) {
-    return (
-      <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
-        <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
-        <div className="py-16 text-center text-gray-400">
-          <p className="text-lg">Start tracking to see your stats</p>
-        </div>
-      </div>
-    )
-  }
+  const catMax = Math.max(1, ...categoryRows.map(row => row.ms))
+  const topColor = categoryRows[0]?.color ?? 'var(--accent)'
+  const totalFocusMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="flex flex-col gap-6 px-4 pb-6 pt-16 md:pt-20">
-      <h1 className="text-xl font-semibold text-black dark:text-white">Analytics</h1>
+    <div className="h-full overflow-y-auto pb-[calc(110px+var(--safe-b))]">
+      <ScreenHead title="Insights" sub="Last 7 days" />
 
-      {/* Today summary */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-emerald-500">{msToHM(todayMs)}</div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Today</div>
-          </div>
-        </div>
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-blue-500">{todayCount}</div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Sessions</div>
-          </div>
-        </div>
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-amber-500">{streak}</div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">Day streak</div>
-          </div>
-        </div>
-      </div>
+      <div className="flex flex-col gap-[14px] px-[22px] py-[14px]">
+        {error && <div className="rounded-[var(--r-lg)] border border-[#C2615A]/20 bg-[#C2615A]/10 p-4 text-[14px] text-[#C2615A]">{error}</div>}
+        {loading ? (
+          <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 text-center text-[14px] text-[var(--ink-3)]">Loading insights...</div>
+        ) : (
+          <>
+            <div className="flex gap-3">
+              <StatCard value={stats?.streak ?? 0} label="day streak" icon="flame" accent />
+              <StatCard value={msToHM(stats?.todayMs ?? 0)} label="focused today" icon="timer" />
+            </div>
 
-      {/* 7-day bar chart */}
-      {days.length > 0 && (
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-          <h2 className="mb-4 text-sm font-medium text-gray-700 dark:text-gray-300">Last 7 Days</h2>
-          <div className="flex h-24 items-end gap-2">
-            {days.map((d, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-t-md bg-[#007AFF] transition-all"
-                  style={{ height: `${(d.ms / maxMs) * 88}px`, minHeight: d.ms > 0 ? 4 : 0 }}
-                  title={msToHM(d.ms)}
-                />
-                <span className="text-xs text-gray-400">{d.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Category breakdown */}
-      {catBreakdown.length > 0 && (
-        <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-          <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">Categories</h2>
-          <div className="flex flex-col gap-2">
-            {catBreakdown.map(({ name, ms, pct, label, color: catColor }) => {
-              return (
-                <div key={name} className="flex items-center gap-2">
-                  <div
-                    className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                    style={{ backgroundColor: catColor }}
-                  />
-                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{label}</span>
-                  <span className="text-xs text-gray-500">{msToHM(ms)}</span>
-                  <div className="h-1.5 w-20 rounded-full bg-gray-100 dark:bg-gray-700">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{ width: `${pct}%`, backgroundColor: catColor }}
-                    />
-                  </div>
-                  <span className="w-8 text-right text-xs text-gray-400">{pct}%</span>
+            <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 pb-4 pt-5">
+              <div className="mb-[18px] flex items-baseline justify-between">
+                <div>
+                  <div className="text-[22px] font-bold tracking-[-0.03em]">{msToHM(weekTotalMs)}</div>
+                  <div className="mt-0.5 text-[12.5px] text-[var(--ink-3)]">this week</div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+                {days[selected] && (
+                  <div className="text-right">
+                    <div className="text-[13.5px] font-semibold text-[var(--ink-2)] [font-variant-numeric:tabular-nums]">{msToHM(days[selected].ms)}</div>
+                    <div className="text-[12px] text-[var(--ink-3)]">{days[selected].label}</div>
+                  </div>
+                )}
+              </div>
+              <div className="flex h-[132px] items-end gap-2">
+                {days.map((day, i) => (
+                  <button key={`${day.label}-${i}`} type="button" onClick={() => setSelected(i)} className="flex h-full flex-1 cursor-pointer flex-col items-center justify-end gap-2 border-0 bg-transparent p-0">
+                    <span
+                      className="w-full max-w-[30px] rounded-[7px] transition-[height]"
+                      style={{
+                        height: Math.max(5, (day.ms / maxMs) * 104),
+                        background: i === selected ? topColor : day.ms ? tint(topColor, 38) : 'var(--surface-2)',
+                      }}
+                    />
+                    <span className="text-[11.5px]" style={{ fontWeight: i === selected ? 700 : 500, color: i === selected ? 'var(--ink)' : 'var(--ink-3)' }}>
+                      {day.label.slice(0, 1)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      {/* Daily timeline */}
-      <DailyTimeline sessions={sessions} />
-    </div>
-  )
-}
+            <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 pb-1.5 pt-[18px]">
+              <div className="mb-4 text-[13px] uppercase tracking-[0.07em] text-[var(--ink-3)]">By category</div>
+              {categoryRows.length > 0 ? categoryRows.map(row => (
+                <div key={row.name} className="mb-4">
+                  <div className="mb-[7px] flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-[14.5px] font-semibold">
+                      <span className="h-[9px] w-[9px] rounded-full" style={{ background: row.color }} />
+                      {row.label}
+                    </span>
+                    <span className="text-[13.5px] text-[var(--ink-2)] [font-variant-numeric:tabular-nums]">{msToHM(row.ms)}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                    <div className="h-full rounded-full" style={{ width: `${(row.ms / catMax) * 100}%`, background: row.color }} />
+                  </div>
+                </div>
+              )) : (
+                <div className="pb-[14px] text-[14px] text-[var(--ink-3)]">No sessions yet this week.</div>
+              )}
+            </div>
 
-function DailyTimeline({ sessions }: { sessions: Session[] }) {
-  const today = startOfDay(new Date())
-  const todaySessions = sessions.filter(s => s.startedAt >= today && s.startedAt < today + 86400000)
-
-  const START_HOUR = 8
-  const END_HOUR = 23
-  const totalMinutes = (END_HOUR - START_HOUR) * 60
-
-  if (todaySessions.length === 0) return null
-
-  return (
-    <div className="rounded-xl bg-white p-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:bg-[#1C1C1E]">
-      <h2 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">Today&apos;s Timeline</h2>
-      <div className="relative h-12 overflow-hidden rounded-lg bg-gray-50 dark:bg-gray-900">
-        {todaySessions.map((s, index) => {
-          const startMin = (new Date(s.startedAt).getHours() - START_HOUR) * 60 + new Date(s.startedAt).getMinutes()
-          const durMin = s.actualMs / 60000
-          const left = Math.max(0, (startMin / totalMinutes) * 100)
-          const width = Math.min(100 - left, (durMin / totalMinutes) * 100)
-          return (
-            <div
-              key={s.id}
-              className={`absolute bottom-2 top-2 rounded opacity-80 ${PALETTE[index % PALETTE.length]}`}
-              style={{
-                left: `${left}%`,
-                width: `${Math.max(width, 0.5)}%`,
-              }}
-              title={`${s.intention || s.type} — ${Math.round(s.actualMs / 60000)}m`}
-            />
-          )
-        })}
-        {/* Hour labels */}
-        {[8, 12, 16, 20].map(h => (
-          <span
-            key={h}
-            className="absolute top-0 text-xs text-gray-300 dark:text-gray-600"
-            style={{ left: `${((h - START_HOUR) / (END_HOUR - START_HOUR)) * 100}%` }}
-          >
-            {h}
-          </span>
-        ))}
+            <div className="flex gap-3">
+              <StatCard value={sessions.length} label="total sessions" icon="check" />
+              <StatCard value={fmtHM(totalFocusMin)} label="lifetime focus" icon="chart" />
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

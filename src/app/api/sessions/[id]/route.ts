@@ -13,6 +13,7 @@ interface SessionRow {
   started_at: number
   ended_at: number
   notes: string
+  rating: number
   todoist_task_id: string | null
   google_event_id: string
   is_synced: number
@@ -30,6 +31,7 @@ function rowToJson(row: SessionRow) {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     notes: row.notes,
+    rating: row.rating ?? 0,
     todoistTaskId: row.todoist_task_id,
   }
 }
@@ -54,12 +56,13 @@ export async function PATCH(
     const intention = normalizeText(body.intention, existing.intention)
     const category = normalizeText(body.category, existing.category) || existing.category || 'other'
     const notes = typeof body.notes === 'string' ? body.notes.trim() : existing.notes
+    const rating = body.rating === undefined ? existing.rating : Math.max(0, Math.min(5, Number(body.rating) || 0))
 
     db.prepare(`
       UPDATE sessions
-      SET intention = ?, category = ?, notes = ?
+      SET intention = ?, category = ?, notes = ?, rating = ?
       WHERE id = ?
-    `).run(intention, category, notes, params.id)
+    `).run(intention, category, notes, rating, params.id)
 
     const updated = db.prepare('SELECT * FROM sessions WHERE id = ?').get(params.id) as SessionRow
     const calendar = await syncSessionToGoogleCalendar({

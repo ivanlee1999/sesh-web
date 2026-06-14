@@ -1,20 +1,10 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { DEFAULT_SETTINGS, type AppSettings } from '@/types'
+import { mixHex } from '@/components/sesh-ui'
 
-export const THEME_COLOR_LIGHT = '#FFFFFF'
-export const THEME_COLOR_DARK = '#1c1c1e'
-
-function getStoredSettings(): AppSettings {
-  if (typeof window === 'undefined') return DEFAULT_SETTINGS
-  try {
-    const stored = localStorage.getItem('sesh-settings')
-    if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) }
-    }
-  } catch { /* ignore */ }
-  return DEFAULT_SETTINGS
-}
+export const THEME_COLOR_LIGHT = '#F4F1EA'
+export const THEME_COLOR_DARK = '#15120D'
 
 interface SettingsContextType {
   settings: AppSettings
@@ -27,7 +17,7 @@ const SettingsContext = createContext<SettingsContextType>({
 })
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<AppSettings>(getStoredSettings)
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
   // Load settings: server first, then merge with localStorage
   useEffect(() => {
@@ -54,11 +44,21 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     load()
   }, [])
 
-  // Apply dark mode class, color-scheme, and browser chrome color whenever settings change
+  // Apply theme tokens and browser chrome color whenever settings change.
   useEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', settings.darkMode)
+    root.dataset.theme = settings.darkMode ? 'dark' : 'light'
     root.style.colorScheme = settings.darkMode ? 'dark' : 'light'
+    root.style.setProperty('--accent', settings.accentColor)
+    root.style.setProperty(
+      '--accent-soft',
+      mixHex(settings.accentColor, settings.darkMode ? '#15120D' : '#F4F1EA', 0.16),
+    )
+    root.style.setProperty(
+      '--accent-ink',
+      mixHex(settings.accentColor, settings.darkMode ? '#F1ECE2' : '#211E18', settings.darkMode ? 0.82 : 0.74),
+    )
 
     // Update theme-color meta tag for browser/PWA chrome
     const themeColor = settings.darkMode ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
@@ -71,7 +71,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       meta.content = themeColor
       document.head.appendChild(meta)
     }
-  }, [settings.darkMode])
+  }, [settings.darkMode, settings.accentColor])
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {
     setSettings(prev => {

@@ -25,7 +25,6 @@ export function getCategoryMeta(
 }
 
 export const CATEGORY_PALETTE = [
-  '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899',
-  '#ef4444', '#f97316', '#f59e0b', '#84cc16',
-  '#10b981', '#14b8a6', '#06b6d4', '#6b7280',
+  '#BE6E45', '#C8943A', '#7E9476', '#6E86B0',
+  '#9B6F8C', '#C2615A', '#5E9AA0', '#8A7B5C',
 ]

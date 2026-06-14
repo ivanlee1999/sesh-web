@@ -88,6 +88,7 @@ export interface QueuedSession {
   startedAt: number
   endedAt: number
   notes: string
+  rating?: number
   todoistTaskId: string | null
   queuedAt: number
 }

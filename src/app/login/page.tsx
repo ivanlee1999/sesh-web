@@ -21,10 +21,10 @@ export default async function LoginPage({
   const authConfig = getAppAuthConfig(process.env)
   if (!authConfig) {
     return (
-      <main className="min-h-screen bg-gray-50 px-6 py-10 text-gray-900 dark:bg-black dark:text-white">
-        <div className="mx-auto max-w-md rounded-3xl bg-white p-6 shadow-sm dark:bg-neutral-900">
-          <h1 className="text-2xl font-semibold">Authentication is not configured</h1>
-          <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+      <main className="min-h-screen bg-[var(--bg)] px-6 py-10 text-[var(--ink)]">
+        <div className="mx-auto max-w-md rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-md)]">
+          <h1 className="text-2xl font-semibold tracking-[-0.03em]">Authentication is not configured</h1>
+          <p className="mt-3 text-sm leading-normal text-[var(--ink-2)]">
             Set <code>APP_AUTH_USERNAME</code> and <code>APP_AUTH_PASSWORD</code> (or the legacy
             <code> BASIC_AUTH_USERNAME</code> / <code>BASIC_AUTH_PASSWORD</code>) plus
             <code> NEXTAUTH_SECRET</code> before exposing this app publicly.
@@ -45,14 +45,20 @@ export default async function LoginPage({
   const showError = searchParams?.error === '1'
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-6 py-10 dark:bg-black">
-      <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-sm dark:bg-neutral-900">
-        <div className="mb-6">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400">
+    <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-6 py-10 text-[var(--ink)]">
+      <div className="w-full max-w-sm rounded-[28px] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_8px_28px_rgba(40,30,18,0.10),0_2px_6px_rgba(40,30,18,0.04)]">
+        <div className="mb-7">
+          <div className="mb-5 flex items-center gap-[9px]">
+            <span className="relative block h-[22px] w-[22px] rounded-[7px] bg-[var(--accent)]">
+              <span className="absolute inset-[28%] rounded-full border-2 border-[var(--bg)]" />
+            </span>
+            <span className="font-[var(--font-display)] text-[21px] font-bold tracking-[-0.04em]">sesh</span>
+          </div>
+          <p className="text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--accent-ink)]">
             sesh
           </p>
-          <h1 className="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">Sign in</h1>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+          <h1 className="mt-2 font-[var(--font-display)] text-[30px] font-bold tracking-[-0.04em]">Sign in</h1>
+          <p className="mt-2 text-[15px] leading-normal text-[var(--ink-2)]">
             This app is private. Sign in to open the PWA and its API routes.
           </p>
         </div>
@@ -61,35 +67,35 @@ export default async function LoginPage({
           <input type="hidden" name="next" value={nextPath} />
 
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Username</span>
+            <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Username</span>
             <input
               name="username"
               autoComplete="username"
               required
-              className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-gray-500 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
+              className="w-full rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200">Password</span>
+            <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Password</span>
             <input
               name="password"
               type="password"
               autoComplete="current-password"
               required
-              className="w-full rounded-2xl border border-gray-300 bg-white px-4 py-3 text-base text-gray-900 outline-none transition focus:border-gray-500 dark:border-neutral-700 dark:bg-neutral-950 dark:text-white"
+              className="w-full rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--ink)] outline-none transition focus:border-[var(--accent)]"
             />
           </label>
 
           {showError && (
-            <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+            <p className="rounded-[var(--r-md)] bg-[#C2615A]/10 px-4 py-3 text-sm text-[#C2615A]">
               Incorrect username or password.
             </p>
           )}
 
           <button
             type="submit"
-            className="w-full rounded-2xl bg-gray-900 px-4 py-3 text-base font-medium text-white transition hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="w-full rounded-[var(--r-pill)] bg-[var(--ink)] px-4 py-[15px] text-base font-semibold tracking-[-0.01em] text-[var(--bg)] transition active:scale-[0.98]"
           >
             Sign in
           </button>

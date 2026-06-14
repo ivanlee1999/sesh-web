@@ -68,8 +68,8 @@ export async function POST(request: Request) {
 
     const insertSession = db.prepare(`
       INSERT OR IGNORE INTO sessions
-        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, todoist_task_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, rating, todoist_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const result = db.transaction(() => {
@@ -102,6 +102,7 @@ export async function POST(request: Request) {
         row.started_at,
         endedAt,
         body.notes ?? '',
+        Math.max(0, Math.min(5, Number(body.rating) || 0)),
         row.todoist_task_id,
       )
 
@@ -120,6 +121,8 @@ export async function POST(request: Request) {
           overflowMs,
           startedAt: row.started_at,
           endedAt,
+          notes: body.notes ?? '',
+          rating: Math.max(0, Math.min(5, Number(body.rating) || 0)),
         },
       }
     })()

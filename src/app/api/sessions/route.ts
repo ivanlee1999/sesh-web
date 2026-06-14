@@ -14,6 +14,7 @@ interface SessionRow {
   started_at: number
   ended_at: number
   notes: string
+  rating: number
   todoist_task_id: string | null
 }
 
@@ -29,6 +30,7 @@ function rowToJson(row: SessionRow) {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     notes: row.notes,
+    rating: row.rating ?? 0,
     todoistTaskId: row.todoist_task_id,
   }
 }
@@ -49,8 +51,8 @@ export async function POST(request: Request) {
     const body = await request.json()
     db.prepare(`
       INSERT OR IGNORE INTO sessions
-        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, todoist_task_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, rating, todoist_task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       body.id,
       body.intention ?? '',
@@ -62,6 +64,7 @@ export async function POST(request: Request) {
       body.startedAt,
       body.endedAt,
       body.notes ?? '',
+      Number(body.rating) || 0,
       body.todoistTaskId ?? null,
     )
 

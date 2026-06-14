@@ -49,10 +49,29 @@ export interface TodoistTaskRaw {
   duration: { amount: number; unit: string } | null
   labels: string[]
   priority: number
+  project_id?: string | null
+  projectId?: string | null
+  due?: {
+    date?: string
+    datetime?: string
+    string?: string
+    is_recurring?: boolean
+  } | null
+  completed?: boolean
 }
 
-export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
-  const url = `${TODOIST_BASE_URL}/tasks/filter?query=${encodeURIComponent('today | overdue')}`
+export interface TodoistProjectRaw {
+  id: string
+  name: string
+}
+
+async function readTaskArray(res: Response): Promise<TodoistTaskRaw[]> {
+  const data = await res.json()
+  return (data.results ?? data) as TodoistTaskRaw[]
+}
+
+export async function listTasksByFilter(query: string): Promise<TodoistTaskRaw[]> {
+  const url = `${TODOIST_BASE_URL}/tasks/filter?query=${encodeURIComponent(query)}`
   const res = await fetch(url, {
     headers: authHeaders(),
     cache: 'no-store',
@@ -60,9 +79,34 @@ export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
   if (!res.ok) {
     throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
   }
+  return readTaskArray(res)
+}
+
+export async function listTodayTasks(): Promise<TodoistTaskRaw[]> {
+  return listTasksByFilter('today | overdue')
+}
+
+export async function listActiveTasks(): Promise<TodoistTaskRaw[]> {
+  const res = await fetch(`${TODOIST_BASE_URL}/tasks`, {
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
+  }
+  return readTaskArray(res)
+}
+
+export async function listProjects(): Promise<TodoistProjectRaw[]> {
+  const res = await fetch(`${TODOIST_BASE_URL}/projects`, {
+    headers: authHeaders(),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    throw new Error(`Todoist API error: ${res.status} ${res.statusText}`)
+  }
   const data = await res.json()
-  // v1 returns { results: [...] }
-  return (data.results ?? data) as TodoistTaskRaw[]
+  return (data.results ?? data) as TodoistProjectRaw[]
 }
 
 export async function getTask(id: string): Promise<TodoistTaskRaw> {

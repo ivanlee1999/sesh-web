@@ -99,8 +99,9 @@ describe('getCategoryMeta', () => {
 // ── CATEGORY_PALETTE ────────────────────────────────────────────────────
 
 describe('CATEGORY_PALETTE', () => {
-  it('has 12 colors', () => {
-    expect(CATEGORY_PALETTE).toHaveLength(12)
+  it('has the handoff color set', () => {
+    expect(CATEGORY_PALETTE).toHaveLength(8)
+    expect(CATEGORY_PALETTE.slice(0, 4)).toEqual(['#BE6E45', '#C8943A', '#7E9476', '#6E86B0'])
   })
 
   it('all values are valid hex colors', () => {

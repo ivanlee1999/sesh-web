@@ -4,23 +4,29 @@ import { App } from 'konsta/react'
 import { useSettings } from '@/context/SettingsContext'
 import { ensurePushSubscription } from '@/lib/push-client'
 import Timer from './Timer'
-import History from './History'
+import Tasks, { type PendingFocus } from './Tasks'
+import Calendar from './Calendar'
 import Analytics from './Analytics'
-import Categories from './Categories'
 import Settings from './Settings'
+import Onboarding from './Onboarding'
 import TabBar, { type AppTab } from './TabBar'
 
-const tabs: { id: AppTab; Component: () => JSX.Element; scrollable: boolean }[] = [
-  { id: 'timer', Component: Timer, scrollable: false },
-  { id: 'history', Component: History, scrollable: true },
-  { id: 'analytics', Component: Analytics, scrollable: true },
-  { id: 'categories', Component: Categories, scrollable: true },
-  { id: 'settings', Component: Settings, scrollable: true },
-]
+const ONBOARDED_KEY = 'sesh:onboarded'
 
 export default function AppLayout() {
+  const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
+  const [immersive, setImmersive] = useState(false)
+  const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
+  const [onboarded, setOnboarded] = useState(true)
   const { settings } = useSettings()
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    setActiveTab(tab === 'settings' ? 'settings' : 'timer')
+    setOnboarded(localStorage.getItem(ONBOARDED_KEY) === '1')
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
@@ -37,23 +43,54 @@ export default function AppLayout() {
       })
   }, [])
 
+  const finishOnboarding = () => {
+    localStorage.setItem(ONBOARDED_KEY, '1')
+    setOnboarded(true)
+  }
+
+  const focusTask = (payload: PendingFocus) => {
+    setPendingFocus(payload)
+    setImmersive(false)
+    setActiveTab('timer')
+  }
+
+  const clearPendingFocus = () => setPendingFocus(null)
+
+  const renderTab = (id: AppTab) => {
+    if (id === 'timer') {
+      return <Timer onImmersive={setImmersive} pendingFocus={pendingFocus} clearPendingFocus={clearPendingFocus} />
+    }
+    if (id === 'tasks') return <Tasks onFocusTask={focusTask} />
+    if (id === 'calendar') return <Calendar />
+    if (id === 'insights') return <Analytics />
+    return <Settings />
+  }
+
   return (
     <App theme="ios" dark={settings.darkMode} safeAreas>
       <div className="app-shell">
-        <div className="app-content">
-          {tabs.map(({ id, Component, scrollable }) => (
-            <section
-              key={id}
-              data-active={activeTab === id}
-              data-scroll={scrollable}
-              className="app-tabpanel"
-            >
-              <Component />
-            </section>
-          ))}
-        </div>
+        {!mounted ? (
+          <div className="app-content" />
+        ) : !onboarded ? (
+          <Onboarding onDone={finishOnboarding} />
+        ) : (
+          <>
+            <div className="app-content">
+              {(['timer', 'tasks', 'calendar', 'insights', 'settings'] as AppTab[]).map(id => (
+                <section
+                  key={id}
+                  data-active={activeTab === id}
+                  data-scroll={id !== 'timer'}
+                  className="app-tabpanel"
+                >
+                  {renderTab(id)}
+                </section>
+              ))}
+            </div>
 
-        <TabBar activeTab={activeTab} onChange={setActiveTab} />
+            {!immersive && <TabBar activeTab={activeTab} onChange={setActiveTab} />}
+          </>
+        )}
       </div>
     </App>
   )
