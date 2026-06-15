@@ -6,9 +6,10 @@
   :root {
     --app-viewport-height: 100dvh;
     --tabbar-height: 82px;
-    --tabbar-reserved-height: calc(112px + var(--safe-b));
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
+    --tabbar-bottom-offset: max(10px, var(--safe-b));
+    --tabbar-reserved-height: calc(var(--tabbar-height) + var(--tabbar-bottom-offset) + 14px);
 
     --bg: #F4F1EA;
     --surface: #FBFAF6;
@@ -106,12 +107,13 @@
   }
 
   .tabbar-frosted {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    position: fixed;
+    left: 50%;
+    bottom: var(--tabbar-bottom-offset);
+    transform: translateX(-50%);
+    width: min(100%, 480px);
     z-index: 100;
-    padding: 0 12px calc(12px + var(--safe-b));
+    padding: 0 12px;
     pointer-events: none;
   }
 
