@@ -526,7 +526,7 @@ export default function Timer({
   const isFocus = sessionType === 'focus'
   const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
   const remainingSec = Math.ceil(remainingMs / 1000)
-  const idleRingSize = sortedCategories.length > 4 ? 236 : 272
+  const idleRingSize = sortedCategories.length > 4 ? 220 : 244
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
@@ -812,10 +812,10 @@ export default function Timer({
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden px-[22px] pt-[calc(58px+var(--safe-t))]">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden px-[22px] pt-[calc(24px+var(--safe-t))]">
       <div className="flex flex-shrink-0 items-start justify-between">
         <div>
-          <div className="text-[14px] text-[var(--ink-3)]">{greeting},</div>
+          <div className="text-[13px] text-[var(--ink-3)]">{greeting},</div>
           <div className="font-[var(--font-display)] text-[26px] font-bold tracking-[-0.035em]">Ivan</div>
         </div>
         <div className="flex items-center gap-[7px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-2">
@@ -824,7 +824,7 @@ export default function Timer({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto pb-3 pt-4">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-hidden pb-2 pt-3">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
         <Ring progress={0} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
           <div className="text-[68px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
@@ -833,7 +833,7 @@ export default function Timer({
 
         {isFocus && (
           <div className="flex w-full max-w-[340px] flex-col gap-3">
-            <div data-testid="timer-category-selector" className="hide-scrollbar flex max-h-[88px] flex-wrap justify-center gap-2 overflow-y-auto px-0.5 py-0.5">
+            <div data-testid="timer-category-selector" className="hide-scrollbar flex max-h-[76px] flex-wrap justify-center gap-2 overflow-y-auto px-0.5 py-0.5">
               {sortedCategories.map(cat => (
                 <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
                   setCategory(cat.name)
@@ -878,7 +878,7 @@ export default function Timer({
         )}
       </div>
 
-      <div className="flex-shrink-0 pb-[var(--tabbar-reserved-height)] pt-3">
+      <div className="flex-shrink-0 pb-[var(--tabbar-reserved-height)] pt-2">
         <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
           {isFocus ? 'Start focus' : 'Start break'}
         </Btn>
