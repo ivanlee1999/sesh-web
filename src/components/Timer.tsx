@@ -964,7 +964,7 @@ export default function Timer({
         )}
       </div>
 
-      <div className="flex-shrink-0 pb-[var(--tabbar-reserved-height)] pt-2">
+      <div className="flex-shrink-0 pb-[var(--screen-bottom-space)] pt-2">
         <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
           {isFocus ? 'Start focus' : 'Start break'}
         </Btn>

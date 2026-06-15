@@ -8,8 +8,10 @@
     --tabbar-height: 82px;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
-    --tabbar-bottom-offset: max(10px, var(--safe-b));
-    --tabbar-reserved-height: calc(var(--tabbar-height) + var(--tabbar-bottom-offset) + 14px);
+    --tabbar-padding-x: 12px;
+    --tabbar-padding-top: 8px;
+    --tabbar-padding-bottom: calc(10px + var(--safe-b));
+    --screen-bottom-space: 24px;
 
     --bg: #F4F1EA;
     --surface: #FBFAF6;
@@ -107,18 +109,11 @@
   }
 
   .tabbar-frosted {
-    position: fixed;
-    left: 50%;
-    bottom: var(--tabbar-bottom-offset);
-    transform: translateX(-50%);
-    width: min(100%, 480px);
+    flex: 0 0 auto;
+    width: 100%;
     z-index: 100;
-    padding: 0 12px;
-    pointer-events: none;
-  }
-
-  .tabbar-frosted > * {
-    pointer-events: auto;
+    padding: var(--tabbar-padding-top) var(--tabbar-padding-x) var(--tabbar-padding-bottom);
+    background: transparent;
   }
   .hide-scrollbar {
     scrollbar-width: none;

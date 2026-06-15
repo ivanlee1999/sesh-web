@@ -90,7 +90,7 @@ export default function Analytics() {
   const totalFocusMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]" data-testid="insights-screen">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]" data-testid="insights-screen">
       <ScreenHead title="Insights" sub="Last 7 days" />
 
       <div className="flex flex-col gap-[14px] px-[22px] py-[14px]">

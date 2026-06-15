@@ -215,7 +215,7 @@ function ProfileScreen({ onBack }: { onBack: () => void }) {
   const totalMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
       <div className="px-[22px] pt-[calc(58px+var(--safe-t))]">
         <button type="button" onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
           <Icon name="back" size={20} />
@@ -340,7 +340,7 @@ export default function Settings() {
   const todoistConnected = todoist.kind === 'connected'
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
       <ScreenHead title="Settings" />
       <div className="px-[22px] py-4">
         <button type="button" onClick={() => setProfile(true)} className="mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">

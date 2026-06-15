@@ -188,7 +188,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         : 'Todoist unavailable'
 
     return (
-      <div className="flex h-full w-full min-w-0 flex-col px-[26px] pb-[var(--tabbar-reserved-height)] pt-[calc(58px+var(--safe-t))]">
+      <div className="flex h-full w-full min-w-0 flex-col px-[26px] pb-[var(--screen-bottom-space)] pt-[calc(58px+var(--safe-t))]">
         <ScreenHead title="Tasks" />
         <div className="flex flex-1 flex-col items-center justify-center gap-[22px] text-center">
           <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[#E44332] shadow-[0_10px_30px_rgba(228,67,50,0.3)]">
@@ -214,7 +214,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   }
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
       <ScreenHead
         title="Tasks"
         right={

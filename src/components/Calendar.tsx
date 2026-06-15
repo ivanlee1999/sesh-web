@@ -115,7 +115,7 @@ export default function Calendar() {
   }
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]" data-testid="calendar-screen">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]" data-testid="calendar-screen">
       <ScreenHead title="Calendar" />
 
       <div className="px-[22px] pt-[14px]">
