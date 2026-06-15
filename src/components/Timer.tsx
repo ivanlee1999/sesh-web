@@ -121,18 +121,113 @@ function TaskPickerSheet({
   }, [open])
 
   const today = tasks.filter(task => task.due === 'today')
-  const rest = tasks.filter(task => task.due !== 'today')
+  const tomorrow = tasks.filter(task => task.due === 'tomorrow')
+  const upcoming = tasks.filter(task => task.due === 'upcoming')
+  const someday = tasks.filter(task => !task.due)
+  const boardColumns = [
+    { key: 'tomorrow', label: 'Tomorrow', items: tomorrow },
+    { key: 'upcoming', label: 'Upcoming', items: upcoming },
+    { key: 'someday', label: 'No date', items: someday },
+  ].filter(column => column.items.length > 0)
 
   return (
     <Sheet open={open} onClose={onClose} title="Focus on a task">
-      <div className="flex max-h-[380px] flex-col gap-[14px] overflow-y-auto">
+      <div className="flex max-h-[420px] flex-col gap-[14px] overflow-y-auto">
         {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading Todoist...</div>}
         {error && <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-[13px] text-[#C2615A]">{error}</div>}
         <TaskGroup label="Today" items={today} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
-        <TaskGroup label="Upcoming & no date" items={rest} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+        {boardColumns.length > 0 && (
+          <TaskBoard columns={boardColumns} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+        )}
         {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left in Todoist.</div>}
       </div>
     </Sheet>
+  )
+}
+
+function TaskBoard({
+  columns,
+  categories,
+  activeId,
+  fallbackCategory,
+  onPick,
+}: {
+  columns: { key: string; label: string; items: TodoistTask[] }[]
+  categories: CategoryRecord[]
+  activeId: string | null
+  fallbackCategory: string
+  onPick: (task: TodoistTask, categoryName: string) => void
+}) {
+  return (
+    <div>
+      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Upcoming board</div>
+      <div className="hide-scrollbar -mx-1 overflow-x-auto px-1 pb-1">
+        <div className="flex min-w-max gap-3">
+          {columns.map(column => (
+            <div key={column.key} className="flex w-[220px] flex-col rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface-2)] p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="text-[13px] font-semibold uppercase tracking-[0.05em] text-[var(--ink-2)]">{column.label}</span>
+                <span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[11px] font-semibold text-[var(--ink-3)]">{column.items.length}</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {column.items.map(task => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    categories={categories}
+                    activeId={activeId}
+                    fallbackCategory={fallbackCategory}
+                    onPick={onPick}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TaskCard({
+  task,
+  categories,
+  activeId,
+  fallbackCategory,
+  onPick,
+}: {
+  task: TodoistTask
+  categories: CategoryRecord[]
+  activeId: string | null
+  fallbackCategory: string
+  onPick: (task: TodoistTask, categoryName: string) => void
+}) {
+  const categoryName = taskCategory(task, categories, fallbackCategory)
+  const category = categoryByName(categories, categoryName)
+  const active = activeId === task.id
+  const priorityLabel = task.priority > 1 ? `P${task.priority}` : null
+
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(task, categoryName)}
+      className="flex items-center gap-3 rounded-[var(--r-md)] border px-[14px] py-3 text-left"
+      style={{
+        borderColor: active ? 'var(--accent)' : 'var(--line)',
+        borderWidth: active ? 1.5 : 1,
+        background: active ? 'var(--accent-soft)' : 'var(--surface)',
+      }}
+    >
+      <span className="h-4 w-4 flex-shrink-0 rounded-full border-2" style={{ borderColor: category?.color ?? 'var(--line-strong)' }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
+        <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
+          <span className="truncate">{task.projectName ?? 'Todoist'}</span>
+          {priorityLabel && <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--ink-2)]">{priorityLabel}</span>}
+        </span>
+      </span>
+      {category && <span className="h-2 w-2 rounded-full" style={{ background: category.color }} />}
+    </button>
   )
 }
 
@@ -156,31 +251,16 @@ function TaskGroup({
     <div>
       <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">{label}</div>
       <div className="flex flex-col gap-2">
-        {items.map(task => {
-          const categoryName = taskCategory(task, categories, fallbackCategory)
-          const category = categoryByName(categories, categoryName)
-          const active = activeId === task.id
-          return (
-            <button
-              type="button"
-              key={task.id}
-              onClick={() => onPick(task, categoryName)}
-              className="flex items-center gap-3 rounded-[var(--r-md)] border px-[14px] py-3 text-left"
-              style={{
-                borderColor: active ? 'var(--accent)' : 'var(--line)',
-                borderWidth: active ? 1.5 : 1,
-                background: active ? 'var(--accent-soft)' : 'var(--surface)',
-              }}
-            >
-              <span className="h-4 w-4 flex-shrink-0 rounded-full border-2" style={{ borderColor: category?.color ?? 'var(--line-strong)' }} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
-                <span className="mt-0.5 block text-[12.5px] text-[var(--ink-3)]">{task.projectName ?? 'Todoist'}</span>
-              </span>
-              {category && <span className="h-2 w-2 rounded-full" style={{ background: category.color }} />}
-            </button>
-          )
-        })}
+        {items.map(task => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            categories={categories}
+            activeId={activeId}
+            fallbackCategory={fallbackCategory}
+            onPick={onPick}
+          />
+        ))}
       </div>
     </div>
   )
