@@ -526,7 +526,8 @@ export default function Timer({
   const isFocus = sessionType === 'focus'
   const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
   const remainingSec = Math.ceil(remainingMs / 1000)
-  const idleRingSize = sortedCategories.length > 4 ? 220 : 244
+  const compactCategoryLayout = sortedCategories.length > 5
+  const idleRingSize = sortedCategories.length > 8 ? 196 : sortedCategories.length > 5 ? 212 : 236
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
@@ -824,7 +825,7 @@ export default function Timer({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 overflow-hidden pb-2 pt-3">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-2 pt-3">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
         <Ring progress={0} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
           <div className="text-[68px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
@@ -832,27 +833,32 @@ export default function Timer({
         </Ring>
 
         {isFocus && (
-          <div className="flex w-full max-w-[340px] flex-col gap-3">
-            <div data-testid="timer-category-selector" className="hide-scrollbar flex max-h-[76px] flex-wrap justify-center gap-2 overflow-y-auto px-0.5 py-0.5">
-              {sortedCategories.map(cat => (
-                <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
-                  setCategory(cat.name)
-                  setRecentCategories(markCategoryUsed(cat.name))
-                  syncToServer({
-                    phase: 'idle',
-                    sessionType,
-                    intention,
-                    category: cat.name,
-                    targetMs,
-                    remainingMs,
-                    overflowMs: 0,
-                    startedAt: null,
-                    pausedAt: null,
-                    todoistTaskId,
-                  })
-                }}>{cat.label}</Chip>
-              ))}
+          <div className="flex w-full max-w-[340px] flex-col gap-2.5">
+            <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
+              <div data-testid="timer-category-selector" className="flex min-w-max flex-nowrap gap-2">
+                {sortedCategories.map(cat => (
+                  <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
+                    setCategory(cat.name)
+                    setRecentCategories(markCategoryUsed(cat.name))
+                    syncToServer({
+                      phase: 'idle',
+                      sessionType,
+                      intention,
+                      category: cat.name,
+                      targetMs,
+                      remainingMs,
+                      overflowMs: 0,
+                      startedAt: null,
+                      pausedAt: null,
+                      todoistTaskId,
+                    })
+                  }}>{cat.label}</Chip>
+                ))}
+              </div>
             </div>
+            {compactCategoryLayout && (
+              <div className="px-1 text-center text-[12px] text-[var(--ink-3)]">Swipe to see all categories</div>
+            )}
             <button
               type="button"
               onClick={() => setSheet('intention')}
