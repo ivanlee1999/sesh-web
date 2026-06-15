@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
+import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { CatBadge, Icon, ScreenHead, fmtHM, tint, ymd } from './sesh-ui'
 
 function startOfMonth(y: number, m: number) {
@@ -45,11 +46,15 @@ export default function Calendar() {
       setError(null)
       try {
         const res = await fetch('/api/sessions')
-        if (!res.ok) throw new Error('Failed to load sessions')
+        if (!res.ok) {
+          const message = await readApiError(res, 'Failed to load sessions')
+          if (isAuthResponse(res)) redirectToLogin()
+          throw new Error(message)
+        }
         const data = await res.json()
         if (!cancelled) setSessions(data)
-      } catch {
-        if (!cancelled) setError('Failed to load session history.')
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load session history.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -110,7 +115,7 @@ export default function Calendar() {
   }
 
   return (
-    <div className="h-full overflow-y-auto pb-[calc(110px+var(--safe-b))]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]" data-testid="calendar-screen">
       <ScreenHead title="Calendar" />
 
       <div className="px-[22px] pt-[14px]">
@@ -183,7 +188,7 @@ export default function Calendar() {
 
         {error && <div className="rounded-[var(--r-lg)] border border-[#C2615A]/20 bg-[#C2615A]/10 p-4 text-[14px] text-[#C2615A]">{error}</div>}
         {loading && !error && selectedSessions.length === 0 && <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 text-center text-[14px] text-[var(--ink-3)]">Loading sessions...</div>}
-        {!loading && !error && selectedSessions.length === 0 ? (
+        {!error && (!loading && selectedSessions.length === 0 ? (
           <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
             <Icon name="calendar" size={26} color="var(--ink-3)" />
             <div className="mt-[10px] text-[14.5px]">No sessions this day.</div>
@@ -211,7 +216,7 @@ export default function Calendar() {
               )
             })}
           </div>
-        )}
+        ))}
       </div>
     </div>
   )

@@ -9,6 +9,8 @@
     "prepare:standalone": "mkdir -p .next/standalone/.next && rm -rf .next/standalone/public .next/standalone/.next/static && cp -R public .next/standalone/public && cp -R .next/static .next/standalone/.next/static",
     "start": "next start",
     "start:standalone": "node .next/standalone/server.js",
+    "smoke:runtime": "node scripts/smoke-runtime.mjs",
+    "smoke:docker": "node scripts/smoke-docker.mjs",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"

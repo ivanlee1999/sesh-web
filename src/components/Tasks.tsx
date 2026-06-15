@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CategoryRecord, TodoistTask } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
+import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { Btn, CatBadge, Chip, Icon, ScreenHead, tint } from './sesh-ui'
 
 export interface PendingFocus {
@@ -12,6 +13,12 @@ export interface PendingFocus {
 }
 
 type Filter = 'today' | 'upcoming' | 'all'
+type TodoistConnection =
+  | { kind: 'checking'; message: string }
+  | { kind: 'connected'; message: string }
+  | { kind: 'not_configured'; message: string }
+  | { kind: 'auth_required'; message: string }
+  | { kind: 'error'; message: string }
 
 const priorityColor: Record<number, string | null> = {
   1: '#D1453B',
@@ -101,7 +108,7 @@ function TaskRow({
 
 export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingFocus) => void }) {
   const { categories } = useCategories()
-  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [connection, setConnection] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
   const [tasks, setTasks] = useState<TodoistTask[]>([])
   const [filter, setFilter] = useState<Filter>('today')
   const [loading, setLoading] = useState(true)
@@ -111,25 +118,38 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setConnection({ kind: 'checking', message: 'Checking Todoist...' })
     try {
       const status = await fetch('/api/todoist/status')
       if (!status.ok) {
-        setConfigured(false)
+        if (isAuthResponse(status)) {
+          setConnection({ kind: 'auth_required', message: 'Auth required. Sign in again to use Todoist.' })
+        } else {
+          setConnection({ kind: 'error', message: await readApiError(status, 'Todoist status check failed') })
+        }
         setTasks([])
         return
       }
       const statusData = await status.json()
-      setConfigured(!!statusData.configured)
       if (!statusData.configured) {
+        setConnection({ kind: 'not_configured', message: 'Set TODOIST_API_TOKEN on the server to pull tasks.' })
         setTasks([])
         return
       }
+      setConnection({ kind: 'connected', message: 'Todoist synced' })
       const res = await fetch('/api/todoist/tasks?filter=all')
-      if (!res.ok) throw new Error('Failed to load Todoist tasks')
+      if (!res.ok) {
+        if (isAuthResponse(res)) {
+          setConnection({ kind: 'auth_required', message: 'Auth required. Sign in again to use Todoist.' })
+        }
+        throw new Error(await readApiError(res, 'Failed to load Todoist tasks'))
+      }
       const data = await res.json()
       setTasks(data.tasks ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Todoist tasks')
+      const message = err instanceof Error ? err.message : 'Failed to load Todoist tasks'
+      setError(message)
+      setConnection(current => current.kind === 'auth_required' ? current : { kind: 'error', message })
     } finally {
       setLoading(false)
     }
@@ -150,7 +170,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     setCompletingId(taskId)
     try {
       const res = await fetch(`/api/todoist/tasks/${taskId}/close`, { method: 'POST' })
-      if (!res.ok) throw new Error('Failed to close task')
+      if (!res.ok) throw new Error(await readApiError(res, 'Failed to close Todoist task'))
       setTasks(prev => prev.filter(task => task.id !== taskId))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to close task')
@@ -159,34 +179,48 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     }
   }
 
-  if (configured === false && !loading) {
+  if (connection.kind !== 'connected' && !loading) {
+    const authRequired = connection.kind === 'auth_required'
+    const title = authRequired
+      ? 'Todoist auth required'
+      : connection.kind === 'not_configured'
+        ? 'Todoist not configured'
+        : 'Todoist unavailable'
+
     return (
-      <div className="flex h-full flex-col px-[26px] pb-[calc(110px+var(--safe-b))] pt-[calc(58px+var(--safe-t))]">
+      <div className="flex h-full w-full min-w-0 flex-col px-[26px] pb-[var(--tabbar-reserved-height)] pt-[calc(58px+var(--safe-t))]">
         <ScreenHead title="Tasks" />
         <div className="flex flex-1 flex-col items-center justify-center gap-[22px] text-center">
           <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[#E44332] shadow-[0_10px_30px_rgba(228,67,50,0.3)]">
             <Icon name="list" size={34} color="#fff" stroke={2} />
           </div>
           <div>
-            <h2 className="m-0 font-[var(--font-display)] text-[22px] font-bold tracking-[-0.03em]">Connect Todoist</h2>
+            <h2 className="m-0 font-[var(--font-display)] text-[22px] font-bold tracking-[-0.03em]">{title}</h2>
             <p className="mx-auto mb-0 mt-[10px] max-w-[290px] text-[15.5px] leading-normal text-[var(--ink-2)]">
-              Add a Todoist API token to pull your tasks in and focus on them one session at a time.
+              {connection.message}
             </p>
           </div>
-          <Btn size="lg" icon="link" style={{ background: '#E44332', color: '#fff' }} onClick={load}>Check connection</Btn>
+          <Btn
+            size="lg"
+            icon={authRequired ? 'logout' : 'sync'}
+            style={{ background: '#E44332', color: '#fff' }}
+            onClick={authRequired ? () => redirectToLogin() : load}
+          >
+            {authRequired ? 'Sign in' : 'Check connection'}
+          </Btn>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full overflow-y-auto pb-[calc(110px+var(--safe-b))]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
       <ScreenHead
         title="Tasks"
         right={
           <button type="button" onClick={load} className="mt-[10px] flex items-center gap-[7px] border-0 bg-transparent p-0">
             <span className="h-2 w-2 rounded-full bg-[#3F9142]" />
-            <span className="text-[12.5px] font-medium text-[var(--ink-3)]">{loading ? 'Syncing' : 'Todoist synced'}</span>
+            <span className="text-[12.5px] font-medium text-[var(--ink-3)]">{loading ? 'Syncing' : connection.message}</span>
           </button>
         }
       />

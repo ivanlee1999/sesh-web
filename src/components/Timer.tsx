@@ -7,6 +7,7 @@ import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueSession, getRecentCategoryNames, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
+import { isAuthResponse, readApiError } from '@/lib/api-client'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
 
@@ -96,15 +97,25 @@ function TaskPickerSheet({
 }) {
   const [tasks, setTasks] = useState<TodoistTask[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     setLoading(true)
+    setError(null)
     fetch('/api/todoist/tasks?filter=all')
-      .then(res => res.ok ? res.json() : { tasks: [] })
+      .then(async res => {
+        if (!res.ok) throw new Error(await readApiError(res, 'Failed to load Todoist tasks'))
+        return res.json()
+      })
       .then(data => { if (!cancelled) setTasks((data.tasks ?? []).filter((task: TodoistTask) => !task.completed)) })
-      .catch(() => { if (!cancelled) setTasks([]) })
+      .catch(err => {
+        if (!cancelled) {
+          setTasks([])
+          setError(err instanceof Error ? err.message : 'Failed to load Todoist tasks')
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [open])
@@ -116,6 +127,7 @@ function TaskPickerSheet({
     <Sheet open={open} onClose={onClose} title="Focus on a task">
       <div className="flex max-h-[380px] flex-col gap-[14px] overflow-y-auto">
         {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading Todoist...</div>}
+        {error && <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-[13px] text-[#C2615A]">{error}</div>}
         <TaskGroup label="Today" items={today} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
         <TaskGroup label="Upcoming & no date" items={rest} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
         {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left in Todoist.</div>}
@@ -222,7 +234,7 @@ function Reflection({
   const accent = category?.color ?? 'var(--accent)'
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto px-[26px] pb-[calc(22px+var(--safe-b))] pt-[calc(42px+var(--safe-t))]">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto px-[26px] pb-[calc(22px+var(--safe-b))] pt-[calc(42px+var(--safe-t))]">
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-[22px]">
         <div className="text-center">
           <div className="mx-auto mb-4 grid h-[58px] w-[58px] place-items-center rounded-full" style={{ background: tint(accent, 16) }}>
@@ -305,6 +317,7 @@ export default function Timer({
   const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [todoistOpenCount, setTodoistOpenCount] = useState(0)
+  const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
   const [streak, setStreak] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -319,8 +332,27 @@ export default function Timer({
   useEffect(() => {
     setRecentCategories(getRecentCategoryNames())
     fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
-    fetch('/api/todoist/tasks?filter=all')
-      .then(res => res.ok ? res.json() : { tasks: [] })
+    fetch('/api/todoist/status')
+      .then(async status => {
+        if (isAuthResponse(status)) {
+          setTodoistNotice('Todoist auth required. Sign in again to choose tasks.')
+          return { tasks: [] }
+        }
+        if (!status.ok) {
+          setTodoistNotice(await readApiError(status, 'Todoist status check failed'))
+          return { tasks: [] }
+        }
+        const statusData = await status.json()
+        if (!statusData.configured) return { tasks: [] }
+
+        const res = await fetch('/api/todoist/tasks?filter=all')
+        if (!res.ok) {
+          setTodoistNotice(await readApiError(res, 'Failed to load Todoist tasks'))
+          return { tasks: [] }
+        }
+        setTodoistNotice(null)
+        return res.json()
+      })
       .then(data => setTodoistOpenCount((data.tasks ?? []).filter((task: TodoistTask) => !task.completed).length))
       .catch(() => setTodoistOpenCount(0))
   }, [])
@@ -494,6 +526,7 @@ export default function Timer({
   const isFocus = sessionType === 'focus'
   const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
   const remainingSec = Math.ceil(remainingMs / 1000)
+  const idleRingSize = sortedCategories.length > 4 ? 236 : 272
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
@@ -666,6 +699,34 @@ export default function Timer({
     if (phase === 'running' && remainingMs <= 0) finish(true)
   }, [finish, phase, remainingMs])
 
+  const syncTodoistAfterSession = async (taskId: string, actualMs: number) => {
+    try {
+      const durationRes = await fetch(`/api/todoist/tasks/${taskId}/duration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add_minutes: Math.max(1, Math.round(actualMs / 60000)) }),
+      })
+      if (!durationRes.ok) {
+        setTodoistNotice(await readApiError(durationRes, 'Failed to update Todoist duration'))
+        return
+      }
+
+      if (!settings.todoistAutoComplete) {
+        setTodoistNotice(null)
+        return
+      }
+
+      const closeRes = await fetch(`/api/todoist/tasks/${taskId}/close`, { method: 'POST' })
+      if (!closeRes.ok) {
+        setTodoistNotice(await readApiError(closeRes, 'Failed to close Todoist task'))
+        return
+      }
+      setTodoistNotice(null)
+    } catch (err) {
+      setTodoistNotice(err instanceof Error ? err.message : 'Failed to sync Todoist task')
+    }
+  }
+
   const saveReflection = async (rating: number, notes: string) => {
     if (!draft) return
     const session = { ...draft, notes, rating }
@@ -677,14 +738,7 @@ export default function Timer({
       })
       if (!res.ok) throw new Error('Failed to save session')
       if (draft.todoistTaskId) {
-        void fetch(`/api/todoist/tasks/${draft.todoistTaskId}/duration`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ add_minutes: Math.max(1, Math.round(draft.actualMs / 60000)) }),
-        }).catch(() => {})
-        if (settings.todoistAutoComplete) {
-          void fetch(`/api/todoist/tasks/${draft.todoistTaskId}/close`, { method: 'POST' }).catch(() => {})
-        }
+        void syncTodoistAfterSession(draft.todoistTaskId, draft.actualMs)
       }
     } catch {
       const offline: QueuedSession = {
@@ -717,7 +771,7 @@ export default function Timer({
 
   if (phase === 'running' || phase === 'paused') {
     return (
-      <div className="absolute inset-0 z-[150] flex flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
+      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
         <div className="min-h-[56px] text-center">
           <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
             {isFocus ? selectedCategory?.label ?? 'Focus' : 'Break'}
@@ -758,8 +812,8 @@ export default function Timer({
   }
 
   return (
-    <div className="flex h-full flex-col px-[22px] pb-[calc(110px+var(--safe-b))] pt-[calc(58px+var(--safe-t))]">
-      <div className="flex items-start justify-between">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden px-[22px] pt-[calc(58px+var(--safe-t))]">
+      <div className="flex flex-shrink-0 items-start justify-between">
         <div>
           <div className="text-[14px] text-[var(--ink-3)]">{greeting},</div>
           <div className="font-[var(--font-display)] text-[26px] font-bold tracking-[-0.035em]">Ivan</div>
@@ -770,16 +824,16 @@ export default function Timer({
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-6">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-y-auto pb-3 pt-4">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
-        <Ring progress={0} size={272} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
+        <Ring progress={0} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
           <div className="text-[68px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
           <div className="mt-3 text-[12.5px] tracking-[0.04em] text-[var(--ink-3)]">{isFocus ? `${settings.focusDuration} minute focus` : `${settings.breakDuration} minute break`}</div>
         </Ring>
 
         {isFocus && (
           <div className="flex w-full max-w-[340px] flex-col gap-3">
-            <div data-testid="timer-category-selector" className="flex flex-wrap justify-center gap-2">
+            <div data-testid="timer-category-selector" className="hide-scrollbar flex max-h-[88px] flex-wrap justify-center gap-2 overflow-y-auto px-0.5 py-0.5">
               {sortedCategories.map(cat => (
                 <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
                   setCategory(cat.name)
@@ -815,13 +869,20 @@ export default function Timer({
                 Choose from Todoist
               </button>
             )}
+            {todoistNotice && (
+              <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-center text-[13px] leading-normal text-[#C2615A]">
+                {todoistNotice}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
-        {isFocus ? 'Start focus' : 'Start break'}
-      </Btn>
+      <div className="flex-shrink-0 pb-[var(--tabbar-reserved-height)] pt-3">
+        <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
+          {isFocus ? 'Start focus' : 'Start break'}
+        </Btn>
+      </div>
 
       <IntentionSheet
         open={sheet === 'intention'}

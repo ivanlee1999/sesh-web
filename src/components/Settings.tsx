@@ -1,12 +1,34 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
+import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
 import { ACCENT_OPTIONS, Btn, Group, Icon, Row, ScreenHead, Sheet, Stepper, Toggle, Wordmark, fmtHM } from './sesh-ui'
+
+type TodoistConnection =
+  | { kind: 'checking'; message: string }
+  | { kind: 'connected'; message: string }
+  | { kind: 'not_configured'; message: string }
+  | { kind: 'auth_required'; message: string }
+  | { kind: 'error'; message: string }
+
+type ManualSyncResult = {
+  synced?: boolean
+  skipped?: string
+  error?: string
+}
+
+function calendarSkipMessage(reason: string) {
+  if (reason === 'disabled') return 'Calendar sync is off. Enable Auto-sync sessions, then sync again.'
+  if (reason === 'not_connected') return 'Google Calendar is not connected. Reconnect Calendar, then sync again.'
+  if (reason === 'token_error') return 'Google token refresh failed. Reconnect Google Calendar.'
+  if (reason === 'rest_session') return 'Only break sessions were skipped.'
+  return `Skipped: ${reason}`
+}
 
 function PushNotificationToggle() {
   const [pushSupported, setPushSupported] = useState<boolean | null>(null)
@@ -193,7 +215,7 @@ function ProfileScreen({ onBack }: { onBack: () => void }) {
   const totalMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="h-full overflow-y-auto pb-[calc(40px+var(--safe-b))]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
       <div className="px-[22px] pt-[calc(58px+var(--safe-t))]">
         <button type="button" onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
           <Icon name="back" size={20} />
@@ -238,14 +260,45 @@ export default function Settings() {
   const [profile, setProfile] = useState(false)
   const [catSheet, setCatSheet] = useState(false)
   const [calConnected, setCalConnected] = useState(false)
-  const [todoistConfigured, setTodoistConfigured] = useState(false)
+  const [todoist, setTodoist] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
   const [manualSyncBusy, setManualSyncBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
-    fetch('/api/auth/google/status').then(res => res.json()).then(data => setCalConnected(!!data.connected)).catch(() => setCalConnected(false))
-    fetch('/api/todoist/status').then(res => res.ok ? res.json() : { configured: false }).then(data => setTodoistConfigured(!!data.configured)).catch(() => setTodoistConfigured(false))
+    fetch('/api/auth/google/status')
+      .then(async res => {
+        if (isAuthResponse(res)) redirectToLogin()
+        if (!res.ok) throw new Error(await readApiError(res, 'Google Calendar status check failed'))
+        return res.json()
+      })
+      .then(data => setCalConnected(!!data.connected))
+      .catch(() => setCalConnected(false))
   }, [])
+
+  const checkTodoist = useCallback(async () => {
+    setTodoist({ kind: 'checking', message: 'Checking Todoist...' })
+    try {
+      const res = await fetch('/api/todoist/status')
+      if (isAuthResponse(res)) {
+        setTodoist({ kind: 'auth_required', message: 'Auth required. Sign in again to use Todoist.' })
+        return
+      }
+      if (!res.ok) {
+        setTodoist({ kind: 'error', message: await readApiError(res, 'Todoist status check failed') })
+        return
+      }
+      const data = await res.json()
+      if (data.configured) {
+        setTodoist({ kind: 'connected', message: 'Connected' })
+      } else {
+        setTodoist({ kind: 'not_configured', message: 'Set TODOIST_API_TOKEN on the server to enable task sync.' })
+      }
+    } catch (err) {
+      setTodoist({ kind: 'error', message: err instanceof Error ? err.message : 'Todoist status check failed' })
+    }
+  }, [])
+
+  useEffect(() => { void checkTodoist() }, [checkTodoist])
 
   const manualSync = async () => {
     setManualSyncBusy(true)
@@ -257,8 +310,23 @@ export default function Settings() {
         body: JSON.stringify({ limit: 10 }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Sync failed')
-      setSyncNotice({ type: 'success', message: data.syncedCount === 0 ? 'All sessions already synced' : `Synced ${data.syncedCount} session(s)` })
+      if (!res.ok) throw new Error(data.error ?? await readApiError(res, 'Calendar sync failed'))
+
+      const results = (data.results ?? []) as ManualSyncResult[]
+      const failed = results.find(result => !result.synced && !result.skipped)
+      if (failed) {
+        throw new Error(failed.error ?? 'Calendar sync failed')
+      }
+
+      const skipped = results.find(result => !result.synced && result.skipped)
+      if (data.syncedCount > 0) {
+        const skippedNote = skipped?.skipped ? `; ${calendarSkipMessage(skipped.skipped)}` : ''
+        setSyncNotice({ type: 'success', message: `Synced ${data.syncedCount} session(s)${skippedNote}` })
+      } else if (skipped?.skipped) {
+        setSyncNotice({ type: 'error', message: calendarSkipMessage(skipped.skipped) })
+      } else {
+        setSyncNotice({ type: 'success', message: 'All sessions already synced' })
+      }
     } catch (err) {
       setSyncNotice({ type: 'error', message: err instanceof Error ? err.message : 'Sync failed' })
     } finally {
@@ -268,8 +336,11 @@ export default function Settings() {
 
   if (profile) return <ProfileScreen onBack={() => setProfile(false)} />
 
+  const todoistBusy = todoist.kind === 'checking'
+  const todoistConnected = todoist.kind === 'connected'
+
   return (
-    <div className="h-full overflow-y-auto pb-[calc(96px+var(--safe-b))]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]">
       <ScreenHead title="Settings" />
       <div className="px-[22px] py-4">
         <button type="button" onClick={() => setProfile(true)} className="mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">
@@ -303,8 +374,27 @@ export default function Settings() {
         </div>
 
         <Group label="Integrations">
-          <Row icon="list" title="Todoist" sub={todoistConfigured ? 'Connected' : 'Not configured'} right={<Toggle on={todoistConfigured} disabled onChange={() => {}} />} />
-          <Row icon="check" title="Complete task on finish" sub="Tick off the task when a focus ends" right={<Toggle on={settings.todoistAutoComplete} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />} />
+          <Row
+            icon="list"
+            title="Todoist"
+            sub={todoist.message}
+            right={
+              <Btn
+                size="sm"
+                variant={todoistConnected ? 'soft' : 'outline'}
+                disabled={todoistBusy}
+                onClick={todoist.kind === 'auth_required' ? () => redirectToLogin() : checkTodoist}
+              >
+                {todoistBusy ? 'Checking...' : todoist.kind === 'auth_required' ? 'Sign in' : 'Check'}
+              </Btn>
+            }
+          />
+          <Row
+            icon="check"
+            title="Complete task on finish"
+            sub={todoistConnected ? 'Tick off the task when a focus ends' : 'Available after Todoist connects'}
+            right={<Toggle on={todoistConnected && settings.todoistAutoComplete} disabled={!todoistConnected} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />}
+          />
           <Row
             icon="calendar"
             title="Google Calendar"

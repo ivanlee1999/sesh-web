@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
+import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { Icon, ScreenHead, fmtHM, msToHM, tint } from './sesh-ui'
 
 interface ServerAnalytics {
@@ -41,14 +42,22 @@ export default function Analytics() {
           fetch('/api/analytics'),
           fetch('/api/sessions'),
         ])
-        if (!analyticsRes.ok || !sessionsRes.ok) throw new Error('Failed to load insights')
+        if (!analyticsRes.ok || !sessionsRes.ok) {
+          const failed = !analyticsRes.ok ? analyticsRes : sessionsRes
+          const message = await readApiError(
+            failed,
+            !analyticsRes.ok ? 'Failed to load analytics' : 'Failed to load sessions',
+          )
+          if (isAuthResponse(failed)) redirectToLogin()
+          throw new Error(message)
+        }
         const [analytics, sessionData] = await Promise.all([analyticsRes.json(), sessionsRes.json()])
         if (!cancelled) {
           setStats(analytics)
           setSessions(sessionData)
         }
-      } catch {
-        if (!cancelled) setError('Failed to load insights.')
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load insights.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -81,14 +90,14 @@ export default function Analytics() {
   const totalFocusMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="h-full overflow-y-auto pb-[calc(110px+var(--safe-b))]">
+    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--tabbar-reserved-height)]" data-testid="insights-screen">
       <ScreenHead title="Insights" sub="Last 7 days" />
 
       <div className="flex flex-col gap-[14px] px-[22px] py-[14px]">
         {error && <div className="rounded-[var(--r-lg)] border border-[#C2615A]/20 bg-[#C2615A]/10 p-4 text-[14px] text-[#C2615A]">{error}</div>}
         {loading ? (
           <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 text-center text-[14px] text-[var(--ink-3)]">Loading insights...</div>
-        ) : (
+        ) : !error ? (
           <>
             <div className="flex gap-3">
               <StatCard value={stats?.streak ?? 0} label="day streak" icon="flame" accent />
@@ -151,7 +160,7 @@ export default function Analytics() {
               <StatCard value={fmtHM(totalFocusMin)} label="lifetime focus" icon="chart" />
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </div>
   )

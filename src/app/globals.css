@@ -6,6 +6,7 @@
   :root {
     --app-viewport-height: 100dvh;
     --tabbar-height: 82px;
+    --tabbar-reserved-height: calc(124px + var(--safe-b));
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
 
@@ -66,7 +67,7 @@
 
 @layer utilities {
   .app-shell {
-    @apply mx-auto flex max-w-[480px] flex-col;
+    @apply mx-auto flex w-full max-w-[480px] flex-col;
     height: var(--app-viewport-height);
     max-height: var(--app-viewport-height);
     overflow: hidden;
@@ -78,6 +79,8 @@
   .app-content {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
   }
@@ -85,7 +88,11 @@
   .app-tabpanel {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    width: 100%;
     display: none;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .app-tabpanel[data-active='true'] {
@@ -93,8 +100,7 @@
   }
 
   .app-tabpanel[data-scroll='true'] {
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
   }
