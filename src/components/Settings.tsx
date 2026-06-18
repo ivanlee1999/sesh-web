@@ -353,7 +353,7 @@ export default function Settings() {
         </button>
 
         <Group label="Timer">
-          <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={90} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
+          <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={60} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
           <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
           <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" last right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
         </Group>

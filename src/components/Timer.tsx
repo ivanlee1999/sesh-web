@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Category, CategoryRecord, SessionType, TodoistTask } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
@@ -65,6 +65,82 @@ function normalizeTimerState(data: ServerTimerState): ServerTimerState {
 
 function ratingWord(rating: number) {
   return ['', 'Tough', 'Slow', 'Okay', 'Good', 'Flow'][rating] || ''
+}
+
+const DURATION_LIMITS = {
+  focus: { min: 5, max: 60, step: 5 },
+  break: { min: 1, max: 30, step: 1 },
+} as const
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function formatEndTime(epochMs: number) {
+  return new Intl.DateTimeFormat([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(epochMs))
+}
+
+function durationBounds(sessionType: SessionType) {
+  return DURATION_LIMITS[sessionType]
+}
+
+function snapDurationMinutes(minutes: number, sessionType: SessionType) {
+  const bounds = durationBounds(sessionType)
+  const snapped = Math.round((minutes - bounds.min) / bounds.step) * bounds.step + bounds.min
+  return clamp(snapped, bounds.min, bounds.max)
+}
+
+function dialProgressToMinutes(progress: number, sessionType: SessionType) {
+  const bounds = durationBounds(sessionType)
+  const raw = clamp(progress, 0, 1) * bounds.max
+  return snapDurationMinutes(raw, sessionType)
+}
+
+function minutesToDialProgress(minutes: number, sessionType: SessionType) {
+  const bounds = durationBounds(sessionType)
+  return clamp(minutes / bounds.max, 0, 1)
+}
+
+function pointerToDialProgress(clientX: number, clientY: number, rect: DOMRect | { left: number; top: number; width: number; height: number }) {
+  const cx = rect.left + rect.width / 2
+  const cy = rect.top + rect.height / 2
+  const angle = ((Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI + 90 + 360) % 360
+  return angle / 360
+}
+
+function makeCompletedDraft({
+  startedAt,
+  endedAt,
+  targetMs,
+  intention,
+  category,
+  sessionType,
+  todoistTaskId,
+}: {
+  startedAt: number
+  endedAt: number
+  targetMs: number
+  intention: string
+  category: Category
+  sessionType: SessionType
+  todoistTaskId: string | null
+}): ReflectionDraft {
+  const actualMs = Math.max(targetMs, endedAt - startedAt)
+  return {
+    id: `manual-${startedAt}`,
+    intention,
+    category,
+    type: sessionType,
+    targetMs,
+    actualMs,
+    overflowMs: Math.max(0, actualMs - targetMs),
+    startedAt,
+    endedAt,
+    todoistTaskId,
+  }
 }
 
 function categoryByName(categories: CategoryRecord[], name: string): CategoryRecord | null {
@@ -384,7 +460,7 @@ export default function Timer({
   pendingFocus?: PendingFocus | null
   clearPendingFocus?: () => void
 }) {
-  const { settings } = useSettings()
+  const { settings, updateSettings } = useSettings()
   const { categories, byName } = useCategories()
   const [phase, setPhase] = useState<TimerRunPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
@@ -392,6 +468,7 @@ export default function Timer({
   const [category, setCategory] = useState<Category>('')
   const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60000)
   const [targetMs, setTargetMs] = useState(settings.focusDuration * 60000)
+  const [dragMinutes, setDragMinutes] = useState<number | null>(null)
   const [startedAt, setStartedAt] = useState(0)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
   const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
@@ -402,6 +479,8 @@ export default function Timer({
   const [streak, setStreak] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const finishingRef = useRef(false)
+  const dragFrameRef = useRef<number | null>(null)
+  const dragMinutesRef = useRef<number | null>(null)
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
@@ -488,20 +567,8 @@ export default function Timer({
         setPhase('running')
         setRemainingMs(nextRemaining)
       } else if (data.sessionType === 'focus') {
-        setDraft({
-          id: `manual-${data.startedAt}`,
-          intention: data.intention,
-          category: data.category,
-          type: 'focus',
-          targetMs: data.targetMs,
-          actualMs: data.targetMs,
-          overflowMs: 0,
-          startedAt: data.startedAt,
-          endedAt: Date.now(),
-          todoistTaskId: data.todoistTaskId,
-        })
-        setRemainingMs(0)
-        setPhase('reflect')
+        setPhase('running')
+        setRemainingMs(nextRemaining)
       } else {
         setRemainingMs(settings.focusDuration * 60000)
         setPhase('idle')
@@ -526,32 +593,62 @@ export default function Timer({
     }
   }, [settings.focusDuration])
 
-  useEffect(() => {
-    const restoreLocal = () => {
-      const local = loadTimerState()
-      if (!local) return
-      setSessionType(local.sessionType as SessionType)
-      setIntention(local.intention)
-      setCategory(local.category)
-      setTargetMs(local.targetMs)
-      setTodoistTaskId(local.todoistTaskId)
-      if (local.phase === 'running' && local.startedAt) {
-        const nextRemaining = local.remainingMs - (Date.now() - local.savedAt)
-        setPhase(nextRemaining > 0 ? 'running' : 'idle')
+  const restoreLocal = useCallback(() => {
+    const local = loadTimerState()
+    if (!local) return
+    setSessionType(local.sessionType as SessionType)
+    setIntention(local.intention)
+    setCategory(local.category)
+    setTargetMs(local.targetMs)
+    setTodoistTaskId(local.todoistTaskId)
+    if (local.phase === 'running' && local.startedAt) {
+      const nextRemaining = local.remainingMs - (Date.now() - local.savedAt)
+      if (nextRemaining > 0) {
+        setPhase('running')
+        setRemainingMs(nextRemaining)
+        setStartedAt(local.startedAt)
+      } else if (local.sessionType === 'focus') {
+        setPhase('running')
+        setRemainingMs(nextRemaining)
+        setStartedAt(local.startedAt)
+      } else {
+        setPhase('idle')
         setRemainingMs(Math.max(0, nextRemaining))
         setStartedAt(local.startedAt)
-      } else if (local.phase === 'paused') {
-        setPhase('paused')
-        setRemainingMs(local.remainingMs)
-        setStartedAt(local.startedAt ?? 0)
       }
+    } else if (local.phase === 'paused') {
+      setPhase('paused')
+      setRemainingMs(local.remainingMs)
+      setStartedAt(local.startedAt ?? 0)
     }
+  }, [])
 
+  const refreshTimerFromServer = useCallback(() => {
     fetch('/api/timer')
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) applyRemote(data); else restoreLocal() })
       .catch(restoreLocal)
-  }, [applyRemote])
+  }, [applyRemote, restoreLocal])
+
+  useEffect(() => {
+    refreshTimerFromServer()
+  }, [refreshTimerFromServer])
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshTimerFromServer()
+    }
+    const handlePageShow = () => {
+      refreshTimerFromServer()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pageshow', handlePageShow)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pageshow', handlePageShow)
+    }
+  }, [refreshTimerFromServer])
 
   useEffect(() => {
     if (phase === 'reflect') return
@@ -577,13 +674,23 @@ export default function Timer({
       return
     }
     intervalRef.current = setInterval(() => {
-      setRemainingMs(prev => Math.max(0, prev - 1000))
+      setRemainingMs(prev => prev - 1000)
     }, 1000)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
       intervalRef.current = null
     }
   }, [phase])
+
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current != null) {
+        window.cancelAnimationFrame(dragFrameRef.current)
+        dragFrameRef.current = null
+      }
+      dragMinutesRef.current = null
+    }
+  }, [])
 
   const selectedCategory = categoryByName(categories, category)
   const sortedCategories = useMemo(() => {
@@ -601,16 +708,109 @@ export default function Timer({
     })
   }, [categories, recentCategories])
 
-  const totalMs = targetMs || (sessionType === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
-  const progress = phase === 'idle' ? 0 : 1 - (remainingMs / Math.max(totalMs, 1))
+  const commitIdleDuration = useCallback((minutes: number, type: SessionType = sessionType) => {
+    const nextMinutes = snapDurationMinutes(minutes, type)
+    const nextTarget = nextMinutes * 60000
+
+    if (type === 'focus') updateSettings({ focusDuration: nextMinutes })
+    else updateSettings({ breakDuration: nextMinutes })
+
+    setTargetMs(nextTarget)
+    setRemainingMs(nextTarget)
+    syncToServer({
+      phase: 'idle',
+      sessionType: type,
+      intention,
+      category,
+      targetMs: nextTarget,
+      remainingMs: nextTarget,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+      todoistTaskId,
+    })
+  }, [category, intention, sessionType, syncToServer, todoistTaskId, updateSettings])
+
+  const handleIdleDialPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (phase !== 'idle') return
+
+    const dial = event.currentTarget
+    const rect = dial.getBoundingClientRect()
+    const toMinutes = (clientX: number, clientY: number) => dialProgressToMinutes(pointerToDialProgress(clientX, clientY, rect), sessionType)
+    const queueMinutes = (nextMinutes: number) => {
+      dragMinutesRef.current = nextMinutes
+      if (dragFrameRef.current != null) return
+      dragFrameRef.current = window.requestAnimationFrame(() => {
+        dragFrameRef.current = null
+        setDragMinutes(prev => (prev === dragMinutesRef.current ? prev : dragMinutesRef.current))
+      })
+    }
+
+    event.preventDefault()
+    if (typeof dial.setPointerCapture === 'function') {
+      try { dial.setPointerCapture(event.pointerId) } catch {}
+    }
+
+    queueMinutes(toMinutes(event.clientX, event.clientY))
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      queueMinutes(toMinutes(moveEvent.clientX, moveEvent.clientY))
+    }
+
+    const cleanup = () => {
+      if (dragFrameRef.current != null) {
+        window.cancelAnimationFrame(dragFrameRef.current)
+        dragFrameRef.current = null
+      }
+      dragMinutesRef.current = null
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', finishDrag)
+      window.removeEventListener('pointercancel', cancelDrag)
+    }
+
+    const finishDrag = (endEvent: PointerEvent) => {
+      const finalMinutes = toMinutes(endEvent.clientX, endEvent.clientY)
+      setDragMinutes(null)
+      cleanup()
+      commitIdleDuration(finalMinutes, sessionType)
+    }
+
+    const cancelDrag = () => {
+      setDragMinutes(null)
+      cleanup()
+    }
+
+    window.addEventListener('pointermove', handleMove, { passive: true })
+    window.addEventListener('pointerup', finishDrag)
+    window.addEventListener('pointercancel', cancelDrag)
+  }, [commitIdleDuration, phase, sessionType])
+
   const isFocus = sessionType === 'focus'
+  const idleBaseMinutes = Math.max(1, Math.round(targetMs / 60000)) || (isFocus ? settings.focusDuration : settings.breakDuration)
+  const idleDurationMinutes = dragMinutes ?? idleBaseMinutes
+  const idleDialProgress = minutesToDialProgress(idleDurationMinutes, sessionType)
+  const isIdleDialDragging = dragMinutes !== null
+  const totalMs = phase === 'idle' ? idleDurationMinutes * 60000 : targetMs || (sessionType === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+  const progress = phase === 'idle' ? 0 : Math.min(1, Math.max(0, 1 - (remainingMs / Math.max(totalMs, 1))))
+  const idleDialTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)'
   const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
-  const remainingSec = Math.ceil(remainingMs / 1000)
+  const remainingSec = phase === 'idle' ? idleDurationMinutes * 60 : Math.ceil(remainingMs / 1000)
   const compactCategoryLayout = sortedCategories.length > 5
-  const idleRingSize = sortedCategories.length > 8 ? 196 : sortedCategories.length > 5 ? 212 : 236
+  const idleRingSize = sortedCategories.length > 8 ? 208 : sortedCategories.length > 5 ? 220 : 236
+  const runningRingSize = 280
+  const idleClockLabel = isFocus ? 'Focus length' : 'Break length'
+  const runningClockLabel = phase === 'paused'
+    ? 'Paused'
+    : remainingMs < 0
+      ? 'Overtime'
+      : isFocus
+        ? 'Remaining'
+        : 'Break remaining'
+  const runningClockDetail = startedAt ? `Ends ${formatEndTime(startedAt + totalMs)}` : `${Math.round(totalMs / 60000)} min target`
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+    setDragMinutes(null)
     setSessionType(next)
     setTargetMs(nextTarget)
     setRemainingMs(nextTarget)
@@ -629,7 +829,8 @@ export default function Timer({
   }
 
   const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId) => {
-    const nextTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+    const configuredTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+    const nextTarget = phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
     const now = Date.now()
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
@@ -655,7 +856,7 @@ export default function Timer({
       todoistTaskId: startingTaskId,
     })
     postSwMessage('TIMER_STARTED')
-  }, [category, intention, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, todoistTaskId, wakeLock])
+  }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, targetMs, todoistTaskId, wakeLock])
 
   const pause = () => {
     setPhase('paused')
@@ -695,7 +896,18 @@ export default function Timer({
   const makeDraft = useCallback((natural: boolean): ReflectionDraft | null => {
     if (!startedAt) return null
     const endedAt = Date.now()
-    const actualMs = natural ? targetMs : Math.max(60000, endedAt - startedAt)
+    if (natural) {
+      return makeCompletedDraft({
+        startedAt,
+        endedAt,
+        targetMs,
+        intention,
+        category,
+        sessionType,
+        todoistTaskId,
+      })
+    }
+    const actualMs = Math.max(60000, endedAt - startedAt)
     return {
       id: `manual-${startedAt}`,
       intention,
@@ -777,8 +989,8 @@ export default function Timer({
   }, [category, makeDraft, postSwMessage, sessionType, settings.focusDuration, settings.soundEnabled, syncToServer])
 
   useEffect(() => {
-    if (phase === 'running' && remainingMs <= 0) finish(true)
-  }, [finish, phase, remainingMs])
+    if (phase === 'running' && remainingMs <= 0 && sessionType === 'break') finish(true)
+  }, [finish, phase, remainingMs, sessionType])
 
   const syncTodoistAfterSession = async (taskId: string, actualMs: number) => {
     try {
@@ -833,14 +1045,10 @@ export default function Timer({
     setIntention('')
     setTodoistTaskId(null)
     setStartedAt(0)
-    if (settings.autoStartBreak) {
-      start('break', '', category, null)
-    } else {
-      setPhase('idle')
-      setSessionType('focus')
-      setTargetMs(settings.focusDuration * 60000)
-      setRemainingMs(settings.focusDuration * 60000)
-    }
+    setPhase('idle')
+    setSessionType('focus')
+    setTargetMs(settings.focusDuration * 60000)
+    setRemainingMs(settings.focusDuration * 60000)
   }
 
   const greeting = (() => {
@@ -860,11 +1068,57 @@ export default function Timer({
           {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
         </div>
 
-        <div className="flex flex-1 items-center">
-          <Ring progress={progress} size={296} stroke={4} track="var(--line)" tint={ringTint} ticks={60} tickColor="var(--ink-2)" dot={isFocus}>
-            <div className="text-[66px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
-            <div className="mt-[14px] text-[12px] uppercase tracking-[0.18em] text-[var(--ink-3)]">{phase === 'paused' ? 'paused' : isFocus ? 'in session' : 'take a breath'}</div>
-          </Ring>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-[18px]">
+            <div className="relative">
+              <Ring progress={progress} size={runningRingSize} stroke={4} track="var(--line)" tint={ringTint} ticks={60} tickColor="var(--ink-2)" dot={false}>
+                <div className="h-[44%] w-[44%] rounded-full border border-white/35 bg-[color-mix(in_srgb,var(--bg)_74%,transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_14px_36px_rgba(24,18,12,0.08)]" />
+              </Ring>
+              <div className="pointer-events-none absolute inset-0">
+                <div
+                  className="absolute left-1/2 top-1/2 rounded-full"
+                  style={{
+                    width: 4,
+                    height: runningRingSize / 2 - 26,
+                    background: `linear-gradient(180deg, ${ringTint} 0%, color-mix(in srgb, ${ringTint} 70%, white) 100%)`,
+                    transform: `translate(-50%, -100%) rotate(${progress * 360}deg)`,
+                    transformOrigin: '50% 100%',
+                    boxShadow: `0 6px 18px color-mix(in srgb, ${ringTint} 24%, transparent)`,
+                    opacity: 0.96,
+                  }}
+                >
+                  <div
+                    className="absolute left-1/2 top-0 rounded-full border border-white/70"
+                    style={{
+                      width: 18,
+                      height: 18,
+                      marginLeft: -9,
+                      marginTop: -8,
+                      background: ringTint,
+                      boxShadow: '0 10px 22px rgba(20, 15, 10, 0.18)',
+                    }}
+                  />
+                </div>
+                <div
+                  className="absolute left-1/2 top-1/2 rounded-full border border-white/60"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    marginLeft: -9,
+                    marginTop: -9,
+                    background: 'var(--surface)',
+                    boxShadow: `0 0 0 5px color-mix(in srgb, ${ringTint} 14%, transparent)`,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="text-center">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{runningClockLabel}</div>
+              <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
+              <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
+            </div>
+          </div>
         </div>
 
         <div className="flex w-full flex-col items-center gap-[26px]">
@@ -907,10 +1161,84 @@ export default function Timer({
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-2 pt-3">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
-        <Ring progress={0} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)">
-          <div className="text-[68px] font-semibold leading-none tracking-[-0.045em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
-          <div className="mt-3 text-[12.5px] tracking-[0.04em] text-[var(--ink-3)]">{isFocus ? `${settings.focusDuration} minute focus` : `${settings.breakDuration} minute break`}</div>
-        </Ring>
+        <div className="flex flex-col items-center gap-[18px]">
+          <div className="relative">
+            <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
+              <div
+                data-testid="timer-duration-face-fill"
+                className="relative h-[74%] w-[74%] overflow-hidden rounded-full border border-white/45"
+                style={{
+                  background: `conic-gradient(color-mix(in srgb, ${idleDialTint} 92%, white) 0deg, ${idleDialTint} ${idleDialProgress * 360}deg, color-mix(in srgb, var(--bg) 90%, white) ${idleDialProgress * 360}deg, color-mix(in srgb, var(--bg) 90%, white) 360deg)`,
+                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), inset 0 0 0 1px color-mix(in srgb, ${idleDialTint} 14%, transparent), 0 16px 34px rgba(24,18,12,0.08)`,
+                }}
+              >
+                <div
+                  className="absolute inset-[14%] rounded-full"
+                  style={{
+                    background: 'radial-gradient(circle at 50% 35%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.58) 18%, color-mix(in srgb, var(--bg) 74%, white) 60%, color-mix(in srgb, var(--bg) 88%, transparent) 100%)',
+                  }}
+                />
+              </div>
+            </Ring>
+            <div
+              data-testid="timer-duration-dial"
+              role="slider"
+              aria-label={isFocus ? 'Focus length dial' : 'Break length dial'}
+              aria-valuemin={durationBounds(sessionType).min}
+              aria-valuemax={durationBounds(sessionType).max}
+              aria-valuenow={idleDurationMinutes}
+              aria-valuetext={`${idleDurationMinutes} minutes`}
+              onPointerDown={handleIdleDialPointerDown}
+              className="absolute inset-0 touch-none"
+              style={{ borderRadius: '50%' }}
+            >
+              <div
+                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
+                style={{
+                  width: 4,
+                  height: idleRingSize / 2 - 24,
+                  background: `linear-gradient(180deg, ${idleDialTint} 0%, color-mix(in srgb, ${idleDialTint} 68%, white) 100%)`,
+                  transform: `translate(-50%, -100%) rotate(${idleDialProgress * 360}deg)`,
+                  transformOrigin: '50% 100%',
+                  opacity: 0.96,
+                  transition: isIdleDialDragging ? 'none' : 'transform 180ms ease-out',
+                }}
+              >
+                <div
+                  className="absolute left-1/2 top-0 grid rounded-full border border-white/70"
+                  style={{
+                    width: 24,
+                    height: 24,
+                    marginLeft: -12,
+                    marginTop: -10,
+                    placeItems: 'center',
+                    background: idleDialTint,
+                    color: '#fff',
+                    boxShadow: `0 10px 24px color-mix(in srgb, ${idleDialTint} 22%, transparent)`,
+                  }}
+                >
+                  <Icon name="play" size={11} style={{ transform: 'rotate(-90deg)', marginLeft: 1 }} />
+                </div>
+              </div>
+              <div
+                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full border border-white/60"
+                style={{
+                  width: 16,
+                  height: 16,
+                  marginLeft: -8,
+                  marginTop: -8,
+                  background: 'var(--surface)',
+                  boxShadow: `0 0 0 4px color-mix(in srgb, ${idleDialTint} 16%, transparent)`,
+                  }}
+              />
+            </div>
+          </div>
+
+          <div className="text-center">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{idleClockLabel}</div>
+            <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
+          </div>
+        </div>
 
         {isFocus && (
           <div className="flex w-full max-w-[340px] flex-col gap-2.5">

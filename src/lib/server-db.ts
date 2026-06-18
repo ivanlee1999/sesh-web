@@ -4,12 +4,101 @@ import fs from 'fs'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const DB_PATH = path.join(DATA_DIR, 'sesh.db')
+const NETWORK_FS_TYPES = new Set([
+  'nfs',
+  'nfs4',
+  'cifs',
+  'smbfs',
+  'sshfs',
+  'fuse.sshfs',
+  'davfs',
+  'fuse.davfs',
+  'glusterfs',
+  'ceph',
+  'ceph-fuse',
+  'fuse.ceph',
+  'lustre',
+])
+const UNSAFE_PATH_PREFIXES = ['/mnt/nas', '/mnt/synology']
+
+type MountInfo = {
+  mountPoint: string
+  fsType: string
+}
 
 let db: Database.Database | null = null
+
+export function isUnsafeNetworkFsType(fsType: string | null | undefined): boolean {
+  return !!fsType && NETWORK_FS_TYPES.has(fsType.trim().toLowerCase())
+}
+
+export function findMountForPath(targetPath: string, mountsText: string): MountInfo | null {
+  const normalizedTarget = path.posix.normalize(targetPath.replace(/\\/g, '/'))
+  let bestMatch: MountInfo | null = null
+
+  for (const line of mountsText.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    const fields = trimmed.split(/\s+/)
+    if (fields.length < 3) continue
+
+    const mountPoint = fields[1].replace(/\\040/g, ' ')
+    const fsType = fields[2]
+    const normalizedMount = path.posix.normalize(mountPoint.replace(/\\/g, '/'))
+    const isPrefix = normalizedTarget === normalizedMount
+      || normalizedTarget.startsWith(`${normalizedMount}/`)
+
+    if (!isPrefix) continue
+    if (!bestMatch || normalizedMount.length > bestMatch.mountPoint.length) {
+      bestMatch = { mountPoint: normalizedMount, fsType }
+    }
+  }
+
+  return bestMatch
+}
+
+export function assertSafeSqliteStorage(
+  dbPath: string,
+  options: { realDbPath?: string; mountsText?: string } = {}
+): void {
+  const realDbPath = path.posix.normalize((options.realDbPath ?? dbPath).replace(/\\/g, '/'))
+
+  if (UNSAFE_PATH_PREFIXES.some(prefix => realDbPath === prefix || realDbPath.startsWith(`${prefix}/`))) {
+    throw new Error(
+      `Refusing to open SQLite DB on unsafe network-mounted path: ${realDbPath}. `
+      + 'Move sesh.db to local disk; SQLite WAL is not reliable on NAS/NFS mounts.'
+    )
+  }
+
+  const mount = options.mountsText ? findMountForPath(realDbPath, options.mountsText) : null
+  if (mount && isUnsafeNetworkFsType(mount.fsType)) {
+    throw new Error(
+      `Refusing to open SQLite DB on ${mount.fsType} mount ${mount.mountPoint}: ${realDbPath}. `
+      + 'Move sesh.db to local disk; SQLite WAL is not reliable on network filesystems.'
+    )
+  }
+}
 
 export function getDb(): Database.Database {
   if (!db) {
     fs.mkdirSync(DATA_DIR, { recursive: true })
+    let realDbPath = DB_PATH
+    try {
+      realDbPath = fs.realpathSync.native(DATA_DIR)
+      realDbPath = path.join(realDbPath, path.basename(DB_PATH))
+    } catch {
+      realDbPath = DB_PATH
+    }
+
+    let mountsText = ''
+    try {
+      mountsText = fs.readFileSync('/proc/mounts', 'utf8')
+    } catch {
+      mountsText = ''
+    }
+
+    assertSafeSqliteStorage(DB_PATH, { realDbPath, mountsText })
     db = new Database(DB_PATH)
     db.pragma('journal_mode = WAL')
     initSchema(db)

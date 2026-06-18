@@ -176,8 +176,14 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
   }
 
   // Build the event
-  const start = new Date(session.startedAt)
-  const end = new Date(session.endedAt)
+  const startMs = session.startedAt
+  const derivedEndMs = startMs + Math.max(
+    session.actualMs || 0,
+    session.endedAt - session.startedAt,
+    session.targetMs || 0,
+  )
+  const start = new Date(startMs)
+  const end = new Date(derivedEndMs)
   const typeLabel = session.type === 'focus' ? 'Focus' : 'Break'
   const categoryLabel = session.category.charAt(0).toUpperCase() + session.category.slice(1)
   let description = `Category: ${categoryLabel}\nType: ${typeLabel}\nDuration: ${formatDuration(session.actualMs || (session.endedAt - session.startedAt))}`

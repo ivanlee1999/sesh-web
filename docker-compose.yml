@@ -9,16 +9,18 @@ services:
     env_file:
       - .env.local
     volumes:
-      - /mnt/nas/docker/sesh-web/data:/app/data
+      - /home/ivan/docker/sesh-web/data:/app/data
 
   caddy:
     image: caddy-cloudflare:latest
     container_name: sesh-caddy
     restart: unless-stopped
+    env_file:
+      - .env.caddy
     ports:
       - "443:443"
     environment:
-      - CF_API_TOKEN=cfut_rV6KMyguPAVqB0vpm14r0SnVAIFTRqPx7qvgTnwobf53f646
+      - CF_API_TOKEN=${CF_API_TOKEN}
     volumes:
       - /home/ivan/docker/caddy-sesh/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data

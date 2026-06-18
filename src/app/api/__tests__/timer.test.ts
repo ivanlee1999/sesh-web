@@ -150,26 +150,21 @@ describe('overflow notification threshold calculation', () => {
     expect(nextOverflowNotificationThresholdMinutes(1)).toBe(5)
   })
 
-  it('count=2 triggers at 15 minutes', () => {
-    expect(nextOverflowNotificationThresholdMinutes(2)).toBe(15)
+  it('count=2 triggers at 10 minutes', () => {
+    expect(nextOverflowNotificationThresholdMinutes(2)).toBe(10)
   })
 
-  it('count=3 triggers at 30 minutes', () => {
-    expect(nextOverflowNotificationThresholdMinutes(3)).toBe(30)
+  it('count=3 triggers at 15 minutes', () => {
+    expect(nextOverflowNotificationThresholdMinutes(3)).toBe(15)
   })
 
-  it('count=4 triggers at 50 minutes', () => {
-    expect(nextOverflowNotificationThresholdMinutes(4)).toBe(50)
+  it('count=4 triggers at 20 minutes', () => {
+    expect(nextOverflowNotificationThresholdMinutes(4)).toBe(20)
   })
 
-  it('intervals increase: each gap is 5 minutes longer than the last', () => {
+  it('uses a fixed 5-minute gap between reminders', () => {
     const thresholds = [0, 1, 2, 3, 4, 5].map(nextOverflowNotificationThresholdMinutes)
-    // gaps: 5, 10, 15, 20, 25
-    for (let i = 2; i < thresholds.length; i++) {
-      const gap = thresholds[i] - thresholds[i - 1]
-      const prevGap = thresholds[i - 1] - thresholds[i - 2]
-      expect(gap - prevGap).toBe(5)
-    }
+    expect(thresholds).toEqual([0, 5, 10, 15, 20, 25])
   })
 })
 

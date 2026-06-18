@@ -59,10 +59,11 @@ export function tint(color: string, pct: number) {
 }
 
 export function fmtClock(totalSec: number) {
-  const safe = Math.max(0, Math.floor(totalSec))
+  const sign = totalSec < 0 ? '+' : ''
+  const safe = Math.max(0, Math.floor(Math.abs(totalSec)))
   const m = Math.floor(safe / 60)
   const s = safe % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${sign}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 export function fmtHM(min: number) {
@@ -121,6 +122,7 @@ export function Ring({
   ticks = 60,
   tickColor = 'var(--ink-3)',
   dot = false,
+  animated = true,
 }: {
   progress?: number
   size?: number
@@ -131,6 +133,7 @@ export function Ring({
   ticks?: number
   tickColor?: string
   dot?: boolean
+  animated?: boolean
 }) {
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
@@ -183,7 +186,7 @@ export function Ring({
           borderRadius: '50%',
           background: ringTint,
           boxShadow: isHex ? `0 0 0 5px ${ringTint}1f, 0 2px 8px ${ringTint}55` : undefined,
-          transition: 'left .9s linear, top .9s linear',
+          transition: animated ? 'left .9s linear, top .9s linear' : 'none',
         }}
       />
     )
@@ -204,7 +207,7 @@ export function Ring({
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={c * (1 - p)}
-          style={{ transition: 'stroke-dashoffset .9s linear' }}
+          style={{ transition: animated ? 'stroke-dashoffset .9s linear' : 'none' }}
         />
       </svg>
       {dotEl}

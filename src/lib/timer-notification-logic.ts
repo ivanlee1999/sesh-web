@@ -24,15 +24,14 @@ export interface OverflowNotification {
 }
 
 /**
- * The timer keeps running past target — notifications escalate at increasing intervals:
+ * The timer keeps running past target and reminds every 5 minutes:
  *   count=0 → at target time (0 min overflow)
  *   count=1 → +5 min overflow
- *   count=2 → +15 min overflow  (5 + 10)
- *   count=3 → +30 min overflow  (5 + 10 + 15)
- *   Formula: threshold(N) = 5 * N*(N+1)/2 minutes for N >= 1, threshold(0) = 0
+ *   count=2 → +10 min overflow
+ *   count=3 → +15 min overflow
  */
 export function nextOverflowNotificationThresholdMinutes(count: number): number {
-  return count === 0 ? 0 : 5 * count * (count + 1) / 2
+  return count * 5
 }
 
 export function buildOverflowNotification(row: TimerRow, now = Date.now()): OverflowNotification | null {
