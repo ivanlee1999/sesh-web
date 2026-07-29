@@ -414,56 +414,65 @@ function IntentionSheet({
   )
 }
 
-function FocusTopicSheet({
-  open,
-  title,
+/**
+ * In-place topic editor. Renders inline on whichever screen hosts it — no
+ * overlay — so switching topic never covers the running timer. Category taps
+ * apply immediately; the intention commits on Enter or the done button.
+ */
+function TopicEditor({
   categories,
   category,
   intention,
-  onClose,
-  onSave,
+  placeholder,
+  testId,
+  onApply,
+  onDone,
 }: {
-  open: boolean
-  title: string
   categories: CategoryRecord[]
   category: Category
   intention: string
-  onClose: () => void
-  onSave: (nextCategory: Category, nextIntention: string) => void
+  placeholder: string
+  testId: string
+  onApply: (nextCategory: Category, nextIntention: string) => void
+  onDone: () => void
 }) {
-  const [nextCategory, setNextCategory] = useState(category)
-  const [nextIntention, setNextIntention] = useState(intention)
+  const [draft, setDraft] = useState(intention)
+  useEffect(() => { setDraft(intention) }, [intention])
 
-  useEffect(() => {
-    if (!open) return
-    setNextCategory(category)
-    setNextIntention(intention)
-  }, [category, intention, open])
+  const commit = (nextCategory: Category = category) => onApply(nextCategory, draft.trim())
+  const commitAndClose = () => {
+    commit()
+    onDone()
+  }
 
   return (
-    <Sheet open={open} onClose={onClose} title={title}>
-      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Category</div>
+    <div className="w-full max-w-[340px]">
       <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
-        <div data-testid="focus-topic-categories" className="flex min-w-max flex-nowrap gap-2">
+        <div data-testid={testId} className="flex min-w-max flex-nowrap gap-2">
           {categories.map(cat => (
-            <Chip key={cat.id} color={cat.color} active={nextCategory === cat.name} onClick={() => setNextCategory(cat.name)}>{cat.label}</Chip>
+            <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => commit(cat.name)}>{cat.label}</Chip>
           ))}
         </div>
       </div>
-
-      <div className="mb-[9px] mt-[18px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Intention</div>
-      <textarea
-        value={nextIntention}
-        onChange={event => setNextIntention(event.target.value)}
-        rows={2}
-        placeholder="What are you working on now?"
-        className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[17px] font-semibold leading-snug tracking-[-0.02em] text-[var(--ink)] outline-none"
-      />
-
-      <div className="mt-[22px]">
-        <Btn full size="lg" onClick={() => onSave(nextCategory, nextIntention.trim())}>Update focus</Btn>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          autoFocus
+          value={draft}
+          onChange={event => setDraft(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Enter') commitAndClose() }}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-[13px] py-[9px] text-[16px] font-semibold tracking-[-0.01em] text-[var(--ink)] outline-none"
+        />
+        <button
+          type="button"
+          aria-label="Done editing focus"
+          onClick={commitAndClose}
+          className="grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--accent)] text-white"
+        >
+          <Icon name="check" size={18} color="#fff" />
+        </button>
       </div>
-    </Sheet>
+    </div>
   )
 }
 
@@ -486,7 +495,7 @@ function Reflection({
 }) {
   const [rating, setRating] = useState(4)
   const [notes, setNotes] = useState('')
-  const [topicSheet, setTopicSheet] = useState(false)
+  const [editingTopic, setEditingTopic] = useState(false)
   const accent = category?.color ?? 'var(--accent)'
 
   return (
@@ -501,14 +510,28 @@ function Reflection({
             {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
             {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
           </p>
-          <button
-            type="button"
-            onClick={() => setTopicSheet(true)}
-            className="mx-auto mt-[10px] flex items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-[7px] text-[13px] font-semibold text-[var(--ink-2)]"
-          >
-            <Icon name="edit" size={14} color="var(--ink-3)" />
-            Change topic
-          </button>
+          {editingTopic ? (
+            <div className="mt-[14px] flex justify-center">
+              <TopicEditor
+                categories={categories}
+                category={draft.category}
+                intention={draft.intention}
+                placeholder="What did you focus on?"
+                testId="reflection-topic-categories"
+                onApply={onChangeTopic}
+                onDone={() => setEditingTopic(false)}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingTopic(true)}
+              className="mx-auto mt-[10px] flex items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-[7px] text-[13px] font-semibold text-[var(--ink-2)]"
+            >
+              <Icon name="edit" size={14} color="var(--ink-3)" />
+              Change topic
+            </button>
+          )}
         </div>
 
         <div>
@@ -557,19 +580,6 @@ function Reflection({
           Skip
         </button>
       </div>
-
-      <FocusTopicSheet
-        open={topicSheet}
-        title="Change topic"
-        categories={categories}
-        category={draft.category}
-        intention={draft.intention}
-        onClose={() => setTopicSheet(false)}
-        onSave={(nextCategory, nextIntention) => {
-          onChangeTopic(nextCategory, nextIntention)
-          setTopicSheet(false)
-        }}
-      />
     </div>
   )
 }
@@ -594,7 +604,8 @@ export default function Timer({
   const [dragMinutes, setDragMinutes] = useState<number | null>(null)
   const [startedAt, setStartedAt] = useState(0)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'intention' | 'tasks' | 'topic' | null>(null)
+  const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
+  const [editingTopic, setEditingTopic] = useState(false)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [todoistOpenCount, setTodoistOpenCount] = useState(0)
   const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
@@ -923,7 +934,8 @@ export default function Timer({
   const remainingSec = phase === 'idle' ? idleDurationMinutes * 60 : Math.ceil(remainingMs / 1000)
   const compactCategoryLayout = sortedCategories.length > 5
   const idleRingSize = sortedCategories.length > 8 ? 208 : sortedCategories.length > 5 ? 220 : 236
-  const runningRingSize = 280
+  // Give the inline topic editor room without pushing the controls off-screen.
+  const runningRingSize = editingTopic ? 224 : 280
   const idleClockLabel = isFocus ? 'Focus length' : 'Break length'
   const runningClockLabel = phase === 'paused'
     ? 'Paused'
@@ -965,6 +977,7 @@ export default function Timer({
       : phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
     const now = Date.now()
     prevRemainingRef.current = null
+    setEditingTopic(false)
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
     setPhase('running')
@@ -1039,7 +1052,6 @@ export default function Timer({
     setIntention(nextIntention)
     setTodoistTaskId(nextTaskId)
     if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
-    setSheet(null)
     syncToServer({
       phase,
       sessionType,
@@ -1250,13 +1262,24 @@ export default function Timer({
 
   if (phase === 'running' || phase === 'paused') {
     return (
-      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
-        <div className="min-h-[56px] text-center">
+      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center overflow-y-auto bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
+        <div className="flex min-h-[56px] w-full flex-shrink-0 flex-col items-center text-center">
           {isFocus ? (
+            editingTopic ? (
+              <TopicEditor
+                categories={sortedCategories}
+                category={category}
+                intention={intention}
+                placeholder="What are you working on?"
+                testId="running-topic-categories"
+                onApply={changeRunningTopic}
+                onDone={() => setEditingTopic(false)}
+              />
+            ) : (
             <button
               type="button"
               aria-label="Switch focus topic"
-              onClick={() => setSheet('topic')}
+              onClick={() => setEditingTopic(true)}
               className="mx-auto flex flex-col items-center border-0 bg-transparent p-0 text-center"
             >
               <span className="flex items-center gap-[6px] text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: selectedCategory?.color ?? 'var(--accent)' }}>
@@ -1270,6 +1293,7 @@ export default function Timer({
                 {intention || 'Add an intention'}
               </span>
             </button>
+            )
           ) : (
             <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-3)]">
               {isLongBreakRunning ? 'Long break' : 'Break'}
@@ -1350,16 +1374,6 @@ export default function Timer({
             <div className="w-[58px]" />
           </div>
         </div>
-
-        <FocusTopicSheet
-          open={sheet === 'topic'}
-          title="Switch focus"
-          categories={sortedCategories}
-          category={category}
-          intention={intention}
-          onClose={() => setSheet(null)}
-          onSave={changeRunningTopic}
-        />
       </div>
     )
   }

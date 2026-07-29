@@ -504,21 +504,26 @@ describe('Timer', () => {
     expect(screen.getByText('24:30')).toBeTruthy()
   })
 
-  it('switches category and intention during a running session and syncs it', async () => {
+  it('edits the focus topic inline on the running screen without a popup', async () => {
     render(<Timer />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
     fireEvent.click(await screen.findByLabelText('Switch focus topic'))
 
-    const sheetCategories = await screen.findByTestId('focus-topic-categories')
-    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.change(screen.getByPlaceholderText('What are you working on now?'), {
+    // The editor renders in place — the timer stays on screen, no overlay.
+    const inlineCategories = await screen.findByTestId('running-topic-categories')
+    expect(screen.getByText('Remaining')).toBeTruthy()
+    expect(screen.getByLabelText('Stop session')).toBeTruthy()
+
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What are you working on?'), {
       target: { value: 'Read the spec' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
 
     expect(await screen.findByText('Read the spec')).toBeTruthy()
     expect(screen.getByText('Study')).toBeTruthy()
+    expect(screen.queryByTestId('running-topic-categories')).toBeNull()
     await waitFor(() => {
       const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
         const url = typeof input === 'string' ? input : (input as Request).url
@@ -534,9 +539,9 @@ describe('Timer', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
     fireEvent.click(await screen.findByLabelText('Switch focus topic'))
-    const sheetCategories = await screen.findByTestId('focus-topic-categories')
-    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+    const inlineCategories = await screen.findByTestId('running-topic-categories')
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
 
     fireEvent.click(await screen.findByLabelText('Stop session'))
     fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
@@ -550,7 +555,7 @@ describe('Timer', () => {
     })
   })
 
-  it('changes the topic from the reflection screen before saving', async () => {
+  it('changes the topic inline on the reflection screen before saving', async () => {
     render(<Timer />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
@@ -558,12 +563,14 @@ describe('Timer', () => {
     expect(await screen.findByText('Session complete')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Change topic/ }))
-    const sheetCategories = await screen.findByTestId('focus-topic-categories')
-    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.change(screen.getByPlaceholderText('What are you working on now?'), {
+    const inlineCategories = await screen.findByTestId('reflection-topic-categories')
+    expect(screen.getByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What did you focus on?'), {
       target: { value: 'Actually studied' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
 
     expect(await screen.findByText(/Actually studied/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
