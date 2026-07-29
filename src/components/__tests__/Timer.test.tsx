@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, act } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within, act } from '@testing-library/react'
 
 let keepScreenAwake = false
 let autoStartBreak = false
@@ -502,6 +502,80 @@ describe('Timer', () => {
     })
     expect(timerFetches).toHaveLength(2)
     expect(screen.getByText('24:30')).toBeTruthy()
+  })
+
+  it('switches category and intention during a running session and syncs it', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
+
+    const sheetCategories = await screen.findByTestId('focus-topic-categories')
+    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What are you working on now?'), {
+      target: { value: 'Read the spec' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+
+    expect(await screen.findByText('Read the spec')).toBeTruthy()
+    expect(screen.getByText('Study')).toBeTruthy()
+    await waitFor(() => {
+      const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/timer' && init?.method === 'PUT' && String(init?.body).includes('Read the spec')
+      })
+      expect(put?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+      expect(put?.[1]?.body).toEqual(expect.stringContaining('"phase":"running"'))
+    })
+  })
+
+  it('carries a mid-session topic switch into the saved session', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
+    const sheetCategories = await screen.findByTestId('focus-topic-categories')
+    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/sessions' && init?.method === 'POST'
+      })
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+    })
+  })
+
+  it('changes the topic from the reflection screen before saving', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    expect(await screen.findByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Change topic/ }))
+    const sheetCategories = await screen.findByTestId('focus-topic-categories')
+    fireEvent.click(within(sheetCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What are you working on now?'), {
+      target: { value: 'Actually studied' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update focus' }))
+
+    expect(await screen.findByText(/Actually studied/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
+
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/sessions' && init?.method === 'POST'
+      })
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"intention":"Actually studied"'))
+    })
   })
 
   it('requests screen wake lock directly from the start tap when keep-awake is enabled', async () => {

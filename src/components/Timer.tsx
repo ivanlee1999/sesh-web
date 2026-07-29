@@ -414,21 +414,79 @@ function IntentionSheet({
   )
 }
 
+function FocusTopicSheet({
+  open,
+  title,
+  categories,
+  category,
+  intention,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  title: string
+  categories: CategoryRecord[]
+  category: Category
+  intention: string
+  onClose: () => void
+  onSave: (nextCategory: Category, nextIntention: string) => void
+}) {
+  const [nextCategory, setNextCategory] = useState(category)
+  const [nextIntention, setNextIntention] = useState(intention)
+
+  useEffect(() => {
+    if (!open) return
+    setNextCategory(category)
+    setNextIntention(intention)
+  }, [category, intention, open])
+
+  return (
+    <Sheet open={open} onClose={onClose} title={title}>
+      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Category</div>
+      <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
+        <div data-testid="focus-topic-categories" className="flex min-w-max flex-nowrap gap-2">
+          {categories.map(cat => (
+            <Chip key={cat.id} color={cat.color} active={nextCategory === cat.name} onClick={() => setNextCategory(cat.name)}>{cat.label}</Chip>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-[9px] mt-[18px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Intention</div>
+      <textarea
+        value={nextIntention}
+        onChange={event => setNextIntention(event.target.value)}
+        rows={2}
+        placeholder="What are you working on now?"
+        className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[17px] font-semibold leading-snug tracking-[-0.02em] text-[var(--ink)] outline-none"
+      />
+
+      <div className="mt-[22px]">
+        <Btn full size="lg" onClick={() => onSave(nextCategory, nextIntention.trim())}>Update focus</Btn>
+      </div>
+    </Sheet>
+  )
+}
+
 function Reflection({
   draft,
   category,
+  categories,
   nextBreak,
+  onChangeTopic,
   onSave,
   onSkip,
 }: {
   draft: ReflectionDraft
   category: CategoryRecord | null
+  categories: CategoryRecord[]
   nextBreak: 'short' | 'long' | null
+  onChangeTopic: (nextCategory: Category, nextIntention: string) => void
   onSave: (rating: number, notes: string) => void
   onSkip: () => void
 }) {
   const [rating, setRating] = useState(4)
   const [notes, setNotes] = useState('')
+  const [topicSheet, setTopicSheet] = useState(false)
   const accent = category?.color ?? 'var(--accent)'
 
   return (
@@ -443,6 +501,14 @@ function Reflection({
             {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
             {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
           </p>
+          <button
+            type="button"
+            onClick={() => setTopicSheet(true)}
+            className="mx-auto mt-[10px] flex items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-[7px] text-[13px] font-semibold text-[var(--ink-2)]"
+          >
+            <Icon name="edit" size={14} color="var(--ink-3)" />
+            Change topic
+          </button>
         </div>
 
         <div>
@@ -491,6 +557,19 @@ function Reflection({
           Skip
         </button>
       </div>
+
+      <FocusTopicSheet
+        open={topicSheet}
+        title="Change topic"
+        categories={categories}
+        category={draft.category}
+        intention={draft.intention}
+        onClose={() => setTopicSheet(false)}
+        onSave={(nextCategory, nextIntention) => {
+          onChangeTopic(nextCategory, nextIntention)
+          setTopicSheet(false)
+        }}
+      />
     </div>
   )
 }
@@ -515,7 +594,7 @@ export default function Timer({
   const [dragMinutes, setDragMinutes] = useState<number | null>(null)
   const [startedAt, setStartedAt] = useState(0)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
+  const [sheet, setSheet] = useState<'intention' | 'tasks' | 'topic' | null>(null)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [todoistOpenCount, setTodoistOpenCount] = useState(0)
   const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
@@ -947,6 +1026,44 @@ export default function Timer({
     postSwMessage('TIMER_STARTED')
   }
 
+  /**
+   * Switch the topic of the session in flight. The change applies to the whole
+   * session — the reflection draft is built from this state when it ends — and
+   * is pushed to the server so other clients and notifications stay in step.
+   * A rewritten intention drops the linked Todoist task so time is never logged
+   * against a task you moved off.
+   */
+  const changeRunningTopic = useCallback((nextCategory: Category, nextIntention: string) => {
+    const nextTaskId = nextIntention === intention ? todoistTaskId : null
+    setCategory(nextCategory)
+    setIntention(nextIntention)
+    setTodoistTaskId(nextTaskId)
+    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+    setSheet(null)
+    syncToServer({
+      phase,
+      sessionType,
+      intention: nextIntention,
+      category: nextCategory,
+      targetMs,
+      remainingMs,
+      overflowMs: Math.max(0, -remainingMs),
+      startedAt: startedAt || null,
+      pausedAt: phase === 'paused' ? Date.now() : null,
+      todoistTaskId: nextTaskId,
+    })
+  }, [intention, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs, todoistTaskId])
+
+  const changeDraftTopic = useCallback((nextCategory: Category, nextIntention: string) => {
+    setDraft(prev => prev ? {
+      ...prev,
+      category: nextCategory,
+      intention: nextIntention,
+      todoistTaskId: nextIntention === prev.intention ? prev.todoistTaskId : null,
+    } : prev)
+    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+  }, [])
+
   const makeDraft = useCallback((natural: boolean): ReflectionDraft | null => {
     if (!startedAt) return null
     const endedAt = Date.now()
@@ -1135,10 +1252,29 @@ export default function Timer({
     return (
       <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
         <div className="min-h-[56px] text-center">
-          <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
-            {isFocus ? selectedCategory?.label ?? 'Focus' : isLongBreakRunning ? 'Long break' : 'Break'}
-          </div>
-          {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
+          {isFocus ? (
+            <button
+              type="button"
+              aria-label="Switch focus topic"
+              onClick={() => setSheet('topic')}
+              className="mx-auto flex flex-col items-center border-0 bg-transparent p-0 text-center"
+            >
+              <span className="flex items-center gap-[6px] text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: selectedCategory?.color ?? 'var(--accent)' }}>
+                {selectedCategory?.label ?? 'Focus'}
+                <Icon name="edit" size={13} color={selectedCategory?.color ?? 'var(--accent)'} />
+              </span>
+              <span
+                className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]"
+                style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}
+              >
+                {intention || 'Add an intention'}
+              </span>
+            </button>
+          ) : (
+            <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-3)]">
+              {isLongBreakRunning ? 'Long break' : 'Break'}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 items-center justify-center">
@@ -1214,6 +1350,16 @@ export default function Timer({
             <div className="w-[58px]" />
           </div>
         </div>
+
+        <FocusTopicSheet
+          open={sheet === 'topic'}
+          title="Switch focus"
+          categories={sortedCategories}
+          category={category}
+          intention={intention}
+          onClose={() => setSheet(null)}
+          onSave={changeRunningTopic}
+        />
       </div>
     )
   }
@@ -1222,7 +1368,17 @@ export default function Timer({
     const nextBreak = settings.autoStartBreak && draft.type === 'focus'
       ? ((cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 ? 'long' : 'short')
       : null
-    return <Reflection draft={draft} category={categoryByName(categories, draft.category)} nextBreak={nextBreak} onSave={saveReflection} onSkip={() => saveReflection(0, '')} />
+    return (
+      <Reflection
+        draft={draft}
+        category={categoryByName(categories, draft.category)}
+        categories={sortedCategories}
+        nextBreak={nextBreak}
+        onChangeTopic={changeDraftTopic}
+        onSave={saveReflection}
+        onSkip={() => saveReflection(0, '')}
+      />
+    )
   }
 
   return (
