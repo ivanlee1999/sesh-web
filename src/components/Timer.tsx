@@ -6,7 +6,7 @@ import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
-import { clearTimerState, enqueueSession, getRecentCategoryNames, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
+import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { isAuthResponse, readApiError } from '@/lib/api-client'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
@@ -65,6 +65,46 @@ function normalizeTimerState(data: ServerTimerState): ServerTimerState {
 
 function ratingWord(rating: number) {
   return ['', 'Tough', 'Slow', 'Okay', 'Good', 'Flow'][rating] || ''
+}
+
+function playChime(frequency = 880) {
+  try {
+    const ctx = new AudioContext()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(frequency, ctx.currentTime)
+    gain.gain.setValueAtTime(0.25, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.7)
+  } catch {}
+}
+
+function cycleDotsFilled(count: number, total: number) {
+  if (count <= 0) return 0
+  return ((count - 1) % total) + 1
+}
+
+function CycleDots({ count, total, accent, size = 8 }: { count: number; total: number; accent: string; size?: number }) {
+  const filled = cycleDotsFilled(count, total)
+  return (
+    <div data-testid="pomodoro-cycle-dots" className="flex items-center gap-[6px]" aria-label={`${filled} of ${total} focus sessions this cycle`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className="rounded-full transition-colors"
+          style={{
+            width: size,
+            height: size,
+            background: i < filled ? accent : 'transparent',
+            border: i < filled ? `1.5px solid ${accent}` : '1.5px solid var(--line-strong)',
+          }}
+        />
+      ))}
+    </div>
+  )
 }
 
 const DURATION_LIMITS = {
@@ -377,11 +417,13 @@ function IntentionSheet({
 function Reflection({
   draft,
   category,
+  nextBreak,
   onSave,
   onSkip,
 }: {
   draft: ReflectionDraft
   category: CategoryRecord | null
+  nextBreak: 'short' | 'long' | null
   onSave: (rating: number, notes: string) => void
   onSkip: () => void
 }) {
@@ -438,7 +480,9 @@ function Reflection({
       </div>
 
       <div className="mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
-        <Btn full size="lg" onClick={() => onSave(rating, notes)}>Save to journal</Btn>
+        <Btn full size="lg" onClick={() => onSave(rating, notes)}>
+          {nextBreak === 'long' ? 'Save & start long break' : nextBreak === 'short' ? 'Save & start break' : 'Save to journal'}
+        </Btn>
         <button
           type="button"
           onClick={onSkip}
@@ -477,10 +521,12 @@ export default function Timer({
   const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
   const [streak, setStreak] = useState(0)
+  const [cycleCount, setCycleCount] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const finishingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const dragMinutesRef = useRef<number | null>(null)
+  const prevRemainingRef = useRef<number | null>(null)
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
@@ -490,6 +536,7 @@ export default function Timer({
 
   useEffect(() => {
     setRecentCategories(getRecentCategoryNames())
+    setCycleCount(getPomodoroCycleCount())
     fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
     fetch('/api/todoist/status')
       .then(async status => {
@@ -807,6 +854,10 @@ export default function Timer({
         ? 'Remaining'
         : 'Break remaining'
   const runningClockDetail = startedAt ? `Ends ${formatEndTime(startedAt + totalMs)}` : `${Math.round(totalMs / 60000)} min target`
+  const isLongBreakRunning = !isFocus
+    && settings.longBreakDuration !== settings.breakDuration
+    && targetMs === settings.longBreakDuration * 60000
+  const cycleAccent = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
@@ -828,10 +879,13 @@ export default function Timer({
     })
   }
 
-  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId) => {
+  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId, durationMinutes?: number) => {
     const configuredTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
-    const nextTarget = phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
+    const nextTarget = durationMinutes
+      ? durationMinutes * 60000
+      : phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
     const now = Date.now()
+    prevRemainingRef.current = null
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
     setPhase('running')
@@ -928,6 +982,15 @@ export default function Timer({
     if (intervalRef.current) clearInterval(intervalRef.current)
     if (sessionType === 'break') {
       clearTimerState()
+      if (natural) {
+        if (settings.soundEnabled) playChime(660)
+        if (navigator.vibrate) navigator.vibrate(120)
+        if (settings.autoStartFocus) {
+          finishingRef.current = false
+          start('focus', '', category, null)
+          return
+        }
+      }
       setPhase('idle')
       setSessionType('focus')
       setTargetMs(settings.focusDuration * 60000)
@@ -970,27 +1033,26 @@ export default function Timer({
       todoistTaskId: null,
     })
     postSwMessage('TIMER_STOPPED')
-    if (settings.soundEnabled) {
-      try {
-        const ctx = new AudioContext()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.frequency.setValueAtTime(880, ctx.currentTime)
-        gain.gain.setValueAtTime(0.25, ctx.currentTime)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7)
-        osc.start()
-        osc.stop(ctx.currentTime + 0.7)
-      } catch {}
-    }
+    if (settings.soundEnabled) playChime(880)
     if (navigator.vibrate) navigator.vibrate([160, 80, 160])
     finishingRef.current = false
-  }, [category, makeDraft, postSwMessage, sessionType, settings.focusDuration, settings.soundEnabled, syncToServer])
+  }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartFocus, settings.focusDuration, settings.soundEnabled, start, syncToServer])
 
   useEffect(() => {
     if (phase === 'running' && remainingMs <= 0 && sessionType === 'break') finish(true)
   }, [finish, phase, remainingMs, sessionType])
+
+  // Chime once the moment a running focus session crosses zero, then let it
+  // run into overtime. Only fires on a live tick across zero — restoring an
+  // already-overdue session from the server stays silent.
+  useEffect(() => {
+    const prev = prevRemainingRef.current
+    prevRemainingRef.current = remainingMs
+    if (phase !== 'running' || sessionType !== 'focus') return
+    if (prev === null || prev <= 0 || remainingMs > 0) return
+    if (settings.soundEnabled) playChime(880)
+    if (navigator.vibrate) navigator.vibrate([160, 80, 160])
+  }, [phase, remainingMs, sessionType, settings.soundEnabled])
 
   const syncTodoistAfterSession = async (taskId: string, actualMs: number) => {
     try {
@@ -1045,6 +1107,17 @@ export default function Timer({
     setIntention('')
     setTodoistTaskId(null)
     setStartedAt(0)
+
+    if (draft.type === 'focus') {
+      const nextCount = incrementPomodoroCycle()
+      setCycleCount(nextCount)
+      if (settings.autoStartBreak) {
+        const isLongBreak = nextCount % settings.sessionsBeforeLongBreak === 0
+        start('break', '', draft.category, null, isLongBreak ? settings.longBreakDuration : settings.breakDuration)
+        return
+      }
+    }
+
     setPhase('idle')
     setSessionType('focus')
     setTargetMs(settings.focusDuration * 60000)
@@ -1063,7 +1136,7 @@ export default function Timer({
       <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
         <div className="min-h-[56px] text-center">
           <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
-            {isFocus ? selectedCategory?.label ?? 'Focus' : 'Break'}
+            {isFocus ? selectedCategory?.label ?? 'Focus' : isLongBreakRunning ? 'Long break' : 'Break'}
           </div>
           {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
         </div>
@@ -1117,6 +1190,9 @@ export default function Timer({
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{runningClockLabel}</div>
               <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
               <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
+              <div className="mt-3 flex justify-center">
+                <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={cycleAccent} size={7} />
+              </div>
             </div>
           </div>
         </div>
@@ -1143,7 +1219,10 @@ export default function Timer({
   }
 
   if (phase === 'reflect' && draft) {
-    return <Reflection draft={draft} category={categoryByName(categories, draft.category)} onSave={saveReflection} onSkip={() => saveReflection(0, '')} />
+    const nextBreak = settings.autoStartBreak && draft.type === 'focus'
+      ? ((cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 ? 'long' : 'short')
+      : null
+    return <Reflection draft={draft} category={categoryByName(categories, draft.category)} nextBreak={nextBreak} onSave={saveReflection} onSkip={() => saveReflection(0, '')} />
   }
 
   return (
@@ -1161,6 +1240,12 @@ export default function Timer({
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-2 pt-3">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
+        <div className="flex items-center gap-[10px]">
+          <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={selectedCategory?.color ?? 'var(--accent)'} size={7} />
+          {isFocus && (cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 && (
+            <span className="text-[12px] text-[var(--ink-3)]">Long break after this one</span>
+          )}
+        </div>
         <div className="flex flex-col items-center gap-[18px]">
           <div className="relative">
             <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
