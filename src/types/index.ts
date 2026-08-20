@@ -43,11 +43,14 @@ export interface TodoistTask {
 export interface AppSettings {
   focusDuration: number    // minutes
   breakDuration: number
+  longBreakDuration: number
+  sessionsBeforeLongBreak: number
   soundEnabled: boolean
   calendarSync: boolean
   darkMode: boolean
   keepScreenAwake: boolean
   autoStartBreak: boolean
+  autoStartFocus: boolean
   todoistAutoComplete: boolean
   accentColor: string
 }
@@ -55,11 +58,14 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   focusDuration: 25,
   breakDuration: 5,
+  longBreakDuration: 15,
+  sessionsBeforeLongBreak: 4,
   soundEnabled: true,
   calendarSync: false,
   darkMode: false,
   keepScreenAwake: true,
   autoStartBreak: true,
+  autoStartFocus: false,
   todoistAutoComplete: true,
   accentColor: '#BE6E45',
 }

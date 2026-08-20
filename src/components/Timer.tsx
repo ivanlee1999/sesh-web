@@ -6,7 +6,7 @@ import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
-import { clearTimerState, enqueueSession, getRecentCategoryNames, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
+import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { isAuthResponse, readApiError } from '@/lib/api-client'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
@@ -65,6 +65,46 @@ function normalizeTimerState(data: ServerTimerState): ServerTimerState {
 
 function ratingWord(rating: number) {
   return ['', 'Tough', 'Slow', 'Okay', 'Good', 'Flow'][rating] || ''
+}
+
+function playChime(frequency = 880) {
+  try {
+    const ctx = new AudioContext()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(frequency, ctx.currentTime)
+    gain.gain.setValueAtTime(0.25, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.7)
+  } catch {}
+}
+
+function cycleDotsFilled(count: number, total: number) {
+  if (count <= 0) return 0
+  return ((count - 1) % total) + 1
+}
+
+function CycleDots({ count, total, accent, size = 8 }: { count: number; total: number; accent: string; size?: number }) {
+  const filled = cycleDotsFilled(count, total)
+  return (
+    <div data-testid="pomodoro-cycle-dots" className="flex items-center gap-[6px]" aria-label={`${filled} of ${total} focus sessions this cycle`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className="rounded-full transition-colors"
+          style={{
+            width: size,
+            height: size,
+            background: i < filled ? accent : 'transparent',
+            border: i < filled ? `1.5px solid ${accent}` : '1.5px solid var(--line-strong)',
+          }}
+        />
+      ))}
+    </div>
+  )
 }
 
 const DURATION_LIMITS = {
@@ -374,19 +414,88 @@ function IntentionSheet({
   )
 }
 
+/**
+ * In-place topic editor. Renders inline on whichever screen hosts it — no
+ * overlay — so switching topic never covers the running timer. Category taps
+ * apply immediately; the intention commits on Enter or the done button.
+ */
+function TopicEditor({
+  categories,
+  category,
+  intention,
+  placeholder,
+  testId,
+  onApply,
+  onDone,
+}: {
+  categories: CategoryRecord[]
+  category: Category
+  intention: string
+  placeholder: string
+  testId: string
+  onApply: (nextCategory: Category, nextIntention: string) => void
+  onDone: () => void
+}) {
+  const [draft, setDraft] = useState(intention)
+  useEffect(() => { setDraft(intention) }, [intention])
+
+  const commit = (nextCategory: Category = category) => onApply(nextCategory, draft.trim())
+  const commitAndClose = () => {
+    commit()
+    onDone()
+  }
+
+  return (
+    <div className="w-full max-w-[340px]">
+      <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
+        <div data-testid={testId} className="flex min-w-max flex-nowrap gap-2">
+          {categories.map(cat => (
+            <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => commit(cat.name)}>{cat.label}</Chip>
+          ))}
+        </div>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          autoFocus
+          value={draft}
+          onChange={event => setDraft(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Enter') commitAndClose() }}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-[13px] py-[9px] text-[16px] font-semibold tracking-[-0.01em] text-[var(--ink)] outline-none"
+        />
+        <button
+          type="button"
+          aria-label="Done editing focus"
+          onClick={commitAndClose}
+          className="grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--accent)] text-white"
+        >
+          <Icon name="check" size={18} color="#fff" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Reflection({
   draft,
   category,
+  categories,
+  nextBreak,
+  onChangeTopic,
   onSave,
   onSkip,
 }: {
   draft: ReflectionDraft
   category: CategoryRecord | null
+  categories: CategoryRecord[]
+  nextBreak: 'short' | 'long' | null
+  onChangeTopic: (nextCategory: Category, nextIntention: string) => void
   onSave: (rating: number, notes: string) => void
   onSkip: () => void
 }) {
   const [rating, setRating] = useState(4)
   const [notes, setNotes] = useState('')
+  const [editingTopic, setEditingTopic] = useState(false)
   const accent = category?.color ?? 'var(--accent)'
 
   return (
@@ -401,6 +510,28 @@ function Reflection({
             {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
             {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
           </p>
+          {editingTopic ? (
+            <div className="mt-[14px] flex justify-center">
+              <TopicEditor
+                categories={categories}
+                category={draft.category}
+                intention={draft.intention}
+                placeholder="What did you focus on?"
+                testId="reflection-topic-categories"
+                onApply={onChangeTopic}
+                onDone={() => setEditingTopic(false)}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditingTopic(true)}
+              className="mx-auto mt-[10px] flex items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-[7px] text-[13px] font-semibold text-[var(--ink-2)]"
+            >
+              <Icon name="edit" size={14} color="var(--ink-3)" />
+              Change topic
+            </button>
+          )}
         </div>
 
         <div>
@@ -438,7 +569,9 @@ function Reflection({
       </div>
 
       <div className="mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
-        <Btn full size="lg" onClick={() => onSave(rating, notes)}>Save to journal</Btn>
+        <Btn full size="lg" onClick={() => onSave(rating, notes)}>
+          {nextBreak === 'long' ? 'Save & start long break' : nextBreak === 'short' ? 'Save & start break' : 'Save to journal'}
+        </Btn>
         <button
           type="button"
           onClick={onSkip}
@@ -472,15 +605,18 @@ export default function Timer({
   const [startedAt, setStartedAt] = useState(0)
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
   const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
+  const [editingTopic, setEditingTopic] = useState(false)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [todoistOpenCount, setTodoistOpenCount] = useState(0)
   const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
   const [streak, setStreak] = useState(0)
+  const [cycleCount, setCycleCount] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const finishingRef = useRef(false)
   const dragFrameRef = useRef<number | null>(null)
   const dragMinutesRef = useRef<number | null>(null)
+  const prevRemainingRef = useRef<number | null>(null)
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
@@ -490,6 +626,7 @@ export default function Timer({
 
   useEffect(() => {
     setRecentCategories(getRecentCategoryNames())
+    setCycleCount(getPomodoroCycleCount())
     fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
     fetch('/api/todoist/status')
       .then(async status => {
@@ -797,7 +934,8 @@ export default function Timer({
   const remainingSec = phase === 'idle' ? idleDurationMinutes * 60 : Math.ceil(remainingMs / 1000)
   const compactCategoryLayout = sortedCategories.length > 5
   const idleRingSize = sortedCategories.length > 8 ? 208 : sortedCategories.length > 5 ? 220 : 236
-  const runningRingSize = 280
+  // Give the inline topic editor room without pushing the controls off-screen.
+  const runningRingSize = editingTopic ? 224 : 280
   const idleClockLabel = isFocus ? 'Focus length' : 'Break length'
   const runningClockLabel = phase === 'paused'
     ? 'Paused'
@@ -807,6 +945,10 @@ export default function Timer({
         ? 'Remaining'
         : 'Break remaining'
   const runningClockDetail = startedAt ? `Ends ${formatEndTime(startedAt + totalMs)}` : `${Math.round(totalMs / 60000)} min target`
+  const isLongBreakRunning = !isFocus
+    && settings.longBreakDuration !== settings.breakDuration
+    && targetMs === settings.longBreakDuration * 60000
+  const cycleAccent = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
 
   const selectSessionType = (next: SessionType) => {
     const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
@@ -828,10 +970,14 @@ export default function Timer({
     })
   }
 
-  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId) => {
+  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId, durationMinutes?: number) => {
     const configuredTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
-    const nextTarget = phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
+    const nextTarget = durationMinutes
+      ? durationMinutes * 60000
+      : phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
     const now = Date.now()
+    prevRemainingRef.current = null
+    setEditingTopic(false)
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
     setPhase('running')
@@ -893,6 +1039,43 @@ export default function Timer({
     postSwMessage('TIMER_STARTED')
   }
 
+  /**
+   * Switch the topic of the session in flight. The change applies to the whole
+   * session — the reflection draft is built from this state when it ends — and
+   * is pushed to the server so other clients and notifications stay in step.
+   * A rewritten intention drops the linked Todoist task so time is never logged
+   * against a task you moved off.
+   */
+  const changeRunningTopic = useCallback((nextCategory: Category, nextIntention: string) => {
+    const nextTaskId = nextIntention === intention ? todoistTaskId : null
+    setCategory(nextCategory)
+    setIntention(nextIntention)
+    setTodoistTaskId(nextTaskId)
+    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+    syncToServer({
+      phase,
+      sessionType,
+      intention: nextIntention,
+      category: nextCategory,
+      targetMs,
+      remainingMs,
+      overflowMs: Math.max(0, -remainingMs),
+      startedAt: startedAt || null,
+      pausedAt: phase === 'paused' ? Date.now() : null,
+      todoistTaskId: nextTaskId,
+    })
+  }, [intention, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs, todoistTaskId])
+
+  const changeDraftTopic = useCallback((nextCategory: Category, nextIntention: string) => {
+    setDraft(prev => prev ? {
+      ...prev,
+      category: nextCategory,
+      intention: nextIntention,
+      todoistTaskId: nextIntention === prev.intention ? prev.todoistTaskId : null,
+    } : prev)
+    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+  }, [])
+
   const makeDraft = useCallback((natural: boolean): ReflectionDraft | null => {
     if (!startedAt) return null
     const endedAt = Date.now()
@@ -928,6 +1111,15 @@ export default function Timer({
     if (intervalRef.current) clearInterval(intervalRef.current)
     if (sessionType === 'break') {
       clearTimerState()
+      if (natural) {
+        if (settings.soundEnabled) playChime(660)
+        if (navigator.vibrate) navigator.vibrate(120)
+        if (settings.autoStartFocus) {
+          finishingRef.current = false
+          start('focus', '', category, null)
+          return
+        }
+      }
       setPhase('idle')
       setSessionType('focus')
       setTargetMs(settings.focusDuration * 60000)
@@ -970,27 +1162,26 @@ export default function Timer({
       todoistTaskId: null,
     })
     postSwMessage('TIMER_STOPPED')
-    if (settings.soundEnabled) {
-      try {
-        const ctx = new AudioContext()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.frequency.setValueAtTime(880, ctx.currentTime)
-        gain.gain.setValueAtTime(0.25, ctx.currentTime)
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7)
-        osc.start()
-        osc.stop(ctx.currentTime + 0.7)
-      } catch {}
-    }
+    if (settings.soundEnabled) playChime(880)
     if (navigator.vibrate) navigator.vibrate([160, 80, 160])
     finishingRef.current = false
-  }, [category, makeDraft, postSwMessage, sessionType, settings.focusDuration, settings.soundEnabled, syncToServer])
+  }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartFocus, settings.focusDuration, settings.soundEnabled, start, syncToServer])
 
   useEffect(() => {
     if (phase === 'running' && remainingMs <= 0 && sessionType === 'break') finish(true)
   }, [finish, phase, remainingMs, sessionType])
+
+  // Chime once the moment a running focus session crosses zero, then let it
+  // run into overtime. Only fires on a live tick across zero — restoring an
+  // already-overdue session from the server stays silent.
+  useEffect(() => {
+    const prev = prevRemainingRef.current
+    prevRemainingRef.current = remainingMs
+    if (phase !== 'running' || sessionType !== 'focus') return
+    if (prev === null || prev <= 0 || remainingMs > 0) return
+    if (settings.soundEnabled) playChime(880)
+    if (navigator.vibrate) navigator.vibrate([160, 80, 160])
+  }, [phase, remainingMs, sessionType, settings.soundEnabled])
 
   const syncTodoistAfterSession = async (taskId: string, actualMs: number) => {
     try {
@@ -1045,6 +1236,17 @@ export default function Timer({
     setIntention('')
     setTodoistTaskId(null)
     setStartedAt(0)
+
+    if (draft.type === 'focus') {
+      const nextCount = incrementPomodoroCycle()
+      setCycleCount(nextCount)
+      if (settings.autoStartBreak) {
+        const isLongBreak = nextCount % settings.sessionsBeforeLongBreak === 0
+        start('break', '', draft.category, null, isLongBreak ? settings.longBreakDuration : settings.breakDuration)
+        return
+      }
+    }
+
     setPhase('idle')
     setSessionType('focus')
     setTargetMs(settings.focusDuration * 60000)
@@ -1060,12 +1262,43 @@ export default function Timer({
 
   if (phase === 'running' || phase === 'paused') {
     return (
-      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
-        <div className="min-h-[56px] text-center">
-          <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
-            {isFocus ? selectedCategory?.label ?? 'Focus' : 'Break'}
-          </div>
-          {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
+      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center overflow-y-auto bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
+        <div className="flex min-h-[56px] w-full flex-shrink-0 flex-col items-center text-center">
+          {isFocus ? (
+            editingTopic ? (
+              <TopicEditor
+                categories={sortedCategories}
+                category={category}
+                intention={intention}
+                placeholder="What are you working on?"
+                testId="running-topic-categories"
+                onApply={changeRunningTopic}
+                onDone={() => setEditingTopic(false)}
+              />
+            ) : (
+            <button
+              type="button"
+              aria-label="Switch focus topic"
+              onClick={() => setEditingTopic(true)}
+              className="mx-auto flex flex-col items-center border-0 bg-transparent p-0 text-center"
+            >
+              <span className="flex items-center gap-[6px] text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: selectedCategory?.color ?? 'var(--accent)' }}>
+                {selectedCategory?.label ?? 'Focus'}
+                <Icon name="edit" size={13} color={selectedCategory?.color ?? 'var(--accent)'} />
+              </span>
+              <span
+                className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]"
+                style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}
+              >
+                {intention || 'Add an intention'}
+              </span>
+            </button>
+            )
+          ) : (
+            <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-3)]">
+              {isLongBreakRunning ? 'Long break' : 'Break'}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 items-center justify-center">
@@ -1117,6 +1350,9 @@ export default function Timer({
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{runningClockLabel}</div>
               <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
               <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
+              <div className="mt-3 flex justify-center">
+                <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={cycleAccent} size={7} />
+              </div>
             </div>
           </div>
         </div>
@@ -1143,7 +1379,20 @@ export default function Timer({
   }
 
   if (phase === 'reflect' && draft) {
-    return <Reflection draft={draft} category={categoryByName(categories, draft.category)} onSave={saveReflection} onSkip={() => saveReflection(0, '')} />
+    const nextBreak = settings.autoStartBreak && draft.type === 'focus'
+      ? ((cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 ? 'long' : 'short')
+      : null
+    return (
+      <Reflection
+        draft={draft}
+        category={categoryByName(categories, draft.category)}
+        categories={sortedCategories}
+        nextBreak={nextBreak}
+        onChangeTopic={changeDraftTopic}
+        onSave={saveReflection}
+        onSkip={() => saveReflection(0, '')}
+      />
+    )
   }
 
   return (
@@ -1161,6 +1410,12 @@ export default function Timer({
 
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-2 pt-3">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
+        <div className="flex items-center gap-[10px]">
+          <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={selectedCategory?.color ?? 'var(--accent)'} size={7} />
+          {isFocus && (cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 && (
+            <span className="text-[12px] text-[var(--ink-3)]">Long break after this one</span>
+          )}
+        </div>
         <div className="flex flex-col items-center gap-[18px]">
           <div className="relative">
             <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
