@@ -853,6 +853,7 @@
 
 .sesh-stepper span {
   min-width: 54px;
+  white-space: nowrap;
   text-align: center;
   font-size: 16px;
   font-weight: 700;

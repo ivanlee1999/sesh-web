@@ -1,14 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_SETTINGS, type Category, type CategoryRecord, type SessionType, type TodoistTask } from '@/types'
+import { DEFAULT_SETTINGS, resolveProvider, type Category, type CategoryRecord, type ExternalTask, type SessionType } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { useCssSize } from '@/hooks/useCssSize'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
-import { isAuthResponse, readApiError } from '@/lib/api-client'
+import { readApiError } from '@/lib/api-client'
+import { decodeTaskRef, encodeTaskRef } from '@/lib/task-ref'
+import { PROVIDER_COLOR, PROVIDER_LABEL, loadProviderStatuses, loadTasks, recordFocusTime, taskKey } from '@/lib/task-sources'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
 
@@ -188,7 +190,7 @@ function categoryByName(categories: CategoryRecord[], name: string): CategoryRec
   return categories.find(category => category.name === name) ?? categories[0] ?? null
 }
 
-function taskCategory(task: TodoistTask, categories: CategoryRecord[], fallback: string): string {
+function taskCategory(task: ExternalTask, categories: CategoryRecord[], fallback: string): string {
   const candidates = [task.category, ...(task.labels ?? [])].filter(Boolean).map(value => String(value).toLowerCase())
   for (const candidate of candidates) {
     const found = categories.find(category => category.name.toLowerCase() === candidate || category.label.toLowerCase() === candidate)
@@ -207,12 +209,12 @@ function TaskPickerSheet({
 }: {
   open: boolean
   onClose: () => void
-  onPick: (task: TodoistTask, categoryName: string) => void
+  onPick: (task: ExternalTask, categoryName: string) => void
   activeId: string | null
   categories: CategoryRecord[]
   fallbackCategory: string
 }) {
-  const [tasks, setTasks] = useState<TodoistTask[]>([])
+  const [tasks, setTasks] = useState<ExternalTask[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -221,16 +223,19 @@ function TaskPickerSheet({
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch('/api/todoist/tasks?filter=all')
-      .then(async res => {
-        if (!res.ok) throw new Error(await readApiError(res, 'Failed to load Todoist tasks'))
-        return res.json()
+    loadProviderStatuses()
+      .then(statuses => loadTasks('all', statuses.filter(s => s.state === 'connected').map(s => s.provider)))
+      .then(({ tasks: loaded, errors }) => {
+        if (cancelled) return
+        setTasks(loaded.filter(task => !task.completed))
+        if (errors.length > 0) {
+          setError(errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · '))
+        }
       })
-      .then(data => { if (!cancelled) setTasks((data.tasks ?? []).filter((task: TodoistTask) => !task.completed)) })
       .catch(err => {
         if (!cancelled) {
           setTasks([])
-          setError(err instanceof Error ? err.message : 'Failed to load Todoist tasks')
+          setError(err instanceof Error ? err.message : 'Failed to load tasks')
         }
       })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -250,13 +255,13 @@ function TaskPickerSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Focus on a task">
       <div className="flex max-h-[420px] flex-col gap-[14px] overflow-y-auto">
-        {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading Todoist...</div>}
+        {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading tasks...</div>}
         {error && <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-[13px] text-[#C2615A]">{error}</div>}
         <TaskGroup label="Today" items={today} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
         {boardColumns.length > 0 && (
           <TaskBoard columns={boardColumns} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
         )}
-        {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left in Todoist.</div>}
+        {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left to do.</div>}
       </div>
     </Sheet>
   )
@@ -269,11 +274,11 @@ function TaskBoard({
   fallbackCategory,
   onPick,
 }: {
-  columns: { key: string; label: string; items: TodoistTask[] }[]
+  columns: { key: string; label: string; items: ExternalTask[] }[]
   categories: CategoryRecord[]
   activeId: string | null
   fallbackCategory: string
-  onPick: (task: TodoistTask, categoryName: string) => void
+  onPick: (task: ExternalTask, categoryName: string) => void
 }) {
   return (
     <div>
@@ -289,7 +294,7 @@ function TaskBoard({
               <div className="flex flex-col gap-2">
                 {column.items.map(task => (
                   <TaskCard
-                    key={task.id}
+                    key={taskKey(task)}
                     task={task}
                     categories={categories}
                     activeId={activeId}
@@ -313,15 +318,16 @@ function TaskCard({
   fallbackCategory,
   onPick,
 }: {
-  task: TodoistTask
+  task: ExternalTask
   categories: CategoryRecord[]
   activeId: string | null
   fallbackCategory: string
-  onPick: (task: TodoistTask, categoryName: string) => void
+  onPick: (task: ExternalTask, categoryName: string) => void
 }) {
   const categoryName = taskCategory(task, categories, fallbackCategory)
   const category = categoryByName(categories, categoryName)
-  const active = activeId === task.id
+  // activeId is a provider-qualified ref; ids alone collide across providers.
+  const active = activeId === encodeTaskRef(resolveProvider(task), task.id)
   const priorityLabel = task.priority > 1 ? `P${task.priority}` : null
 
   return (
@@ -339,10 +345,11 @@ function TaskCard({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
         <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
-          <span className="truncate">{task.projectName ?? 'Todoist'}</span>
+          <span className="truncate">{task.projectName ?? PROVIDER_LABEL[resolveProvider(task)]}</span>
           {priorityLabel && <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--ink-2)]">{priorityLabel}</span>}
         </span>
       </span>
+      <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: PROVIDER_COLOR[resolveProvider(task)] }} />
       {category && <span className="h-2 w-2 rounded-full" style={{ background: category.color }} />}
     </button>
   )
@@ -357,11 +364,11 @@ function TaskGroup({
   onPick,
 }: {
   label: string
-  items: TodoistTask[]
+  items: ExternalTask[]
   categories: CategoryRecord[]
   activeId: string | null
   fallbackCategory: string
-  onPick: (task: TodoistTask, categoryName: string) => void
+  onPick: (task: ExternalTask, categoryName: string) => void
 }) {
   if (!items.length) return null
   return (
@@ -370,7 +377,7 @@ function TaskGroup({
       <div className="flex flex-col gap-2">
         {items.map(task => (
           <TaskCard
-            key={task.id}
+            key={taskKey(task)}
             task={task}
             categories={categories}
             activeId={activeId}
@@ -607,12 +614,14 @@ export default function Timer({
   const [targetMs, setTargetMs] = useState(settings.focusDuration * 60000)
   const [dragMinutes, setDragMinutes] = useState<number | null>(null)
   const [startedAt, setStartedAt] = useState(0)
+  // Provider-qualified task reference (see lib/task-ref). Named for the API
+  // field and DB column it round-trips through, both of which predate Things.
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
   const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
   const [editingTopic, setEditingTopic] = useState(false)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
-  const [todoistOpenCount, setTodoistOpenCount] = useState(0)
-  const [todoistNotice, setTodoistNotice] = useState<string | null>(null)
+  const [openTaskCount, setOpenTaskCount] = useState(0)
+  const [taskNotice, setTaskNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
   const [streak, setStreak] = useState(0)
   const [cycleCount, setCycleCount] = useState(0)
@@ -632,29 +641,26 @@ export default function Timer({
     setRecentCategories(getRecentCategoryNames())
     setCycleCount(getPomodoroCycleCount())
     fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
-    fetch('/api/todoist/status')
-      .then(async status => {
-        if (isAuthResponse(status)) {
-          setTodoistNotice('Todoist auth required. Sign in again to choose tasks.')
-          return { tasks: [] }
+    loadProviderStatuses()
+      .then(async statuses => {
+        if (statuses.some(s => s.state === 'auth_required')) {
+          setTaskNotice('Auth required. Sign in again to choose tasks.')
+          return 0
         }
-        if (!status.ok) {
-          setTodoistNotice(await readApiError(status, 'Todoist status check failed'))
-          return { tasks: [] }
+        const connected = statuses.filter(s => s.state === 'connected').map(s => s.provider)
+        if (connected.length === 0) {
+          // Nothing configured is a normal state, not an error worth surfacing.
+          setTaskNotice(null)
+          return 0
         }
-        const statusData = await status.json()
-        if (!statusData.configured) return { tasks: [] }
-
-        const res = await fetch('/api/todoist/tasks?filter=all')
-        if (!res.ok) {
-          setTodoistNotice(await readApiError(res, 'Failed to load Todoist tasks'))
-          return { tasks: [] }
-        }
-        setTodoistNotice(null)
-        return res.json()
+        const { tasks, errors } = await loadTasks('all', connected)
+        setTaskNotice(errors.length > 0
+          ? errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · ')
+          : null)
+        return tasks.filter(task => !task.completed).length
       })
-      .then(data => setTodoistOpenCount((data.tasks ?? []).filter((task: TodoistTask) => !task.completed).length))
-      .catch(() => setTodoistOpenCount(0))
+      .then(setOpenTaskCount)
+      .catch(() => setOpenTaskCount(0))
   }, [])
 
   useEffect(() => {
@@ -1192,31 +1198,30 @@ export default function Timer({
     if (navigator.vibrate) navigator.vibrate([160, 80, 160])
   }, [phase, remainingMs, sessionType, settings.soundEnabled])
 
-  const syncTodoistAfterSession = async (taskId: string, actualMs: number) => {
+  /**
+   * Record time against the linked task and optionally tick it off. The stored
+   * reference carries its provider, so a Things task never gets sent to Todoist.
+   */
+  const syncTaskAfterSession = async (taskRef: string, actualMs: number) => {
+    const ref = decodeTaskRef(taskRef)
+    if (!ref) return
+    const label = PROVIDER_LABEL[ref.provider]
     try {
-      const durationRes = await fetch(`/api/todoist/tasks/${taskId}/duration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ add_minutes: Math.max(1, Math.round(actualMs / 60000)) }),
-      })
-      if (!durationRes.ok) {
-        setTodoistNotice(await readApiError(durationRes, 'Failed to update Todoist duration'))
-        return
-      }
+      await recordFocusTime(ref.provider, ref.id, actualMs / 60000)
 
       if (!settings.todoistAutoComplete) {
-        setTodoistNotice(null)
+        setTaskNotice(null)
         return
       }
 
-      const closeRes = await fetch(`/api/todoist/tasks/${taskId}/close`, { method: 'POST' })
+      const closeRes = await fetch(`/api/${ref.provider}/tasks/${ref.id}/close`, { method: 'POST' })
       if (!closeRes.ok) {
-        setTodoistNotice(await readApiError(closeRes, 'Failed to close Todoist task'))
+        setTaskNotice(await readApiError(closeRes, `Failed to close ${label} task`))
         return
       }
-      setTodoistNotice(null)
+      setTaskNotice(null)
     } catch (err) {
-      setTodoistNotice(err instanceof Error ? err.message : 'Failed to sync Todoist task')
+      setTaskNotice(err instanceof Error ? err.message : `Failed to sync ${label} task`)
     }
   }
 
@@ -1231,7 +1236,7 @@ export default function Timer({
       })
       if (!res.ok) throw new Error('Failed to save session')
       if (draft.todoistTaskId) {
-        void syncTodoistAfterSession(draft.todoistTaskId, draft.actualMs)
+        void syncTaskAfterSession(draft.todoistTaskId, draft.actualMs)
       }
     } catch {
       const offline: QueuedSession = {
@@ -1575,15 +1580,15 @@ export default function Timer({
                 {intention || 'Add an intention (optional)'}
               </span>
             </button>
-            {todoistOpenCount > 0 && (
+            {openTaskCount > 0 && (
               <button type="button" onClick={() => setSheet('tasks')} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
-                <Icon name="list" size={15} color="#E44332" />
-                Choose from Todoist
+                <Icon name="list" size={15} color="var(--ink-3)" />
+                Choose a task
               </button>
             )}
-            {todoistNotice && (
+            {taskNotice && (
               <div className="anim-fade-up rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-center text-[13px] leading-normal text-[var(--warn)]">
-                {todoistNotice}
+                {taskNotice}
               </div>
             )}
           </div>
@@ -1615,7 +1620,7 @@ export default function Timer({
         onPick={(task, categoryName) => {
           setIntention(task.content)
           setCategory(categoryName)
-          setTodoistTaskId(task.id)
+          setTodoistTaskId(encodeTaskRef(resolveProvider(task), task.id))
           setSheet(null)
         }}
       />

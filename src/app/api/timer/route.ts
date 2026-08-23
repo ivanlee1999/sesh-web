@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { sendPushToAll } from '@/lib/push'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
+import { appendThingsFocusNote, isThingsConfigured } from '@/lib/things'
+import { decodeTaskRef } from '@/lib/task-ref'
 import { syncSessionToGoogleCalendar, persistCalendarSyncResult } from '@/lib/google-calendar'
 import {
   checkAndSendOverflowNotifications,
@@ -15,16 +17,26 @@ import {
 export const dynamic = 'force-dynamic'
 
 /**
- * Sync Todoist duration after session completion (non-fatal).
+ * Record focused time against the linked task after session completion
+ * (non-fatal). The stored reference may belong to any provider, so decode it
+ * first — sending a Things uuid to Todoist would 404 on every session.
  */
-async function syncTodoistDuration(todoistTaskId: string, actualMs: number) {
-  if (!isTodoistConfigured()) return
+async function syncTaskDuration(taskRef: string, actualMs: number) {
   const minutes = Math.round(actualMs / 60000)
   if (minutes <= 0) return
+  const ref = decodeTaskRef(taskRef)
+  if (!ref) return
+
   try {
-    await addTaskDuration(todoistTaskId, minutes)
+    if (ref.provider === 'todoist') {
+      if (!isTodoistConfigured()) return
+      await addTaskDuration(ref.id, minutes)
+      return
+    }
+    if (!isThingsConfigured()) return
+    await appendThingsFocusNote(ref.id, minutes)
   } catch (err) {
-    console.error('[todoist] Failed to sync duration:', err)
+    console.error(`[${ref.provider}] Failed to sync duration:`, err)
   }
 }
 
@@ -150,7 +162,7 @@ export async function POST(request: Request) {
 
     // Todoist sync outside transaction, non-fatal
     if (result.todoistTaskId && result.session) {
-      void syncTodoistDuration(result.todoistTaskId, result.session.actualMs)
+      void syncTaskDuration(result.todoistTaskId, result.session.actualMs)
     }
 
     // Google Calendar sync, non-fatal

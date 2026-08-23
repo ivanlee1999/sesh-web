@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import Calendar from '../Calendar'
 import Analytics from '../Analytics'
 import Settings from '../Settings'
@@ -83,12 +83,20 @@ describe('mobile tab layout shells', () => {
   })
 })
 
-describe('Settings Todoist status', () => {
-  function mockSettingsFetch(todoistResponse: Response) {
+describe('Settings task-source status', () => {
+  /** Both providers render a row, so assertions must be scoped to one of them. */
+  function rowFor(title: string): HTMLElement {
+    const row = screen.getByText(title).closest('.sesh-row')
+    if (!row) throw new Error(`No settings row found for "${title}"`)
+    return row as HTMLElement
+  }
+
+  function mockSettingsFetch(todoistResponse: Response, thingsResponse = json({ configured: false })) {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as Request).url
       if (url.includes('/api/auth/google/status')) return json({ connected: false })
       if (url.includes('/api/todoist/status')) return todoistResponse.clone()
+      if (url.includes('/api/things/status')) return thingsResponse.clone()
       if (url.includes('/api/sessions')) return json([])
       if (url.includes('/api/analytics')) return json({ streak: 0, todayMs: 0 })
       return json({})
@@ -100,8 +108,33 @@ describe('Settings Todoist status', () => {
 
     render(<Settings />)
 
-    expect(await screen.findByText('Connected')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Check' })).toBeTruthy()
+    await screen.findByText('Connected')
+    expect(within(rowFor('Todoist')).getByRole('button', { name: 'Check' })).toBeTruthy()
+  })
+
+  it('shows Things setup text when the sidecar URL is missing', async () => {
+    mockSettingsFetch(json({ configured: false }))
+
+    render(<Settings />)
+
+    expect(await screen.findByText('Set THINGS_API_URL on the server to sync Things 3.')).toBeTruthy()
+  })
+
+  it('flags Things as unreachable when configured but the sidecar is down', async () => {
+    mockSettingsFetch(json({ configured: false }), json({ configured: true, reachable: false }))
+
+    render(<Settings />)
+
+    expect(await screen.findByText(/Things service unreachable/)).toBeTruthy()
+  })
+
+  it('shows Things connected when the sidecar answers', async () => {
+    mockSettingsFetch(json({ configured: false }), json({ configured: true, reachable: true }))
+
+    render(<Settings />)
+
+    await screen.findByText('Things 3')
+    expect(within(rowFor('Things 3')).getByRole('button', { name: 'Check' })).toBeTruthy()
   })
 
   it('shows Todoist setup text when the server token is missing', async () => {

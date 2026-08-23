@@ -7,6 +7,7 @@ import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
+import { PROVIDER_COLOR } from '@/lib/task-sources'
 import { ACCENT_OPTIONS, Btn, Group, Icon, Row, ScreenHead, Sheet, Stepper, Toggle, Wordmark, fmtHM } from './sesh-ui'
 
 type TodoistConnection =
@@ -277,6 +278,7 @@ export default function Settings() {
   const [catSheet, setCatSheet] = useState(false)
   const [calConnected, setCalConnected] = useState(false)
   const [todoist, setTodoist] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
+  const [things, setThings] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Things...' })
   const [manualSyncBusy, setManualSyncBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -314,7 +316,34 @@ export default function Settings() {
     }
   }, [])
 
+  const checkThings = useCallback(async () => {
+    setThings({ kind: 'checking', message: 'Checking Things...' })
+    try {
+      const res = await fetch('/api/things/status')
+      if (isAuthResponse(res)) {
+        setThings({ kind: 'auth_required', message: 'Auth required. Sign in again to use Things.' })
+        return
+      }
+      if (!res.ok) {
+        setThings({ kind: 'error', message: await readApiError(res, 'Things status check failed') })
+        return
+      }
+      const data = await res.json()
+      if (!data.configured) {
+        setThings({ kind: 'not_configured', message: 'Set THINGS_API_URL on the server to sync Things 3.' })
+      } else if (!data.reachable) {
+        // Configured but the sidecar is down or its Things Cloud login expired.
+        setThings({ kind: 'error', message: 'Things service unreachable. Check the sidecar and its credentials.' })
+      } else {
+        setThings({ kind: 'connected', message: 'Connected' })
+      }
+    } catch (err) {
+      setThings({ kind: 'error', message: err instanceof Error ? err.message : 'Things status check failed' })
+    }
+  }, [])
+
   useEffect(() => { void checkTodoist() }, [checkTodoist])
+  useEffect(() => { void checkThings() }, [checkThings])
 
   const manualSync = async () => {
     setManualSyncBusy(true)
@@ -354,6 +383,10 @@ export default function Settings() {
 
   const todoistBusy = todoist.kind === 'checking'
   const todoistConnected = todoist.kind === 'connected'
+  const thingsBusy = things.kind === 'checking'
+  const thingsConnected = things.kind === 'connected'
+  // The auto-complete toggle applies to whichever task source is connected.
+  const anyTaskSource = todoistConnected || thingsConnected
 
   return (
     <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
@@ -373,7 +406,7 @@ export default function Settings() {
           <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={60} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
           <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
           <Row icon="leaf" title="Long break length" right={<Stepper value={settings.longBreakDuration} min={5} max={45} step={5} onChange={longBreakDuration => updateSettings({ longBreakDuration })} />} />
-          <Row icon="sync" title="Long break after" sub="Focus sessions per cycle" right={<Stepper value={settings.sessionsBeforeLongBreak} min={2} max={8} onChange={sessionsBeforeLongBreak => updateSettings({ sessionsBeforeLongBreak })} />} />
+          <Row icon="sync" title="Long break after" sub="Focus sessions per cycle" right={<Stepper value={settings.sessionsBeforeLongBreak} min={2} max={8} unit={settings.sessionsBeforeLongBreak === 1 ? 'session' : 'sessions'} onChange={sessionsBeforeLongBreak => updateSettings({ sessionsBeforeLongBreak })} />} />
           <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
           <Row icon="play" title="Auto-start focus" sub="Begin the next focus when a break ends" last right={<Toggle on={settings.autoStartFocus} onChange={autoStartFocus => updateSettings({ autoStartFocus })} />} />
         </Group>
@@ -413,10 +446,25 @@ export default function Settings() {
             }
           />
           <Row
+            icon="list"
+            title={<span className="flex items-center gap-2">Things 3<span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR.things }} /></span>}
+            sub={things.message}
+            right={
+              <Btn
+                size="sm"
+                variant={thingsConnected ? 'soft' : 'outline'}
+                disabled={thingsBusy}
+                onClick={things.kind === 'auth_required' ? () => redirectToLogin() : checkThings}
+              >
+                {thingsBusy ? 'Checking...' : things.kind === 'auth_required' ? 'Sign in' : 'Check'}
+              </Btn>
+            }
+          />
+          <Row
             icon="check"
             title="Complete task on finish"
-            sub={todoistConnected ? 'Tick off the task when a focus ends' : 'Available after Todoist connects'}
-            right={<Toggle on={todoistConnected && settings.todoistAutoComplete} disabled={!todoistConnected} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />}
+            sub={anyTaskSource ? 'Tick off the task when a focus ends' : 'Available after a task source connects'}
+            right={<Toggle on={anyTaskSource && settings.todoistAutoComplete} disabled={!anyTaskSource} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />}
           />
           <Row
             icon="calendar"

@@ -26,8 +26,19 @@ export interface Session {
   todoistTaskId?: string | null
 }
 
-export interface TodoistTask {
+export type TaskProvider = 'todoist' | 'things'
+
+/**
+ * A task pulled in from an external task manager. Todoist and Things both
+ * normalise into this shape so the UI can show one merged list.
+ *
+ * `provider` is optional because older payloads (and Todoist-only fixtures)
+ * predate it — always route through `resolveProvider()` rather than reading
+ * it directly, so a missing value can't send a completion to the wrong app.
+ */
+export interface ExternalTask {
   id: string
+  provider?: TaskProvider
   content: string
   duration: { amount: number; unit: 'minute' } | null
   labels: string[]
@@ -38,6 +49,13 @@ export interface TodoistTask {
   dueLabel?: string | null
   category?: string | null
   completed?: boolean
+}
+
+/** @deprecated Prefer {@link ExternalTask}; kept so existing imports keep working. */
+export type TodoistTask = ExternalTask
+
+export function resolveProvider(task: Pick<ExternalTask, 'provider'>): TaskProvider {
+  return task.provider ?? 'todoist'
 }
 
 export interface AppSettings {

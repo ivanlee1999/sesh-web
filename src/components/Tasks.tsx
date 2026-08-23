@@ -1,24 +1,30 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { CategoryRecord, TodoistTask } from '@/types'
+import type { CategoryRecord, ExternalTask, TaskProvider } from '@/types'
+import { resolveProvider } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
-import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
+import { redirectToLogin } from '@/lib/api-client'
+import { encodeTaskRef } from '@/lib/task-ref'
+import {
+  PROVIDER_COLOR,
+  PROVIDER_LABEL,
+  completeTask as completeProviderTask,
+  loadProviderStatuses,
+  loadTasks,
+  taskKey,
+  type ProviderStatus,
+} from '@/lib/task-sources'
 import { Btn, CatBadge, Chip, Icon, ScreenHead, tint } from './sesh-ui'
 
 export interface PendingFocus {
   intention: string
   category?: string
+  /** Provider-qualified reference, so the session completes the right task. */
   taskId: string
 }
 
 type Filter = 'today' | 'upcoming' | 'all'
-type TodoistConnection =
-  | { kind: 'checking'; message: string }
-  | { kind: 'connected'; message: string }
-  | { kind: 'not_configured'; message: string }
-  | { kind: 'auth_required'; message: string }
-  | { kind: 'error'; message: string }
 
 const priorityColor: Record<number, string | null> = {
   1: '#D1453B',
@@ -27,7 +33,7 @@ const priorityColor: Record<number, string | null> = {
   4: null,
 }
 
-function taskCategory(task: TodoistTask, categories: CategoryRecord[]): CategoryRecord | null {
+function taskCategory(task: ExternalTask, categories: CategoryRecord[]): CategoryRecord | null {
   const raw = task.category?.toLowerCase()
   if (raw) {
     const found = categories.find(c => c.name.toLowerCase() === raw || c.label.toLowerCase() === raw)
@@ -41,16 +47,28 @@ function taskCategory(task: TodoistTask, categories: CategoryRecord[]): Category
   return categories[0] ?? null
 }
 
-function groupTasks(tasks: TodoistTask[]) {
-  const groups = new Map<string, TodoistTask[]>()
-  for (const task of tasks) {
-    const project = task.projectName || 'Todoist'
-    groups.set(project, [...(groups.get(project) ?? []), task])
-  }
-  return Array.from(groups.entries()).map(([project, items]) => ({ project, items }))
+interface TaskGroup {
+  key: string
+  project: string
+  provider: TaskProvider
+  items: ExternalTask[]
 }
 
-function filterTasks(tasks: TodoistTask[], filter: Filter) {
+/** Group by provider *and* project — both apps can have a project of the same name. */
+function groupTasks(tasks: ExternalTask[]): TaskGroup[] {
+  const groups = new Map<string, TaskGroup>()
+  for (const task of tasks) {
+    const provider = resolveProvider(task)
+    const project = task.projectName || PROVIDER_LABEL[provider]
+    const key = `${provider}:${project}`
+    const existing = groups.get(key)
+    if (existing) existing.items.push(task)
+    else groups.set(key, { key, project, provider, items: [task] })
+  }
+  return Array.from(groups.values())
+}
+
+function filterTasks(tasks: ExternalTask[], filter: Filter) {
   const active = tasks.filter(task => !task.completed)
   if (filter === 'today') return active.filter(task => task.due === 'today')
   if (filter === 'upcoming') return active.filter(task => task.due !== 'today')
@@ -64,7 +82,7 @@ function TaskRow({
   onFocus,
   completing,
 }: {
-  task: TodoistTask
+  task: ExternalTask
   category: CategoryRecord | null
   onComplete: () => void
   onFocus: () => void
@@ -117,48 +135,32 @@ function TaskRow({
 
 export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingFocus) => void }) {
   const { categories } = useCategories()
-  const [connection, setConnection] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
-  const [tasks, setTasks] = useState<TodoistTask[]>([])
+  const [statuses, setStatuses] = useState<ProviderStatus[]>([])
+  const [tasks, setTasks] = useState<ExternalTask[]>([])
   const [filter, setFilter] = useState<Filter>('today')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [completingKey, setCompletingKey] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    setConnection({ kind: 'checking', message: 'Checking Todoist...' })
     try {
-      const status = await fetch('/api/todoist/status')
-      if (!status.ok) {
-        if (isAuthResponse(status)) {
-          setConnection({ kind: 'auth_required', message: 'Auth required. Sign in again to use Todoist.' })
-        } else {
-          setConnection({ kind: 'error', message: await readApiError(status, 'Todoist status check failed') })
-        }
+      const next = await loadProviderStatuses()
+      setStatuses(next)
+
+      const connected = next.filter(s => s.state === 'connected').map(s => s.provider)
+      if (connected.length === 0) {
         setTasks([])
         return
       }
-      const statusData = await status.json()
-      if (!statusData.configured) {
-        setConnection({ kind: 'not_configured', message: 'Set TODOIST_API_TOKEN on the server to pull tasks.' })
-        setTasks([])
-        return
+
+      // A provider that fails here is reported inline; the others still render.
+      const { tasks: loaded, errors } = await loadTasks('all', connected)
+      setTasks(loaded)
+      if (errors.length > 0) {
+        setError(errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · '))
       }
-      setConnection({ kind: 'connected', message: 'Todoist synced' })
-      const res = await fetch('/api/todoist/tasks?filter=all')
-      if (!res.ok) {
-        if (isAuthResponse(res)) {
-          setConnection({ kind: 'auth_required', message: 'Auth required. Sign in again to use Todoist.' })
-        }
-        throw new Error(await readApiError(res, 'Failed to load Todoist tasks'))
-      }
-      const data = await res.json()
-      setTasks(data.tasks ?? [])
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load Todoist tasks'
-      setError(message)
-      setConnection(current => current.kind === 'auth_required' ? current : { kind: 'error', message })
     } finally {
       setLoading(false)
     }
@@ -175,47 +177,59 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const shown = useMemo(() => filterTasks(tasks, filter), [tasks, filter])
   const groups = useMemo(() => groupTasks(shown), [shown])
 
-  const completeTask = async (taskId: string) => {
-    setCompletingId(taskId)
+  const connected = statuses.filter(s => s.state === 'connected')
+  const authRequired = statuses.some(s => s.state === 'auth_required')
+
+  const complete = async (task: ExternalTask) => {
+    const key = taskKey(task)
+    setCompletingKey(key)
     try {
-      const res = await fetch(`/api/todoist/tasks/${taskId}/close`, { method: 'POST' })
-      if (!res.ok) throw new Error(await readApiError(res, 'Failed to close Todoist task'))
-      setTasks(prev => prev.filter(task => task.id !== taskId))
+      await completeProviderTask(task)
+      setTasks(prev => prev.filter(t => taskKey(t) !== key))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to close task')
     } finally {
-      setCompletingId(null)
+      setCompletingKey(null)
     }
   }
 
-  if (connection.kind !== 'connected' && !loading) {
-    const authRequired = connection.kind === 'auth_required'
-    const title = authRequired
-      ? 'Todoist auth required'
-      : connection.kind === 'not_configured'
-        ? 'Todoist not configured'
-        : 'Todoist unavailable'
-
+  // Nothing connected: explain each provider rather than assuming Todoist.
+  if (connected.length === 0 && !loading) {
     return (
       <div className="flex h-full w-full min-w-0 flex-col px-[var(--gutter)] pb-[var(--screen-bottom-space)] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
         <ScreenHead title="Tasks" />
         <div className="flex flex-1 flex-col items-center justify-center gap-[22px] text-center">
-          <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[#E44332] shadow-[0_10px_30px_rgba(228,67,50,0.3)]">
-            <Icon name="list" size={34} color="#fff" stroke={2} />
+          <div className="anim-pop grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[var(--surface-2)]">
+            <Icon name="list" size={34} color="var(--ink-3)" stroke={2} />
           </div>
           <div>
-            <h2 className="m-0 font-[var(--font-display)] text-[22px] font-bold tracking-[-0.03em]">{title}</h2>
-            <p className="mx-auto mb-0 mt-[10px] max-w-[290px] text-[15.5px] leading-normal text-[var(--ink-2)]">
-              {connection.message}
-            </p>
+            <h2 className="m-0 font-[var(--font-display)] text-[22px] font-bold tracking-[-0.03em]">
+              {authRequired ? 'Task sync needs sign-in' : 'No task source connected'}
+            </h2>
+            <div className="mx-auto mt-[14px] flex max-w-[320px] flex-col gap-2">
+              {statuses.map(status => (
+                <div
+                  key={status.provider}
+                  className="flex items-start gap-[9px] rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-[11px] text-left"
+                >
+                  <span
+                    className="mt-[6px] h-2 w-2 flex-shrink-0 rounded-full"
+                    style={{ background: PROVIDER_COLOR[status.provider] }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-semibold">{PROVIDER_LABEL[status.provider]}</span>
+                    <span className="block text-[12.5px] leading-snug text-[var(--ink-3)]">{status.message}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
           <Btn
             size="lg"
             icon={authRequired ? 'logout' : 'sync'}
-            style={{ background: '#E44332', color: '#fff' }}
             onClick={authRequired ? () => redirectToLogin() : load}
           >
-            {authRequired ? 'Sign in' : 'Check connection'}
+            {authRequired ? 'Sign in' : 'Check connections'}
           </Btn>
         </div>
       </div>
@@ -227,9 +241,20 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
       <ScreenHead
         title="Tasks"
         right={
-          <button type="button" onClick={load} className="mt-[10px] flex items-center gap-[7px] border-0 bg-transparent p-0">
-            <span className="h-2 w-2 rounded-full bg-[#3F9142]" />
-            <span className="text-[12.5px] font-medium text-[var(--ink-3)]">{loading ? 'Syncing' : connection.message}</span>
+          <button type="button" onClick={load} className="press mt-[10px] flex items-center gap-[7px] border-0 bg-transparent p-0">
+            <span className="flex items-center gap-[3px]">
+              {connected.map(status => (
+                <span
+                  key={status.provider}
+                  aria-label={PROVIDER_LABEL[status.provider]}
+                  className="h-2 w-2 rounded-full"
+                  style={{ background: PROVIDER_COLOR[status.provider] }}
+                />
+              ))}
+            </span>
+            <span className="text-[12.5px] font-medium text-[var(--ink-3)]">
+              {loading ? 'Syncing' : connected.map(s => PROVIDER_LABEL[s.provider]).join(' + ')}
+            </span>
           </button>
         }
       />
@@ -256,22 +281,30 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         ) : groups.length > 0 ? (
           <div key={filter} className="anim-fade">
             {groups.map(group => (
-              <div key={group.project} className="mb-6">
+              <div key={group.key} className="mb-6">
                 <div className="mb-[11px] flex items-center gap-2 text-[13px] font-bold tracking-[-0.01em] text-[var(--ink-2)]">
-                  <Icon name="inbox" size={15} color="var(--ink-3)" />
+                  <span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR[group.provider] }} />
                   {group.project}
+                  {/* Only name the source when both are connected, to avoid noise. */}
+                  {connected.length > 1 && (
+                    <span className="text-[11.5px] font-medium text-[var(--ink-3)]">{PROVIDER_LABEL[group.provider]}</span>
+                  )}
                 </div>
                 <div className="stagger flex flex-col gap-[9px]">
                   {group.items.map(task => {
                     const category = taskCategory(task, categories)
                     return (
                       <TaskRow
-                        key={task.id}
+                        key={taskKey(task)}
                         task={task}
                         category={category}
-                        completing={completingId === task.id}
-                        onComplete={() => completeTask(task.id)}
-                        onFocus={() => onFocusTask({ intention: task.content, category: category?.name, taskId: task.id })}
+                        completing={completingKey === taskKey(task)}
+                        onComplete={() => complete(task)}
+                        onFocus={() => onFocusTask({
+                          intention: task.content,
+                          category: category?.name,
+                          taskId: encodeTaskRef(resolveProvider(task), task.id),
+                        })}
                       />
                     )
                   })}

@@ -2,34 +2,11 @@ import { NextResponse } from 'next/server'
 import { isTodoistConfigured, listActiveTasks, listProjects, listTodayTasks } from '@/lib/todoist'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
+import { dueKind, dueLabel } from '@/lib/task-dates'
 
 export const dynamic = 'force-dynamic'
 
 type TaskFilter = 'today' | 'upcoming' | 'all'
-
-function todayKey() {
-  return new Date().toLocaleDateString('en-CA')
-}
-
-function tomorrowKey() {
-  const d = new Date()
-  d.setDate(d.getDate() + 1)
-  return d.toLocaleDateString('en-CA')
-}
-
-function dueKind(date: string | undefined | null): 'today' | 'tomorrow' | 'upcoming' | null {
-  if (!date) return null
-  if (date <= todayKey()) return 'today'
-  if (date === tomorrowKey()) return 'tomorrow'
-  return 'upcoming'
-}
-
-function dueLabel(date: string | undefined | null, fallback: string | undefined): string | null {
-  const kind = dueKind(date)
-  if (kind === 'today') return 'Today'
-  if (kind === 'tomorrow') return 'Tomorrow'
-  return fallback ?? date ?? null
-}
 
 function normalizePriority(priority: number | undefined): number {
   const p = Number(priority) || 1
@@ -66,6 +43,7 @@ export async function GET(request: Request) {
         const projectId = task.project_id ?? task.projectId ?? null
         return {
           id: String(task.id),
+          provider: 'todoist' as const,
           content: task.content,
           duration: task.duration,
           labels: task.labels ?? [],
