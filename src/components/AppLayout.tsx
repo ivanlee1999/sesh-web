@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { App } from 'konsta/react'
 import { useSettings } from '@/context/SettingsContext'
+import { useNativeGestureLock } from '@/hooks/useNativeGestureLock'
 import { ensurePushSubscription } from '@/lib/push-client'
 import Timer from './Timer'
 import Tasks, { type PendingFocus } from './Tasks'
@@ -20,6 +21,8 @@ export default function AppLayout() {
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
   const [onboarded, setOnboarded] = useState(true)
   const { settings } = useSettings()
+
+  useNativeGestureLock()
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get('tab')

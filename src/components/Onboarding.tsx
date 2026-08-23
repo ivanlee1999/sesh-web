@@ -96,7 +96,8 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       </div>
 
       {/* Keyed on the slide so art and copy cross-fade on every step. */}
-      <div key={slide.key} className="stagger flex flex-1 flex-col items-center justify-center gap-10">
+      {/* The document can't scroll, so a very short viewport scrolls here. */}
+      <div key={slide.key} className="stagger hide-scrollbar flex min-h-0 flex-1 flex-col items-center justify-center gap-10 overflow-y-auto">
         <div className="anim-pop">{slide.art}</div>
         <div className="text-center">
           <div className="mb-[14px] text-[13px] font-semibold uppercase tracking-[0.04em] text-[var(--accent-ink)]">{slide.kicker}</div>
