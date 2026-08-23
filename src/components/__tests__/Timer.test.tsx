@@ -176,7 +176,7 @@ describe('Timer', () => {
     fireEvent.change(textarea, { target: { value: 'Review design handoff' } })
     fireEvent.click(screen.getByRole('button', { name: 'Set intention' }))
 
-    expect(screen.getByText('Review design handoff')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Review design handoff/ })).toBeTruthy()
   })
 
   it('lets you drag the idle clock arrow to change focus length', async () => {

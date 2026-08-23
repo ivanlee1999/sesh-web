@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
@@ -118,16 +118,18 @@ export default function Calendar() {
     <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]" data-testid="calendar-screen">
       <ScreenHead title="Calendar" />
 
-      <div className="px-[22px] pt-[14px]">
+      <div className="split-pane px-[var(--gutter)] pt-[14px]">
+        <div>
         <div className="mb-4 flex items-center justify-between">
-          <button type="button" onClick={() => shift(-1)} className="grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
+          <button type="button" aria-label="Previous month" onClick={() => shift(-1)} className="press grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
             <Icon name="back" size={19} />
           </button>
-          <div className="text-center">
+          {/* Keyed on the month so the header cross-fades when you page. */}
+          <div key={`${cursor.y}-${cursor.m}`} className="anim-fade text-center">
             <div className="text-[17px] font-bold tracking-[-0.02em]">{first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</div>
             <div className="mt-px text-[12.5px] text-[var(--ink-3)]">{fmtHM(monthMin)} · {monthDays} days</div>
           </div>
-          <button type="button" onClick={() => shift(1)} className="grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
+          <button type="button" aria-label="Next month" onClick={() => shift(1)} className="press grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
             <Icon name="chevron" size={19} />
           </button>
         </div>
@@ -138,7 +140,7 @@ export default function Calendar() {
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-1.5">
+        <div key={`grid-${cursor.y}-${cursor.m}`} className="grid grid-cols-7 gap-1.5">
           {cells.map((date, i) => {
             if (!date) return <div key={i} />
             const key = ymd(date)
@@ -154,14 +156,19 @@ export default function Calendar() {
                 key={key}
                 type="button"
                 disabled={future}
+                aria-pressed={selected}
                 onClick={() => setSelectedKey(key)}
-                className="relative flex aspect-square items-center justify-center rounded-[var(--r-sm)] p-0"
+                className="stagger-item press-sm relative flex aspect-square items-center justify-center rounded-[var(--r-sm)] p-0"
                 style={{
+                  // Ripples in row by row rather than all at once.
+                  '--i': Math.floor(i / 7),
+                  '--stagger': '26ms',
                   cursor: future ? 'default' : 'pointer',
                   border: selected ? '2px solid var(--ink)' : today ? '1.5px solid var(--line-strong)' : '1px solid var(--line)',
                   background: mins && color ? tint(color, Math.round(intensity * 100)) : 'var(--surface)',
                   opacity: future ? 0.4 : 1,
-                }}
+                  transition: 'border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out)',
+                } as CSSProperties}
               >
                 <span
                   className="text-[13px]"
@@ -176,9 +183,9 @@ export default function Calendar() {
             )
           })}
         </div>
-      </div>
+        </div>
 
-      <div className="px-[22px] pt-6">
+      <div className="pt-6 md:pt-0">
         <div className="mb-[13px] flex items-baseline justify-between">
           <span className="text-[15px] font-bold tracking-[-0.01em]">
             {selectedKey === ymd(now) ? 'Today' : selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
@@ -186,15 +193,15 @@ export default function Calendar() {
           {selectedSessions.length > 0 && <span className="text-[12.5px] text-[var(--ink-3)] [font-variant-numeric:tabular-nums]">{fmtHM(selectedTotal)} · {selectedSessions.length}</span>}
         </div>
 
-        {error && <div className="rounded-[var(--r-lg)] border border-[#C2615A]/20 bg-[#C2615A]/10 p-4 text-[14px] text-[#C2615A]">{error}</div>}
-        {loading && !error && selectedSessions.length === 0 && <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 text-center text-[14px] text-[var(--ink-3)]">Loading sessions...</div>}
+        {error && <div className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 p-4 text-[14px] text-[var(--warn)]">{error}</div>}
+        {loading && !error && selectedSessions.length === 0 && <div className="skeleton h-[104px] rounded-[var(--r-lg)]" aria-label="Loading sessions" />}
         {!error && (!loading && selectedSessions.length === 0 ? (
-          <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
+          <div key={selectedKey} className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
             <Icon name="calendar" size={26} color="var(--ink-3)" />
             <div className="mt-[10px] text-[14.5px]">No sessions this day.</div>
           </div>
         ) : (
-          <div className="flex flex-col gap-[10px]">
+          <div key={selectedKey} className="stagger flex flex-col gap-[10px]">
             {selectedSessions.map(session => {
               const meta = getCategoryMeta(session.category, categories)
               const time = new Date(session.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -217,6 +224,7 @@ export default function Calendar() {
             })}
           </div>
         ))}
+      </div>
       </div>
     </div>
   )

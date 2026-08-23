@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import type { Category, CategoryRecord, SessionType, TodoistTask } from '@/types'
+import { DEFAULT_SETTINGS, type Category, type CategoryRecord, type SessionType, type TodoistTask } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
+import { useCssSize } from '@/hooks/useCssSize'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueSession, getRecentCategoryNames, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { isAuthResponse, readApiError } from '@/lib/api-client'
@@ -390,13 +391,13 @@ function Reflection({
   const accent = category?.color ?? 'var(--accent)'
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto px-[26px] pb-[calc(22px+var(--safe-b))] pt-[calc(42px+var(--safe-t))]">
-      <div className="flex min-h-0 flex-1 flex-col justify-center gap-[22px]">
+    <div className="anim-fade flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto px-[var(--gutter)] pb-[calc(22px+var(--safe-b))] pt-[calc(var(--screen-top)+18px+var(--safe-t))]">
+      <div className="stagger flex min-h-0 flex-1 flex-col justify-center gap-[22px]">
         <div className="text-center">
-          <div className="mx-auto mb-4 grid h-[58px] w-[58px] place-items-center rounded-full" style={{ background: tint(accent, 16) }}>
-            <Icon name="check" size={32} color={accent} stroke={2} />
+          <div className="anim-pop mx-auto mb-4 grid h-[58px] w-[58px] place-items-center rounded-full" style={{ background: tint(accent, 16) }}>
+            <Icon name="check" size={32} color={accent} stroke={2} className="reflect-check" />
           </div>
-          <h1 className="m-0 font-[var(--font-display)] text-[27px] font-bold tracking-[-0.035em]">Session complete</h1>
+          <h1 className="m-0 font-[var(--font-display)] text-[clamp(24px,6vw,30px)] font-bold tracking-[-0.035em]">Session complete</h1>
           <p className="mb-0 mt-[10px] text-[16px] text-[var(--ink-2)]">
             {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
             {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
@@ -410,19 +411,22 @@ function Reflection({
               <button
                 key={n}
                 type="button"
+                aria-label={`Rate ${n} of 5`}
+                aria-pressed={n === rating}
                 onClick={() => setRating(n)}
-                className="h-[46px] w-[46px] rounded-full border-0 text-[15px] font-bold transition-transform"
+                className="h-[46px] w-[46px] rounded-full border-0 text-[15px] font-bold"
                 style={{
                   background: n <= rating ? accent : 'var(--surface-2)',
                   color: n <= rating ? '#fff' : 'var(--ink-3)',
                   transform: n === rating ? 'scale(1.12)' : 'scale(1)',
+                  transition: 'transform var(--dur-3) var(--ease-spring), background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out)',
                 }}
               >
                 {n}
               </button>
             ))}
           </div>
-          <div className="mt-3 h-[18px] text-center text-[14px] font-semibold" style={{ color: accent }}>{ratingWord(rating)}</div>
+          <div key={rating} className="anim-fade mt-3 h-[18px] text-center text-[14px] font-semibold" style={{ color: accent }}>{ratingWord(rating)}</div>
         </div>
 
         <div>
@@ -432,17 +436,17 @@ function Reflection({
             onChange={event => setNotes(event.target.value)}
             rows={3}
             placeholder="A line for your future self..."
-            className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[16px] leading-normal text-[var(--ink)] outline-none"
+            className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[16px] leading-normal text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
           />
         </div>
       </div>
 
-      <div className="mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
+      <div className="anim-fade-up mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
         <Btn full size="lg" onClick={() => onSave(rating, notes)}>Save to journal</Btn>
         <button
           type="button"
           onClick={onSkip}
-          className="rounded-[var(--r-pill)] border-0 bg-[var(--surface-2)] px-5 text-[16px] font-semibold text-[var(--ink-2)]"
+          className="press rounded-[var(--r-pill)] border-0 bg-[var(--surface-2)] px-5 text-[16px] font-semibold text-[var(--ink-2)]"
         >
           Skip
         </button>
@@ -796,8 +800,12 @@ export default function Timer({
   const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
   const remainingSec = phase === 'idle' ? idleDurationMinutes * 60 : Math.ceil(remainingMs / 1000)
   const compactCategoryLayout = sortedCategories.length > 5
-  const idleRingSize = sortedCategories.length > 8 ? 208 : sortedCategories.length > 5 ? 220 : 236
-  const runningRingSize = 280
+  // Base sizes come from the responsive scale in globals.css; a long category
+  // list then shaves the idle dial down so the screen never overflows.
+  const idleRingBase = useCssSize('--ring-idle', 236)
+  const runningRingSize = useCssSize('--ring-run', 280)
+  const idleRingSize = Math.round(idleRingBase * (sortedCategories.length > 8 ? 0.88 : sortedCategories.length > 5 ? 0.94 : 1))
+  const isOvertime = remainingMs < 0
   const idleClockLabel = isFocus ? 'Focus length' : 'Break length'
   const runningClockLabel = phase === 'paused'
     ? 'Paused'
@@ -1059,84 +1067,121 @@ export default function Timer({
   })()
 
   if (phase === 'running' || phase === 'paused') {
+    const handHeight = runningRingSize / 2 - 26
+    const clockColor = isOvertime ? 'var(--warn)' : 'var(--ink)'
+
     return (
-      <div className="absolute inset-0 z-[150] flex w-full min-w-0 flex-col items-center bg-[var(--bg)] px-7 pb-[calc(40px+var(--safe-b))] pt-[calc(64px+var(--safe-t))] text-[var(--ink)]">
-        <div className="min-h-[56px] text-center">
-          <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}>
+      <div className="timer-immersive" data-phase={phase}>
+        <div className="timer-immersive-head">
+          <div
+            className="text-[12.5px] font-semibold uppercase tracking-[0.14em]"
+            style={{ color: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)' }}
+          >
             {isFocus ? selectedCategory?.label ?? 'Focus' : 'Break'}
           </div>
-          {intention && isFocus && <div className="mt-[9px] max-w-[300px] text-[18px] font-semibold tracking-[-0.02em]">{intention}</div>}
+          {intention && isFocus && (
+            <div className="mt-[9px] max-w-[min(340px,80vw)] text-balance text-[18px] font-semibold leading-snug tracking-[-0.02em]">{intention}</div>
+          )}
         </div>
 
-        <div className="flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-[18px]">
-            <div className="relative">
-              <Ring progress={progress} size={runningRingSize} stroke={4} track="var(--line)" tint={ringTint} ticks={60} tickColor="var(--ink-2)" dot={false}>
-                <div className="h-[44%] w-[44%] rounded-full border border-white/35 bg-[color-mix(in_srgb,var(--bg)_74%,transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_14px_36px_rgba(24,18,12,0.08)]" />
-              </Ring>
-              <div className="pointer-events-none absolute inset-0">
+        <div className="timer-immersive-main">
+          <div className="relative" data-running={phase === 'running'}>
+            <Ring
+              progress={progress}
+              size={runningRingSize}
+              stroke={4}
+              track="var(--line)"
+              tint={ringTint}
+              ticks={60}
+              tickColor="var(--ink-2)"
+              dot={false}
+              glow={phase === 'running'}
+            >
+              <div className="h-[44%] w-[44%] rounded-full border border-white/35 bg-[color-mix(in_srgb,var(--bg)_74%,transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_14px_36px_rgba(24,18,12,0.08)]" />
+            </Ring>
+            <div className="pointer-events-none absolute inset-0">
+              <div
+                className="absolute left-1/2 top-1/2 rounded-full"
+                style={{
+                  width: 4,
+                  height: handHeight,
+                  background: `linear-gradient(180deg, ${ringTint} 0%, color-mix(in srgb, ${ringTint} 70%, white) 100%)`,
+                  transform: `translate(-50%, -100%) rotate(${progress * 360}deg)`,
+                  transformOrigin: '50% 100%',
+                  boxShadow: `0 6px 18px color-mix(in srgb, ${ringTint} 24%, transparent)`,
+                  opacity: phase === 'paused' ? 0.5 : 0.96,
+                  // Matches the 1s tick so the hand sweeps instead of stepping.
+                  transition: 'transform .95s linear, opacity var(--dur-3) var(--ease-out)',
+                }}
+              >
                 <div
-                  className="absolute left-1/2 top-1/2 rounded-full"
-                  style={{
-                    width: 4,
-                    height: runningRingSize / 2 - 26,
-                    background: `linear-gradient(180deg, ${ringTint} 0%, color-mix(in srgb, ${ringTint} 70%, white) 100%)`,
-                    transform: `translate(-50%, -100%) rotate(${progress * 360}deg)`,
-                    transformOrigin: '50% 100%',
-                    boxShadow: `0 6px 18px color-mix(in srgb, ${ringTint} 24%, transparent)`,
-                    opacity: 0.96,
-                  }}
-                >
-                  <div
-                    className="absolute left-1/2 top-0 rounded-full border border-white/70"
-                    style={{
-                      width: 18,
-                      height: 18,
-                      marginLeft: -9,
-                      marginTop: -8,
-                      background: ringTint,
-                      boxShadow: '0 10px 22px rgba(20, 15, 10, 0.18)',
-                    }}
-                  />
-                </div>
-                <div
-                  className="absolute left-1/2 top-1/2 rounded-full border border-white/60"
+                  className="absolute left-1/2 top-0 rounded-full border border-white/70"
                   style={{
                     width: 18,
                     height: 18,
                     marginLeft: -9,
-                    marginTop: -9,
-                    background: 'var(--surface)',
-                    boxShadow: `0 0 0 5px color-mix(in srgb, ${ringTint} 14%, transparent)`,
+                    marginTop: -8,
+                    background: ringTint,
+                    boxShadow: '0 10px 22px rgba(20, 15, 10, 0.18)',
                   }}
                 />
               </div>
+              <div
+                className="absolute left-1/2 top-1/2 rounded-full border border-white/60"
+                style={{
+                  width: 18,
+                  height: 18,
+                  marginLeft: -9,
+                  marginTop: -9,
+                  background: 'var(--surface)',
+                  boxShadow: `0 0 0 5px color-mix(in srgb, ${ringTint} 14%, transparent)`,
+                }}
+              />
             </div>
+          </div>
 
-            <div className="text-center">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{runningClockLabel}</div>
-              <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
-              <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
+          <div className="timer-clock">
+            <div
+              className="timer-clock-label text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: isOvertime ? 'var(--warn)' : 'var(--ink-3)' }}
+            >
+              {runningClockLabel}
             </div>
+            <div
+              className={`timer-clock-value ${isOvertime ? 'overflow-pulse' : ''}`}
+              style={{ color: clockColor }}
+            >
+              {fmtClock(remainingSec)}
+            </div>
+            <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
           </div>
         </div>
 
-        <div className="flex w-full flex-col items-center gap-[26px]">
-          <div className="flex items-center gap-[26px]">
-            <button type="button" aria-label="Stop session" onClick={() => finish(false)} className="grid h-[58px] w-[58px] place-items-center rounded-full border-[1.5px] border-[var(--line-strong)] bg-transparent text-[var(--ink)]">
-              <Icon name="stop" size={20} />
-            </button>
-            <button
-              type="button"
-              aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
-              onClick={() => phase === 'paused' ? resume() : pause()}
-              className="grid h-[86px] w-[86px] place-items-center rounded-full border-0 text-white shadow-[0_10px_30px_rgba(30,22,12,0.18)]"
-              style={{ background: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)', color: isFocus ? '#fff' : 'var(--bg)' }}
-            >
-              <Icon name={phase === 'paused' ? 'play' : 'pause'} size={32} />
-            </button>
-            <div className="w-[58px]" />
-          </div>
+        <div className="timer-immersive-foot">
+          <button
+            type="button"
+            aria-label="Stop session"
+            onClick={() => finish(false)}
+            className="press grid place-items-center rounded-full border-[1.5px] border-[var(--line-strong)] bg-transparent text-[var(--ink)]"
+            style={{ width: 'var(--control-sm)', height: 'var(--control-sm)' }}
+          >
+            <Icon name="stop" size={20} />
+          </button>
+          <button
+            type="button"
+            aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
+            onClick={() => phase === 'paused' ? resume() : pause()}
+            className="press grid place-items-center rounded-full border-0 text-white shadow-[var(--shadow-lift)]"
+            style={{
+              width: 'var(--control-lg)',
+              height: 'var(--control-lg)',
+              background: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)',
+              color: isFocus ? '#fff' : 'var(--bg)',
+            }}
+          >
+            <Icon name={phase === 'paused' ? 'play' : 'pause'} size={32} />
+          </button>
+          <div aria-hidden="true" style={{ width: 'var(--control-sm)' }} />
         </div>
       </div>
     )
@@ -1147,21 +1192,21 @@ export default function Timer({
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden px-[22px] pt-[calc(24px+var(--safe-t))]">
-      <div className="flex flex-shrink-0 items-start justify-between">
+    <div className="timer-idle">
+      <div className="flex flex-shrink-0 items-start justify-between anim-fade-up">
         <div>
-          <div className="text-[13px] text-[var(--ink-3)]">{greeting},</div>
-          <div className="font-[var(--font-display)] text-[26px] font-bold tracking-[-0.035em]">Ivan</div>
+          <div className="timer-idle-greeting-prefix text-[13px] text-[var(--ink-3)]">{greeting},</div>
+          <div className="font-[var(--font-display)] text-[clamp(24px,6vw,32px)] font-bold tracking-[-0.035em]">{settings.displayName?.trim() || DEFAULT_SETTINGS.displayName}</div>
         </div>
         <div className="flex items-center gap-[7px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-2">
           <Icon name="flame" size={17} color="var(--accent)" />
-          <span className="text-[15px] font-bold [font-variant-numeric:tabular-nums]">{streak}</span>
+          <span key={streak} className="anim-number-pop text-[15px] font-bold [font-variant-numeric:tabular-nums]">{streak}</span>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden pb-2 pt-3">
+      <div className="timer-idle-center hide-scrollbar">
         <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
-        <div className="flex flex-col items-center gap-[18px]">
+        <div className="flex flex-col items-center gap-[18px] anim-pop">
           <div className="relative">
             <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
               <div
@@ -1234,16 +1279,16 @@ export default function Timer({
             </div>
           </div>
 
-          <div className="text-center">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{idleClockLabel}</div>
-            <div className="mt-2 font-[var(--font-display)] text-[58px] font-semibold leading-none tracking-[-0.07em] [font-variant-numeric:tabular-nums]">{fmtClock(remainingSec)}</div>
+          <div className="timer-clock">
+            <div className="timer-clock-label text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{idleClockLabel}</div>
+            <div className="timer-clock-value">{fmtClock(remainingSec)}</div>
           </div>
         </div>
 
         {isFocus && (
-          <div className="flex w-full max-w-[340px] flex-col gap-2.5">
-            <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
-              <div data-testid="timer-category-selector" className="flex min-w-max flex-nowrap gap-2">
+          <div className="flex w-full max-w-[min(420px,100%)] flex-col gap-2.5">
+            <div className="timer-category-scroller hide-scrollbar -mx-1 px-1 pb-1">
+              <div data-testid="timer-category-selector" className="timer-category-list flex gap-2">
                 {sortedCategories.map(cat => (
                   <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
                     setCategory(cat.name)
@@ -1265,12 +1310,12 @@ export default function Timer({
               </div>
             </div>
             {compactCategoryLayout && (
-              <div className="px-1 text-center text-[12px] text-[var(--ink-3)]">Swipe to see all categories</div>
+              <div className="timer-scroll-hint px-1 text-center text-[12px] text-[var(--ink-3)]">Swipe to see all categories</div>
             )}
             <button
               type="button"
               onClick={() => setSheet('intention')}
-              className="flex w-full items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-4 py-[14px] text-left"
+              className="press flex w-full items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-4 py-[14px] text-left"
             >
               <Icon name={todoistTaskId ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
               <span className="min-w-0 flex-1 truncate text-[15.5px] font-semibold tracking-[-0.01em]" style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}>
@@ -1278,13 +1323,13 @@ export default function Timer({
               </span>
             </button>
             {todoistOpenCount > 0 && (
-              <button type="button" onClick={() => setSheet('tasks')} className="flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
+              <button type="button" onClick={() => setSheet('tasks')} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
                 <Icon name="list" size={15} color="#E44332" />
                 Choose from Todoist
               </button>
             )}
             {todoistNotice && (
-              <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-center text-[13px] leading-normal text-[#C2615A]">
+              <div className="anim-fade-up rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-center text-[13px] leading-normal text-[var(--warn)]">
                 {todoistNotice}
               </div>
             )}
@@ -1292,7 +1337,7 @@ export default function Timer({
         )}
       </div>
 
-      <div className="flex-shrink-0 pb-[var(--screen-bottom-space)] pt-2">
+      <div className="anim-fade-up flex-shrink-0 pb-[var(--screen-bottom-space)] pt-2">
         <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
           {isFocus ? 'Start focus' : 'Start break'}
         </Btn>

@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CSSProperties, ReactNode } from 'react'
 import type { CategoryRecord } from '@/types'
 
@@ -89,12 +91,14 @@ export function Icon({
   stroke = 1.6,
   color,
   style,
+  className,
 }: {
   name: IconName
   size?: number
   stroke?: number
   color?: string
   style?: CSSProperties
+  className?: string
 }) {
   return (
     <svg
@@ -106,6 +110,7 @@ export function Icon({
       strokeWidth={stroke}
       strokeLinecap="round"
       strokeLinejoin="round"
+      className={className}
       style={{ flexShrink: 0, ...style }}
       dangerouslySetInnerHTML={{ __html: ICONS[name] }}
     />
@@ -123,6 +128,7 @@ export function Ring({
   tickColor = 'var(--ink-3)',
   dot = false,
   animated = true,
+  glow = false,
 }: {
   progress?: number
   size?: number
@@ -134,6 +140,8 @@ export function Ring({
   tickColor?: string
   dot?: boolean
   animated?: boolean
+  /** Soft halo behind the arc — used while a session is running. */
+  glow?: boolean
 }) {
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
@@ -151,6 +159,9 @@ export function Ring({
       const a = (i / ticks) * 2 * Math.PI
       const sin = Math.sin(a)
       const cos = Math.cos(a)
+      // Ticks the arc has already swept pick up the ring colour, so the dial
+      // reads as "filling" rather than being a static decoration.
+      const passed = i / ticks <= p + 1e-6
       tickEls.push(
         <line
           key={i}
@@ -158,10 +169,11 @@ export function Ring({
           y1={cy + (outer - len) * sin}
           x2={cx + outer * cos}
           y2={cy + outer * sin}
-          stroke={tickColor}
+          stroke={passed ? ringTint : tickColor}
           strokeWidth={major ? 1.5 : 1}
           strokeLinecap="round"
-          opacity={major ? 0.32 : 0.15}
+          opacity={passed ? (major ? 0.7 : 0.4) : major ? 0.32 : 0.15}
+          style={{ transition: animated ? 'stroke 420ms var(--ease-out), opacity 420ms var(--ease-out)' : 'none' }}
         />,
       )
     }
@@ -194,6 +206,19 @@ export function Ring({
 
   return (
     <div style={{ position: 'relative', width: size, height: size }}>
+      {glow && (
+        <div
+          aria-hidden="true"
+          className="breathe"
+          style={{
+            position: 'absolute',
+            inset: '-6%',
+            borderRadius: '50%',
+            background: `radial-gradient(circle, color-mix(in srgb, ${ringTint} 22%, transparent) 0%, transparent 68%)`,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', display: 'block', overflow: 'visible' }}>
         {tickEls}
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
@@ -207,7 +232,7 @@ export function Ring({
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={c * (1 - p)}
-          style={{ transition: animated ? 'stroke-dashoffset .9s linear' : 'none' }}
+          style={{ transition: animated ? 'stroke-dashoffset .9s linear, stroke 320ms var(--ease-out)' : 'none' }}
         />
       </svg>
       {dotEl}
@@ -314,8 +339,15 @@ export function Seg<T extends string>({
   value: T
   onChange: (value: T) => void
 }) {
+  const values = options.map(option => (typeof option === 'string' ? option : option.value))
+  const activeIndex = Math.max(0, values.indexOf(value))
+
   return (
-    <div className="sesh-seg">
+    <div
+      className="sesh-seg"
+      style={{ '--seg-count': options.length, '--seg-index': activeIndex } as CSSProperties}
+    >
+      <span className="sesh-seg-indicator" aria-hidden="true" />
       {options.map(option => {
         const v = typeof option === 'string' ? option : option.value
         const label = typeof option === 'string' ? option : option.label
@@ -328,6 +360,8 @@ export function Seg<T extends string>({
     </div>
   )
 }
+
+const SHEET_EXIT_MS = 320
 
 export function Sheet({
   open,
@@ -342,16 +376,48 @@ export function Sheet({
   title?: string
   height?: CSSProperties['height']
 }) {
-  if (!open) return null
-  return (
-    <div className="sesh-sheet-root">
+  // Stay mounted through the exit animation, then unmount.
+  const [mounted, setMounted] = useState(open)
+  const [closing, setClosing] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true)
+      setClosing(false)
+      return
+    }
+    if (!mounted) return
+    setClosing(true)
+    const timeout = window.setTimeout(() => {
+      setMounted(false)
+      setClosing(false)
+    }, SHEET_EXIT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [mounted, open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, open])
+
+  if (!mounted || typeof document === 'undefined') return null
+
+  // Portalled to <body>: the active tab panel animates, which makes it a
+  // stacking context, and a sheet rendered inside it would paint under the nav.
+  return createPortal(
+    <div className="sesh-sheet-root" data-closing={closing ? 'true' : 'false'} role="dialog" aria-modal="true" aria-label={title}>
       <button className="sesh-sheet-backdrop" aria-label="Close sheet" onClick={onClose} />
       <div className="sesh-sheet" style={{ height }}>
         <div className="sesh-sheet-grabber" />
         {title && <div className="sesh-sheet-title">{title}</div>}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -387,9 +453,10 @@ export function Stepper({
 }) {
   return (
     <div className="sesh-stepper">
-      <button type="button" onClick={() => onChange(Math.max(min, value - step))} disabled={value <= min}>-</button>
-      <span>{value} {unit}</span>
-      <button type="button" onClick={() => onChange(Math.min(max, value + step))} disabled={value >= max}>+</button>
+      <button type="button" aria-label={`Decrease by ${step}`} onClick={() => onChange(Math.max(min, value - step))} disabled={value <= min}>-</button>
+      {/* Keyed on value so the pop animation replays on every change. */}
+      <span key={value} className="anim-number-pop">{value} {unit}</span>
+      <button type="button" aria-label={`Increase by ${step}`} onClick={() => onChange(Math.min(max, value + step))} disabled={value >= max}>+</button>
     </div>
   )
 }

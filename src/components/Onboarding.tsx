@@ -16,7 +16,7 @@ const slides = [
           <Chip color="#6E86B0">Writing</Chip>
           <Chip color="#7E9476">Study</Chip>
         </div>
-        <div className="w-[280px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[22px] py-5 shadow-[var(--shadow-md)]" style={{ borderLeft: '3px solid #BE6E45' }}>
+        <div className="w-[280px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[var(--gutter)] py-5 shadow-[var(--shadow-md)]" style={{ borderLeft: '3px solid #BE6E45' }}>
           <div className="mb-2 text-[12px] uppercase tracking-[0.08em] text-[var(--ink-3)]">Intention</div>
           <div className="text-[19px] font-semibold tracking-[-0.02em]">Draft the Q3 strategy memo</div>
         </div>
@@ -87,19 +87,20 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const last = index === slides.length - 1
 
   return (
-    <div className="flex h-full flex-col px-[26px] pb-[calc(26px+var(--safe-b))] pt-[calc(58px+var(--safe-t))]">
+    <div className="anim-fade mx-auto flex h-full w-full max-w-[var(--content-max)] flex-col px-[var(--gutter)] pb-[calc(26px+var(--safe-b))] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
       <div className="flex items-center justify-between">
         <Wordmark />
-        <button type="button" onClick={onDone} className="border-0 bg-transparent text-[15px] font-medium text-[var(--ink-3)]">
+        <button type="button" onClick={onDone} className="press border-0 bg-transparent text-[15px] font-medium text-[var(--ink-3)]">
           Skip
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-10">
-        {slide.art}
+      {/* Keyed on the slide so art and copy cross-fade on every step. */}
+      <div key={slide.key} className="stagger flex flex-1 flex-col items-center justify-center gap-10">
+        <div className="anim-pop">{slide.art}</div>
         <div className="text-center">
           <div className="mb-[14px] text-[13px] font-semibold uppercase tracking-[0.04em] text-[var(--accent-ink)]">{slide.kicker}</div>
-          <h1 className="m-0 whitespace-pre-line font-[var(--font-display)] text-[30px] font-bold leading-[1.12] tracking-[-0.035em]">{slide.title}</h1>
+          <h1 className="m-0 whitespace-pre-line font-[var(--font-display)] text-[clamp(26px,7vw,34px)] font-bold leading-[1.12] tracking-[-0.035em]">{slide.title}</h1>
           <p className="mx-auto mb-0 mt-[14px] max-w-[320px] text-[16px] leading-normal text-[var(--ink-2)]">{slide.body}</p>
         </div>
       </div>
@@ -112,8 +113,12 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               type="button"
               aria-label={`Slide ${i + 1}`}
               onClick={() => setIndex(i)}
-              className="h-[7px] rounded-full border-0 p-0 transition-all"
-              style={{ width: i === index ? 22 : 7, background: i === index ? 'var(--accent)' : 'var(--line-strong)' }}
+              className="h-[7px] rounded-full border-0 p-0"
+              style={{
+                width: i === index ? 22 : 7,
+                background: i === index ? 'var(--accent)' : 'var(--line-strong)',
+                transition: 'width var(--dur-3) var(--ease-spring), background var(--dur-2) var(--ease-out)',
+              }}
             />
           ))}
         </div>

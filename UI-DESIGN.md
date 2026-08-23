@@ -48,7 +48,7 @@ These are the ONLY inline styles allowed (dynamic `backgroundColor`).
 └─────────────────────────┘  ← Safe area bottom
 ```
 
-**Tab bar:** Fixed bottom. 5 icons + labels. Frosted glass background (backdrop-blur). Active tab = accent blue. Inactive = gray.
+**Tab bar:** Fixed bottom on phone/tablet, left rail from 1024px up. 5 icons + labels. Frosted glass background (backdrop-blur) on the bottom bar. The active highlight is a single pill that slides between tabs. Hidden entirely during a session (focus mode is full-bleed).
 
 Tabs: Timer | History | Analytics | Categories | Settings
 
@@ -314,8 +314,8 @@ Manage focus categories.
 ## Shared Patterns
 
 ### Loading State
-- Centered spinner or "Loading..." text
-- Same on all tabs
+- Shimmering `.skeleton` placeholders shaped like the content they replace
+- Used on Insights, Tasks and the Calendar day list
 
 ### Error State
 - Red text message
@@ -333,10 +333,12 @@ Manage focus categories.
 - Gray = unknown
 
 ### Responsive Behavior
-- Max 480px centered container
-- Ring scales proportionally
-- Tab bar stays fixed
-- Content scrolls vertically with momentum
+- Phone: max 480px centred container, bottom tab bar
+- Tablet (≥768px): wider content column, larger dial, tab bar capped at 560px
+- Desktop (≥1024px): left nav rail replaces the tab bar; sheets become centred modals
+- Landscape phones: the dial sits beside its controls so nothing clips
+- All sizes come from CSS custom properties — see STYLE-GUIDE.md "Layout Scale"
+- Content scrolls vertically with momentum; screens centre but never clip
 
 ---
 

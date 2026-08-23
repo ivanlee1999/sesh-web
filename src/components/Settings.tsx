@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import type { Session } from '@/types'
+import { DEFAULT_SETTINGS, type Session } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
@@ -175,7 +175,7 @@ function CategorySheet({ open, onClose }: { open: boolean; onClose: () => void }
           <Btn full variant="outline" icon="plus" onClick={() => setAdding(true)}>New category</Btn>
         </div>
       )}
-      {error && <div className="mt-3 text-[13px] text-[#C2615A]">{error}</div>}
+      {error && <div className="anim-fade-up mt-3 text-[13px] text-[var(--warn)]">{error}</div>}
       <div className="mt-[14px]"><Btn full size="lg" onClick={onClose}>Done</Btn></div>
     </Sheet>
   )
@@ -203,7 +203,17 @@ function ColorDots({ value, onChange, compact }: { value: string; onChange: (val
   )
 }
 
+/** Settings arrive from a generic key/value store, so treat every field as optional. */
+function displayNameOf(settings: { displayName?: string }) {
+  return settings.displayName?.trim() || DEFAULT_SETTINGS.displayName
+}
+
+function initialOf(settings: { displayName?: string }) {
+  return displayNameOf(settings)[0].toUpperCase()
+}
+
 function ProfileScreen({ onBack }: { onBack: () => void }) {
+  const { settings, updateSettings } = useSettings()
   const [sessions, setSessions] = useState<Session[]>([])
   const [stats, setStats] = useState<{ streak: number; todayMs: number } | null>(null)
 
@@ -215,21 +225,27 @@ function ProfileScreen({ onBack }: { onBack: () => void }) {
   const totalMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
-      <div className="px-[22px] pt-[calc(58px+var(--safe-t))]">
-        <button type="button" onClick={onBack} className="grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
+    <div className="anim-fade h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
+      <div className="px-[var(--gutter)] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
+        <button type="button" aria-label="Back to settings" onClick={onBack} className="press grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
           <Icon name="back" size={20} />
         </button>
       </div>
 
-      <div className="flex flex-col items-center px-[22px] pb-[26px] pt-[22px] text-center">
-        <div className="grid h-[86px] w-[86px] place-items-center rounded-full bg-[var(--accent)] text-[36px] font-bold text-white">I</div>
-        <h1 className="mb-[3px] mt-4 font-[var(--font-display)] text-[25px] font-bold tracking-[-0.03em]">Ivan</h1>
+      <div className="flex flex-col items-center px-[var(--gutter)] pb-[26px] pt-[22px] text-center">
+        <div className="anim-pop grid h-[86px] w-[86px] place-items-center rounded-full bg-[var(--accent)] text-[36px] font-bold text-white">{initialOf(settings)}</div>
+        <input
+          value={settings.displayName ?? ''}
+          onChange={event => updateSettings({ displayName: event.target.value })}
+          aria-label="Display name"
+          maxLength={32}
+          className="mb-[3px] mt-4 w-full border-0 bg-transparent text-center font-[var(--font-display)] text-[25px] font-bold tracking-[-0.03em] text-[var(--ink)] outline-none"
+        />
         <div className="text-[14.5px] text-[var(--ink-3)]">Private sesh workspace</div>
       </div>
 
-      <div className="px-[22px]">
-        <div className="mb-[22px] flex gap-3">
+      <div className="px-[var(--gutter)]">
+        <div className="stagger mb-[22px] flex gap-3">
           <MiniStat value={stats?.streak ?? 0} label="day streak" icon="flame" />
           <MiniStat value={sessions.length} label="sessions" icon="check" />
           <MiniStat value={fmtHM(totalMin)} label="focused" icon="timer" />
@@ -342,22 +358,24 @@ export default function Settings() {
   return (
     <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
       <ScreenHead title="Settings" />
-      <div className="px-[22px] py-4">
-        <button type="button" onClick={() => setProfile(true)} className="mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">
-          <div className="grid h-[52px] w-[52px] flex-shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[21px] font-bold text-white">I</div>
+      <div className="px-[var(--gutter)] py-4">
+        <button type="button" onClick={() => setProfile(true)} className="press anim-fade-up mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">
+          <div className="grid h-[52px] w-[52px] flex-shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[21px] font-bold text-white">{initialOf(settings)}</div>
           <div className="flex-1">
-            <div className="text-[17px] font-bold tracking-[-0.02em]">Ivan</div>
+            <div className="text-[17px] font-bold tracking-[-0.02em]">{displayNameOf(settings)}</div>
             <div className="text-[13.5px] text-[var(--ink-3)]">Private sesh workspace</div>
           </div>
           <Icon name="chevron" size={18} color="var(--ink-3)" />
         </button>
 
+        <div className="card-grid stagger">
         <Group label="Timer">
           <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={60} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
           <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
           <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" last right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
         </Group>
 
+        <div>
         <Group label="Categories">
           {categories.map((category, i) => (
             <Row
@@ -369,10 +387,12 @@ export default function Settings() {
             />
           ))}
         </Group>
-        <div className="-mt-[10px] mb-[22px]">
+        <div className="mt-[10px]">
           <Btn full variant="soft" icon="plus" size="sm" onClick={() => setCatSheet(true)}>Manage categories</Btn>
         </div>
+        </div>
 
+        <div className="card-span-2">
         <Group label="Integrations">
           <Row
             icon="list"
@@ -404,7 +424,8 @@ export default function Settings() {
           {calConnected && <Row icon="sync" title="Auto-sync sessions" right={<Toggle on={settings.calendarSync} onChange={calendarSync => updateSettings({ calendarSync })} />} />}
           {calConnected && <Row icon="cloud" title="Manual sync" sub="Sync recent unsynced sessions" last right={<Btn size="sm" variant="outline" disabled={manualSyncBusy} onClick={manualSync}>{manualSyncBusy ? 'Syncing...' : 'Sync'}</Btn>} />}
         </Group>
-        {syncNotice && <p className={`-mt-4 mb-[22px] px-1 text-[13px] ${syncNotice.type === 'success' ? 'text-[#3F9142]' : 'text-[#C2615A]'}`}>{syncNotice.message}</p>}
+        {syncNotice && <p className={`anim-fade-up mt-3 px-1 text-[13px] ${syncNotice.type === 'success' ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>{syncNotice.message}</p>}
+        </div>
 
         <Group label="Notifications">
           <Row icon="sound" title="Sound" right={<Toggle on={settings.soundEnabled} onChange={soundEnabled => updateSettings({ soundEnabled })} />} />
@@ -424,8 +445,9 @@ export default function Settings() {
                   <button
                     key={color}
                     type="button"
+                    aria-label={`Accent ${color}`}
                     onClick={() => updateSettings({ accentColor: color })}
-                    className="h-[24px] w-[24px] rounded-full p-0"
+                    className="press-sm h-[24px] w-[24px] rounded-full p-0"
                     style={{ background: color, border: settings.accentColor === color ? '2px solid var(--ink)' : '2px solid transparent' }}
                   />
                 ))}
@@ -437,6 +459,8 @@ export default function Settings() {
         <Group label="Account">
           <Row icon="sync" title="Sync" sub="Last synced just now" last right={<span className="text-[13px] font-semibold text-[var(--accent-ink)]">On</span>} />
         </Group>
+
+        </div>
 
         <div className="mt-1 flex flex-col gap-[10px]">
           <Btn full variant="soft" onClick={() => { window.location.href = '/api/logout' }}>Sign out</Btn>

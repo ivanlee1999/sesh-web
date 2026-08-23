@@ -46,7 +46,7 @@ export default async function LoginPage({
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-6 py-10 text-[var(--ink)]">
-      <div className="w-full max-w-sm rounded-[28px] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_8px_28px_rgba(40,30,18,0.10),0_2px_6px_rgba(40,30,18,0.04)]">
+      <div className="anim-pop w-full max-w-sm rounded-[28px] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_8px_28px_rgba(40,30,18,0.10),0_2px_6px_rgba(40,30,18,0.04)]">
         <div className="mb-7">
           <div className="mb-5 flex items-center gap-[9px]">
             <span className="relative block h-[22px] w-[22px] rounded-[7px] bg-[var(--accent)]">

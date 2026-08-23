@@ -4,15 +4,32 @@
 
 @layer base {
   :root {
+    /* ---- Viewport & chrome metrics ---- */
     --app-viewport-height: 100dvh;
-    --tabbar-height: 82px;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+
+    /* Layout scale — overridden per breakpoint below */
+    --shell-max: 480px;
+    --content-max: 480px;
+    --gutter: 22px;
+    --screen-top: 24px;
+    --screen-bottom-space: 24px;
+
+    /* Timer scale */
+    --ring-idle: 236px;
+    --ring-run: 280px;
+    --clock-size: 58px;
+    --control-lg: 86px;
+    --control-sm: 58px;
+
     --tabbar-padding-x: 12px;
     --tabbar-padding-top: 8px;
     --tabbar-padding-bottom: calc(10px + var(--safe-b));
-    --screen-bottom-space: 24px;
 
+    /* ---- Color ---- */
     --bg: #F4F1EA;
     --surface: #FBFAF6;
     --surface-2: #ECE7DC;
@@ -25,6 +42,8 @@
     --accent: #BE6E45;
     --accent-soft: #e1ad90;
     --accent-ink: #9a5a39;
+    --warn: #C2615A;
+    --good: #3F9142;
 
     --r-sm: 11px;
     --r-md: 15px;
@@ -32,7 +51,18 @@
     --r-pill: 999px;
     --shadow-sm: 0 1px 2px rgba(40,30,18,0.05);
     --shadow-md: 0 1px 2px rgba(40,30,18,0.04);
+    --shadow-lift: 0 10px 30px rgba(30,22,12,0.10);
     --font-display: 'Hanken Grotesk', system-ui, sans-serif;
+
+    /* ---- Motion ---- */
+    --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-1: 120ms;
+    --dur-2: 200ms;
+    --dur-3: 320ms;
+    --dur-4: 460ms;
+    --stagger: 42ms;
   }
 
   :root[data-theme='dark'],
@@ -46,6 +76,113 @@
     --ink-3: #71685B;
     --line: rgba(241,236,226,0.085);
     --line-strong: rgba(241,236,226,0.17);
+    --shadow-lift: 0 10px 30px rgba(0,0,0,0.34);
+  }
+
+  /* Small phones (iPhone SE and friends) — tighten everything a notch. */
+  @media (max-width: 359px) {
+    :root {
+      --gutter: 16px;
+      --ring-idle: 196px;
+      --ring-run: 224px;
+      --clock-size: 46px;
+      --control-lg: 72px;
+      --control-sm: 50px;
+    }
+  }
+
+  /* Short viewports / landscape phones — the timer must never overflow. */
+  @media (max-height: 700px) {
+    :root {
+      --screen-top: 14px;
+      --screen-bottom-space: 14px;
+      --ring-idle: 184px;
+      --ring-run: 208px;
+      --clock-size: 44px;
+      --control-lg: 68px;
+      --control-sm: 48px;
+    }
+  }
+
+  @media (max-height: 660px) {
+    :root {
+      --ring-idle: 126px;
+      --ring-run: 168px;
+      --clock-size: 36px;
+      --control-lg: 62px;
+      --control-sm: 46px;
+      --screen-bottom-space: 10px;
+      --tabbar-padding-top: 5px;
+      --tabbar-padding-bottom: calc(6px + var(--safe-b));
+    }
+  }
+
+  @media (max-height: 560px) {
+    :root {
+      --ring-idle: 118px;
+      --ring-run: 156px;
+      --clock-size: 34px;
+      --control-lg: 58px;
+      --control-sm: 44px;
+      --tabbar-padding-top: 4px;
+      --tabbar-padding-bottom: calc(5px + var(--safe-b));
+    }
+  }
+
+  /* Large phones / small tablets */
+  @media (min-width: 600px) and (min-height: 640px) {
+    :root {
+      --shell-max: 560px;
+      --content-max: 520px;
+      --gutter: 28px;
+      --screen-top: 32px;
+      --ring-idle: 272px;
+      --ring-run: 312px;
+      --clock-size: 66px;
+    }
+  }
+
+  /* Tablets */
+  @media (min-width: 768px) and (min-height: 700px) {
+    :root {
+      --shell-max: 100%;
+      --content-max: 620px;
+      --gutter: 32px;
+      --screen-top: 40px;
+      --ring-idle: 300px;
+      --ring-run: 344px;
+      --clock-size: 74px;
+      --control-lg: 94px;
+      --control-sm: 62px;
+    }
+  }
+
+  /* Landscape phones get more horizontal room for the two-column dial. */
+  @media (orientation: landscape) and (max-height: 560px) {
+    :root { --content-max: 640px; --gutter: 20px }
+  }
+
+  /* Desktop — side rail replaces the bottom bar */
+  @media (min-width: 1024px) {
+    :root {
+      --shell-max: 100%;
+      --content-max: 720px;
+      --gutter: 36px;
+      --screen-top: 44px;
+      --screen-bottom-space: 40px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    :root { --content-max: 860px; --gutter: 40px }
+  }
+
+  @media (min-width: 1024px) and (min-height: 760px) {
+    :root {
+      --ring-idle: 320px;
+      --ring-run: 364px;
+      --clock-size: 80px;
+    }
   }
 
   html, body {
@@ -66,17 +203,169 @@
   input, textarea, select, button {
     font: inherit;
   }
+
+  /* Keyboard users still get a visible ring; pointer users do not. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
+/* ============================================================
+   Keyframes
+   ============================================================ */
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes fadeOut { from { opacity: 1 } to { opacity: 0 } }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translate3d(0, 6px, 0) scale(0.985) }
+  to { opacity: 1; transform: none }
+}
+
+@keyframes popIn {
+  0% { opacity: 0; transform: scale(0.86) }
+  100% { opacity: 1; transform: scale(1) }
+}
+
+@keyframes sheetIn {
+  from { transform: translate3d(0, 100%, 0) }
+  to { transform: none }
+}
+
+@keyframes sheetOut {
+  from { transform: none }
+  to { transform: translate3d(0, 100%, 0) }
+}
+
+@keyframes overflowPulse {
+  0%, 100% { transform: scale(1); opacity: 1 }
+  50% { transform: scale(1.035); opacity: 0.86 }
+}
+
+/* Slow, calm expansion under the ring while a session runs. */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.5 }
+  50% { transform: scale(1.055); opacity: 0.9 }
+}
+
+@keyframes growBar {
+  from { transform: scaleY(0) }
+  to { transform: scaleY(1) }
+}
+
+@keyframes growTrack {
+  from { transform: scaleX(0) }
+  to { transform: scaleX(1) }
+}
+
+@keyframes numberPop {
+  0% { transform: scale(1) }
+  40% { transform: scale(1.09) }
+  100% { transform: scale(1) }
+}
+
+@keyframes chipPop {
+  0% { transform: scale(1) }
+  45% { transform: scale(1.08) }
+  100% { transform: scale(1) }
+}
+
+@keyframes shimmer {
+  from { background-position: -160% 0 }
+  to { background-position: 260% 0 }
+}
+
+@keyframes checkDraw {
+  from { stroke-dashoffset: 32 }
+  to { stroke-dashoffset: 0 }
+}
+
+@keyframes rowLeave {
+  from { opacity: 1; transform: none; max-height: 90px }
+  to { opacity: 0; transform: translate3d(-24px, 0, 0); max-height: 0 }
+}
+
+/* ============================================================
+   Motion utilities
+   ============================================================ */
+@layer utilities {
+  .anim-fade { animation: fadeIn var(--dur-2) var(--ease-out) both }
+  .anim-fade-up { animation: fadeUp var(--dur-3) var(--ease-out) both }
+  .anim-pop { animation: popIn var(--dur-3) var(--ease-spring) both }
+  .anim-slide-in { animation: fadeSlideIn var(--dur-3) var(--ease-out) both }
+
+  /* Set --i on each child (or use .stagger with nth-child fallback). */
+  .stagger-item {
+    animation: fadeUp var(--dur-3) var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * var(--stagger));
+  }
+
+  .stagger > * {
+    animation: fadeUp var(--dur-3) var(--ease-out) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: calc(0 * var(--stagger)) }
+  .stagger > *:nth-child(2) { animation-delay: calc(1 * var(--stagger)) }
+  .stagger > *:nth-child(3) { animation-delay: calc(2 * var(--stagger)) }
+  .stagger > *:nth-child(4) { animation-delay: calc(3 * var(--stagger)) }
+  .stagger > *:nth-child(5) { animation-delay: calc(4 * var(--stagger)) }
+  .stagger > *:nth-child(6) { animation-delay: calc(5 * var(--stagger)) }
+  .stagger > *:nth-child(7) { animation-delay: calc(6 * var(--stagger)) }
+  .stagger > *:nth-child(n+8) { animation-delay: calc(7 * var(--stagger)) }
+
+  /* Tactile press — "sink in" then spring back. */
+  .press {
+    transition: transform var(--dur-1) var(--ease-out), opacity var(--dur-1) var(--ease-out);
+  }
+  .press:active { transform: scale(0.965) }
+
+  .press-sm { transition: transform var(--dur-1) var(--ease-out) }
+  .press-sm:active { transform: scale(0.92) }
+
+  .overflow-pulse { animation: overflowPulse 2.4s var(--ease-in-out) infinite }
+  .breathe { animation: breathe 5.6s var(--ease-in-out) infinite }
+  .anim-number-pop { animation: numberPop var(--dur-3) var(--ease-spring) }
+  .anim-chip-pop { animation: chipPop var(--dur-3) var(--ease-spring) }
+  .anim-row-leave { animation: rowLeave var(--dur-3) var(--ease-in-out) forwards }
+
+  .grow-bar {
+    transform-origin: bottom;
+    animation: growBar var(--dur-4) var(--ease-spring) both;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
+
+  .grow-track {
+    transform-origin: left;
+    animation: growTrack var(--dur-4) var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 45%, var(--surface)) 50%, var(--surface-2) 100%);
+    background-size: 220% 100%;
+    animation: shimmer 1.5s linear infinite;
+  }
+}
+
+/* ============================================================
+   App shell — phone column, tablet wide, desktop rail
+   ============================================================ */
 @layer utilities {
   .app-shell {
-    @apply mx-auto flex w-full max-w-[480px] flex-col;
+    @apply mx-auto flex w-full flex-col;
+    max-width: var(--shell-max);
     height: var(--app-viewport-height);
     max-height: var(--app-viewport-height);
     overflow: hidden;
     position: relative;
     background: var(--bg);
     color: var(--ink);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
   }
 
   .app-content {
@@ -86,6 +375,7 @@
     width: 100%;
     display: flex;
     flex-direction: column;
+    position: relative;
   }
 
   .app-tabpanel {
@@ -100,6 +390,7 @@
 
   .app-tabpanel[data-active='true'] {
     display: flex;
+    animation: fadeSlideIn var(--dur-3) var(--ease-out) both;
   }
 
   .app-tabpanel[data-scroll='true'] {
@@ -108,51 +399,194 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  .tabbar-frosted {
-    flex: 0 0 auto;
+  /* Caps and centres every screen's content without touching each screen. */
+  .app-tabpanel-inner {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
     width: 100%;
-    z-index: 100;
-    padding: var(--tabbar-padding-top) var(--tabbar-padding-x) var(--tabbar-padding-bottom);
-    background: transparent;
+    max-width: var(--content-max);
+    margin-inline: auto;
+    display: flex;
+    flex-direction: column;
   }
+
   .hide-scrollbar {
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
+  .hide-scrollbar::-webkit-scrollbar { display: none }
+
   .font-mono {
     font-family: 'SF Mono', 'Geist Mono', 'Fira Code', monospace;
   }
-}
 
-/* iOS spring transition */
-.ios-spring { transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+  /* Responsive card grid used by Insights / Settings on wide screens. */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+    align-items: start;
+  }
 
-/* Press-in effect */
-.press-in:active { transform: scale(0.97); }
-.press-in { transition: transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+  @media (min-width: 700px) {
+    .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px }
+    .card-grid > .card-span-2 { grid-column: 1 / -1 }
+  }
 
-/* Fade in */
-.fade-in { animation: fadeIn 200ms ease forwards; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  /* Inside a card grid the gap owns the spacing, not the group margin. */
+  .card-grid .sesh-group { margin-bottom: 0 }
 
-/* Overflow pulse */
-.overflow-pulse { animation: overflowPulse 2s ease-in-out infinite; }
-@keyframes overflowPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-}
+  /* Calendar: month grid beside the day list on wide screens. */
+  .split-pane { display: block }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  @media (min-width: 900px) {
+    .split-pane {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+    }
+    .split-pane > * { min-width: 0 }
   }
 }
 
+/* ============================================================
+   Navigation — bottom pill (mobile) / side rail (desktop)
+   ============================================================ */
+.app-nav {
+  flex: 0 0 auto;
+  width: 100%;
+  z-index: 100;
+  padding: var(--tabbar-padding-top) var(--tabbar-padding-x) var(--tabbar-padding-bottom);
+  background: transparent;
+  animation: fadeUp var(--dur-3) var(--ease-out) both;
+}
+
+.app-nav-list {
+  position: relative;
+  display: flex;
+  max-width: 560px;
+  margin-inline: auto;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--nav-bg);
+  padding: 6px;
+  box-shadow: 0 8px 30px rgba(30,22,12,0.16);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* The pill that slides between tabs. */
+.app-nav-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / var(--tab-count, 5));
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  transform: translate3d(calc(var(--tab-index, 0) * 100%), 0, 0);
+  transition: transform var(--dur-4) var(--ease-spring);
+  pointer-events: none;
+}
+
+.app-nav-item {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  padding: 8px 2px;
+  cursor: pointer;
+  color: var(--ink-3);
+  transition: color var(--dur-2) var(--ease-out);
+}
+
+.app-nav-item[data-active='true'] { color: var(--accent-ink) }
+
+.app-nav-icon {
+  display: block;
+  transition: transform var(--dur-3) var(--ease-spring);
+}
+
+.app-nav-item[data-active='true'] .app-nav-icon { transform: translateY(-1px) scale(1.1) }
+.app-nav-item:active .app-nav-icon { transform: scale(0.9) }
+
+.app-nav-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 380px) {
+  .app-nav-label { font-size: 10.5px }
+}
+
+/* Desktop rail */
+@media (min-width: 1024px) {
+  .app-shell { flex-direction: row }
+
+  .app-nav {
+    order: -1;
+    width: 112px;
+    height: 100%;
+    padding: calc(20px + var(--safe-t)) 10px calc(20px + var(--safe-b));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .app-nav-list {
+    /* Height follows the items so the sliding pill stays item-sized. */
+    flex: 0 0 auto;
+    flex-direction: column;
+    max-width: none;
+    gap: 4px;
+    border-radius: var(--r-lg);
+    padding: 10px 8px;
+    box-shadow: none;
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .app-nav-indicator {
+    top: 10px;
+    left: 8px;
+    right: 8px;
+    bottom: auto;
+    width: auto;
+    height: calc((100% - 20px - 4px * (var(--tab-count, 5) - 1)) / var(--tab-count, 5));
+    border-radius: var(--r-md);
+    transform: translate3d(0, calc(var(--tab-index, 0) * (100% + 4px)), 0);
+  }
+
+  .app-nav-item {
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 6px;
+    border-radius: var(--r-md);
+    padding: 12px 2px;
+  }
+
+  .app-nav-label { font-size: 11px; letter-spacing: -0.01em }
+}
+
+/* ============================================================
+   Components
+   ============================================================ */
 .sesh-ring-content {
   position: absolute;
   inset: 0;
@@ -173,24 +607,35 @@
   font-weight: 600;
   cursor: pointer;
   user-select: none;
-  transition: transform .12s ease, opacity .15s ease, background .15s ease;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    opacity var(--dur-2) var(--ease-out),
+    background var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
 }
 
-.sesh-btn:active { transform: scale(0.97); }
-.sesh-btn:disabled { cursor: default; opacity: .45; }
-.sesh-btn-full { width: 100%; }
-.sesh-btn-sm { padding: 9px 16px; font-size: 14px; }
-.sesh-btn-md { padding: 13px 22px; font-size: 16px; }
-.sesh-btn-lg { padding: 17px 30px; font-size: 18px; }
-.sesh-btn-primary { background: var(--ink); color: var(--bg); }
-.sesh-btn-accent { background: var(--accent); color: #fff; }
-.sesh-btn-soft { background: var(--surface-2); color: var(--ink); }
-.sesh-btn-ghost { background: transparent; color: var(--ink-2); }
-.sesh-btn-danger { background: color-mix(in srgb, #C2615A 14%, transparent); color: #C2615A; }
+.sesh-btn:active { transform: scale(0.965) }
+.sesh-btn:disabled { cursor: default; opacity: .45; transform: none }
+.sesh-btn-full { width: 100% }
+.sesh-btn-sm { padding: 9px 16px; font-size: 14px }
+.sesh-btn-md { padding: 13px 22px; font-size: 16px }
+.sesh-btn-lg { padding: 17px 30px; font-size: 18px }
+.sesh-btn-primary { background: var(--ink); color: var(--bg) }
+.sesh-btn-accent { background: var(--accent); color: #fff }
+.sesh-btn-soft { background: var(--surface-2); color: var(--ink) }
+.sesh-btn-ghost { background: transparent; color: var(--ink-2) }
+.sesh-btn-danger { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn) }
 .sesh-btn-outline {
   background: transparent;
   color: var(--ink);
   box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+
+@media (hover: hover) {
+  .sesh-btn-primary:hover:not(:disabled),
+  .sesh-btn-accent:hover:not(:disabled) { box-shadow: var(--shadow-lift) }
+  .sesh-btn-soft:hover:not(:disabled) { background: var(--line-strong) }
+  .sesh-btn-outline:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--ink-3) }
 }
 
 .sesh-chip {
@@ -205,16 +650,25 @@
   font-weight: 500;
   letter-spacing: -0.01em;
   cursor: pointer;
-  transition: transform .12s ease, box-shadow .15s ease;
+  transition:
+    transform var(--dur-1) var(--ease-out),
+    background var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out),
+    box-shadow var(--dur-2) var(--ease-out);
 }
 
-.sesh-chip:active { transform: scale(.97); }
+.sesh-chip:active { transform: scale(.95) }
+.sesh-chip[data-active='true'] { animation: chipPop var(--dur-3) var(--ease-spring) }
+
 .sesh-chip-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  transition: transform var(--dur-3) var(--ease-spring);
 }
+
+.sesh-chip[data-active='true'] .sesh-chip-dot { transform: scale(1.2) }
 
 .sesh-cat-badge {
   display: inline-flex;
@@ -233,6 +687,7 @@
 }
 
 .sesh-seg {
+  position: relative;
   display: flex;
   background: var(--surface-2);
   border-radius: var(--r-pill);
@@ -240,7 +695,23 @@
   gap: 2px;
 }
 
+.sesh-seg-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--seg-count, 2));
+  border-radius: var(--r-pill);
+  background: var(--bg);
+  box-shadow: var(--shadow-sm);
+  transform: translate3d(calc(var(--seg-index, 0) * 100%), 0, 0);
+  transition: transform var(--dur-3) var(--ease-spring);
+  pointer-events: none;
+}
+
 .sesh-seg button {
+  position: relative;
+  z-index: 1;
   flex: 1;
   border: 0;
   border-radius: var(--r-pill);
@@ -251,13 +722,10 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
+  transition: color var(--dur-2) var(--ease-out);
 }
 
-.sesh-seg button[data-active='true'] {
-  background: var(--bg);
-  color: var(--ink);
-  box-shadow: var(--shadow-sm);
-}
+.sesh-seg button[data-active='true'] { color: var(--ink) }
 
 .sesh-sheet-root {
   position: fixed;
@@ -273,19 +741,40 @@
   inset: 0;
   border: 0;
   background: rgba(20,16,10,0.34);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   cursor: pointer;
+  animation: fadeIn var(--dur-3) var(--ease-out) both;
 }
 
 .sesh-sheet {
   position: relative;
-  width: min(100vw, 480px);
-  max-height: min(86vh, 760px);
+  width: min(100vw, 520px);
+  max-height: min(86dvh, 760px);
   overflow: auto;
+  overscroll-behavior: contain;
   background: var(--bg);
   border-radius: 28px 28px 0 0;
   padding: 14px 22px calc(28px + var(--safe-b));
   box-shadow: 0 -16px 50px rgba(20,16,10,0.22);
+  animation: sheetIn var(--dur-4) var(--ease-out) both;
+}
+
+.sesh-sheet-root[data-closing='true'] { pointer-events: none }
+.sesh-sheet-root[data-closing='true'] .sesh-sheet-backdrop { animation: fadeOut var(--dur-2) var(--ease-out) both }
+.sesh-sheet-root[data-closing='true'] .sesh-sheet { animation: sheetOut var(--dur-3) var(--ease-in-out) both }
+
+/* Centred modal card on desktop rather than a bottom sheet. */
+@media (min-width: 1024px) {
+  .sesh-sheet-root { align-items: center }
+  .sesh-sheet {
+    border-radius: 24px;
+    max-height: min(80dvh, 720px);
+    padding-bottom: 26px;
+    animation: popIn var(--dur-3) var(--ease-spring) both;
+  }
+  .sesh-sheet-root[data-closing='true'] .sesh-sheet { animation: fadeOut var(--dur-2) var(--ease-out) both }
+  .sesh-sheet-grabber { display: none }
 }
 
 .sesh-sheet-grabber {
@@ -311,12 +800,12 @@
   cursor: pointer;
   background: var(--line-strong);
   position: relative;
-  transition: background .2s;
+  transition: background var(--dur-2) var(--ease-out);
   flex-shrink: 0;
 }
 
-.sesh-toggle[data-on='true'] { background: var(--accent); }
-.sesh-toggle:disabled { cursor: default; opacity: .5; }
+.sesh-toggle[data-on='true'] { background: var(--accent) }
+.sesh-toggle:disabled { cursor: default; opacity: .5 }
 .sesh-toggle span {
   position: absolute;
   top: 3px;
@@ -326,10 +815,12 @@
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-  transition: left .2s cubic-bezier(.3,.7,0,1);
+  transition: left var(--dur-3) var(--ease-spring), width var(--dur-2) var(--ease-out);
 }
 
-.sesh-toggle[data-on='true'] span { left: 23px; }
+.sesh-toggle[data-on='true'] span { left: 23px }
+.sesh-toggle:active:not(:disabled) span { width: 29px }
+.sesh-toggle[data-on='true']:active:not(:disabled) span { left: 18px }
 
 .sesh-stepper {
   display: flex;
@@ -349,7 +840,10 @@
   display: grid;
   place-items: center;
   cursor: pointer;
+  transition: transform var(--dur-1) var(--ease-out), background var(--dur-2) var(--ease-out);
 }
+
+.sesh-stepper button:active:not(:disabled) { transform: scale(0.88) }
 
 .sesh-stepper button:disabled {
   cursor: default;
@@ -370,7 +864,8 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  padding: calc(30px + var(--safe-t)) 22px 6px;
+  padding: calc(var(--screen-top) + 6px + var(--safe-t)) var(--gutter) 6px;
+  animation: fadeUp var(--dur-3) var(--ease-out) both;
 }
 
 .sesh-screen-head h1 {
@@ -381,13 +876,18 @@
   letter-spacing: -0.04em;
 }
 
+@media (min-width: 768px) {
+  .sesh-screen-head h1 { font-size: 34px }
+}
+
 .sesh-screen-head p {
   margin: 4px 0 0;
   color: var(--ink-3);
   font-size: 14.5px;
 }
 
-.sesh-group { margin-bottom: 22px; }
+.sesh-group { margin-bottom: 22px }
+
 .sesh-group-label {
   margin: 0 4px 9px;
   color: var(--ink-3);
@@ -414,10 +914,17 @@
   background: transparent;
   color: var(--ink);
   text-align: left;
+  transition: background var(--dur-2) var(--ease-out);
 }
 
-.sesh-row[data-last='true'] { border-bottom: 0; }
-button.sesh-row { cursor: pointer; }
+.sesh-row[data-last='true'] { border-bottom: 0 }
+button.sesh-row { cursor: pointer }
+button.sesh-row:active { background: var(--surface-2) }
+
+@media (hover: hover) {
+  button.sesh-row:hover { background: color-mix(in srgb, var(--surface-2) 55%, transparent) }
+}
+
 .sesh-row-icon {
   width: 34px;
   height: 34px;
@@ -489,7 +996,7 @@ button.sesh-row { cursor: pointer; }
     overscroll-behavior: none;
   }
 
-  button, label, [role="button"], .tabbar-frosted, nav {
+  button, label, [role="button"], .app-nav, nav {
     -webkit-user-select: none;
     user-select: none;
   }
@@ -500,5 +1007,189 @@ button.sesh-row { cursor: pointer; }
 
   * {
     -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* ============================================================
+   Timer screens
+   ============================================================ */
+.timer-idle {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  padding: calc(var(--screen-top) + var(--safe-t)) var(--gutter) 0;
+}
+
+/* Centres while there is room and scrolls instead of clipping when there
+   isn't — plain `justify-content: center` cuts off the top of an overflow. */
+.timer-idle-center {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: 8px;
+  padding-top: 12px;
+}
+
+.timer-idle-center > :first-child { margin-top: auto }
+.timer-idle-center > :last-child { margin-bottom: auto }
+
+.timer-clock { text-align: center }
+
+.timer-clock-value {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: var(--clock-size);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.07em;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--dur-3) var(--ease-out);
+}
+
+/* Category chips scroll on narrow screens and wrap once there is room. */
+.timer-category-scroller {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.timer-category-list {
+  min-width: max-content;
+  flex-wrap: nowrap;
+}
+
+@media (min-width: 600px) {
+  .timer-category-scroller { overflow-x: visible }
+  .timer-category-list {
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .timer-scroll-hint { display: none }
+}
+
+@media (max-height: 700px) {
+  .timer-scroll-hint { display: none }
+}
+
+/* Short viewports: shrink the primary action rather than clipping content. */
+@media (max-height: 660px) {
+  .sesh-btn-lg { padding: 13px 24px; font-size: 16px }
+  .timer-idle-center { gap: 8px; padding-top: 6px; padding-bottom: 4px }
+  .timer-clock-value { margin-top: 4px }
+}
+
+/* Landscape phones: the dial sits beside its controls instead of above them. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .timer-idle { padding-top: calc(8px + var(--safe-t)) }
+
+  .timer-idle-center {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'ring mode'
+      'ring picker';
+    align-content: center;
+    justify-content: center;
+    column-gap: 26px;
+    row-gap: 10px;
+  }
+
+  /* Children are, in order: session-type switch, dial + clock, category picker. */
+  .timer-idle-center > :nth-child(1) { grid-area: mode; justify-self: start; margin-top: 0 }
+  .timer-idle-center > :nth-child(2) { grid-area: ring; align-self: center }
+  .timer-idle-center > :nth-child(3) { grid-area: picker; margin-bottom: 0 }
+  .timer-idle-center > :last-child { margin-bottom: 0 }
+  .timer-idle-center > :first-child { margin-top: 0 }
+
+  .timer-idle-greeting-prefix { display: none }
+  .timer-clock-label { display: none }
+  .timer-idle-center > :nth-child(2) { gap: 8px }
+
+  /* Back to a single scrolling row — wrapped chips cost rows we don't have. */
+  .timer-category-scroller { overflow-x: auto }
+  .timer-category-list {
+    min-width: max-content;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+}
+
+/* Full-bleed focus mode */
+.timer-immersive {
+  position: absolute;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg);
+  color: var(--ink);
+  padding:
+    calc(var(--screen-top) + 30px + var(--safe-t))
+    var(--gutter)
+    calc(var(--screen-bottom-space) + 12px + var(--safe-b));
+  animation: fadeIn var(--dur-4) var(--ease-out) both;
+}
+
+.timer-immersive-head {
+  flex: 0 0 auto;
+  min-height: 56px;
+  text-align: center;
+}
+
+.timer-immersive-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.timer-immersive-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  padding-top: 12px;
+}
+
+/* Landscape phones: ring and clock sit side by side so nothing clips. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .timer-immersive { padding-top: calc(10px + var(--safe-t)) }
+  .timer-immersive-head { min-height: 0 }
+  .timer-immersive-main { flex-direction: row; gap: 28px }
+  .timer-immersive-foot { gap: 18px; padding-top: 8px }
+}
+
+.reflect-check {
+  stroke-dasharray: 32;
+  animation: checkDraw var(--dur-4) var(--ease-out) both;
+  animation-delay: 120ms;
+}
+
+/* ============================================================
+   Reduced motion — kill decoration, keep state changes readable
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

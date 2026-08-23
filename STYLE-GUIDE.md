@@ -71,78 +71,91 @@ Timer mono: SF Mono, Geist Mono, Fira Code, Menlo, monospace
 ### Section Titles
 - Small, UPPERCASE, letter-spaced, gray — like iOS Settings
 
-## Animations & Transitions (iOS Native + Things 3)
+## Layout Scale (responsive)
 
-### Core Principle
-iOS uses spring-based animations with slight overshoot. Things 3 adds tactile micro-interactions.
-Use CSS `cubic-bezier(0.25, 0.46, 0.45, 0.94)` for standard ease or `cubic-bezier(0.34, 1.56, 0.64, 1)` for spring/bounce.
+Every size that changes across devices is a CSS custom property on `:root` in
+`globals.css`. Components read the token; they never hard-code a breakpoint.
+`useCssSize()` (`src/hooks/useCssSize.ts`) bridges these tokens into the SVG
+components that need a real number.
 
-### Tab Switching
-- Active tab icon+label: color transition 200ms ease
-- Content area: NO slide animation (instant swap, like iOS tab bar)
+| Token | Purpose |
+|-------|---------|
+| `--shell-max` / `--content-max` | App frame width / centred content width |
+| `--gutter` | Horizontal screen padding |
+| `--screen-top` / `--screen-bottom-space` | Vertical screen padding |
+| `--ring-idle` / `--ring-run` | Dial diameter, idle vs running |
+| `--clock-size` | Countdown type size |
+| `--control-lg` / `--control-sm` | Transport button diameters |
+| `--safe-t/b/l/r` | `env(safe-area-inset-*)`, including landscape notches |
 
-### Timer Ring
-- Progress arc: `stroke-dashoffset` transition 500ms ease-out (smooth sweep)
-- Wedge fill: opacity transition 300ms ease
-- Ring scale on START: brief `transform: scale(1.02)` then back, 300ms spring
-- Overflow pulse: subtle scale 1.0→1.02→1.0 pulse every 2s on the overflow time text
+### Breakpoints
 
-### Buttons
-- Tap: scale(0.97) on active, 100ms — Things 3 "press in" feel
-- Release: spring back to scale(1), 200ms with slight overshoot
-- START button: add `active:scale-[0.97]` and `transition-transform duration-150`
-- Ghost buttons: opacity 0.7 on active
+| Range | Behaviour |
+|-------|-----------|
+| `≤359px` wide | Tightened gutters and dial (small phones) |
+| `≤660px` tall | Compact scale; scroll hint and large button padding dropped |
+| `≤560px` tall + landscape | Dial sits *beside* its controls; single-row category chips |
+| `≥600px` wide | Category chips wrap and centre instead of scrolling |
+| `≥768px` wide | Tablet scale — wider content column, larger dial |
+| `≥1024px` wide | Bottom tab bar becomes a **left rail**; sheets become centred modals |
+| `≥1280px` wide | Content column widens to 860px; two-column cards get real room |
 
-### Chips (Category selection)
-- Selection change: background-color transition 200ms ease
-- Selected chip: subtle scale spring 1.0→1.05→1.0 on select (200ms)
+Rules of thumb:
+- Screens never clip. Where content can outgrow the viewport (the idle timer),
+  the container centres with `margin: auto` and scrolls instead of cutting off.
+- `.card-grid` gives Insights and Settings a one-column phone layout and a
+  two-column tablet/desktop layout; `.card-span-2` opts a card into full width.
+- `.split-pane` puts the Calendar month grid beside the day list from 900px up.
+- Focus mode is full-bleed on every breakpoint — the rail hides during a session.
 
-### List Items
-- Delete: fade out + slide left, 200ms ease
-- Appear: no animation (instant, like iOS)
-- Tap highlight: brief bg opacity flash (iOS tap feedback)
+---
 
-### Cards
-- First load: fade-in from opacity 0→1, 200ms ease, staggered 50ms per card
-- No slide/bounce on load — keep it subtle
+## Animations & Transitions
 
-### Todoist Dropdown
-- Open: max-height transition 250ms ease + opacity 0→1
-- Close: reverse, 200ms
+### Tokens
 
-### Toggle Switches
-- Konsta Toggle handles this natively — don't override
-
-### Settings Number Stepper
-- Number change: brief scale pulse on the number (1.0→1.1→1.0, 150ms)
-
-### Things 3 Specific Touches
-- Circular checkbox completion: fill animation from center outward, 300ms
-- Swipe-to-delete: smooth translate-x tracking with spring snapback
-- Button press: that satisfying "sink in" (scale 0.97) + release spring
-- Content transitions feel physical — slight momentum, no teleporting
-
-### CSS Classes to Add in globals.css
 ```css
-/* iOS spring transition */
-.ios-spring { transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1); }
-
-/* Press-in effect */
-.press-in:active { transform: scale(0.97); }
-.press-in { transition: transform 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94); }
-
-/* Fade in */
-.fade-in { animation: fadeIn 200ms ease forwards; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-/* Overflow pulse */
-.overflow-pulse { animation: overflowPulse 2s ease-in-out infinite; }
-@keyframes overflowPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-}
+--ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);   /* default */
+--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);   /* overshoot */
+--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);      /* exits */
+--dur-1: 120ms;  --dur-2: 200ms;  --dur-3: 320ms;  --dur-4: 460ms;
+--stagger: 42ms;
 ```
 
-### Reduced Motion
-Respect `prefers-reduced-motion: reduce` — disable all custom animations.
-Already have the media query in globals.css, just ensure new animations use it.
+### Utilities
+
+| Class | Effect |
+|-------|--------|
+| `.anim-fade` / `.anim-fade-up` / `.anim-pop` / `.anim-slide-in` | Entrances |
+| `.stagger` | Children fade up in sequence (`nth-child` delays) |
+| `.stagger-item` | Same, driven by an inline `--i` |
+| `.press` / `.press-sm` | Tactile "sink in" on tap, spring back on release |
+| `.overflow-pulse` | Overtime countdown pulse |
+| `.breathe` | Slow halo expansion behind a running dial |
+| `.grow-bar` / `.grow-track` | Charts grow from zero, staggered by `--i` |
+| `.skeleton` | Shimmering placeholder while data loads |
+| `.anim-number-pop` | Number scale pulse — apply with `key={value}` to replay |
+
+### Where they're used
+
+- **Tab switch** — active panel cross-fades (`fadeSlideIn`); the nav highlight is
+  a single pill that *slides* between tabs via `--tab-index`.
+- **Segmented control** — same sliding-indicator technique via `--seg-index`.
+- **Sheets** — slide up from the bottom on phones, pop in as a centred modal on
+  desktop, and animate *out* before unmounting. Portalled to `<body>` so the
+  animating tab panel's stacking context can't bury them. Escape closes.
+- **Dial** — ticks the arc has passed take on the category colour; the hand
+  sweeps on a 0.95s linear transition matched to the tick; a soft halo breathes
+  while running; the countdown turns warn-coloured and pulses in overtime.
+- **Chips** — spring pop plus a dot scale on selection.
+- **Toggles** — the knob stretches on press and springs to its new position.
+- **Steppers** — the value pops on every change.
+- **Lists** — Tasks, Calendar day cards, Insights cards and Settings groups all
+  stagger in; a completing task fills its checkbox and slides out.
+- **Reflection** — the check mark draws itself; rating buttons spring.
+
+### Reduced motion
+
+`prefers-reduced-motion: reduce` collapses every animation and transition to
+0.01ms. Because entrances use `animation-fill-mode: both`, elements still land
+in their final state — nothing disappears.

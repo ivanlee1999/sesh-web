@@ -83,7 +83,8 @@ export default function AppLayout() {
                   data-scroll={id !== 'timer'}
                   className="app-tabpanel"
                 >
-                  {renderTab(id)}
+                  {/* Caps and centres content so wide screens don't stretch a phone layout. */}
+                  <div className="app-tabpanel-inner">{renderTab(id)}</div>
                 </section>
               ))}
             </div>

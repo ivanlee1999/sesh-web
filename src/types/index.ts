@@ -41,6 +41,7 @@ export interface TodoistTask {
 }
 
 export interface AppSettings {
+  displayName: string
   focusDuration: number    // minutes
   breakDuration: number
   soundEnabled: boolean
@@ -53,6 +54,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  displayName: 'there',
   focusDuration: 25,
   breakDuration: 5,
   soundEnabled: true,

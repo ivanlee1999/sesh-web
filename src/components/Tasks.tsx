@@ -74,14 +74,23 @@ function TaskRow({
   const color = category?.color ?? 'var(--line-strong)'
 
   return (
-    <div className="flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-3" style={{ opacity: completing ? 0.55 : 1 }}>
+    <div
+      className={`flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-3 ${completing ? 'anim-row-leave' : ''}`}
+      style={{ transition: 'opacity var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out)' }}
+    >
       <button
         type="button"
         aria-label="Complete task"
         onClick={onComplete}
-        className="grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full bg-transparent p-0"
-        style={{ border: `2px solid ${pri || color}` }}
-      />
+        className="press-sm grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full p-0"
+        style={{
+          border: `2px solid ${pri || color}`,
+          background: completing ? (pri || color) : 'transparent',
+          transition: 'background var(--dur-2) var(--ease-out)',
+        }}
+      >
+        {completing && <Icon name="check" size={12} color="#fff" stroke={3} />}
+      </button>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</div>
         <div className="mt-1 flex items-center gap-[9px]">
@@ -97,7 +106,7 @@ function TaskRow({
         type="button"
         aria-label="Focus on task"
         onClick={onFocus}
-        className="grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0"
+        className="press grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0"
         style={{ background: category ? tint(category.color, 16) : 'var(--accent-soft)' }}
       >
         <Icon name="play" size={17} color={category?.color ?? 'var(--accent-ink)'} />
@@ -188,7 +197,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         : 'Todoist unavailable'
 
     return (
-      <div className="flex h-full w-full min-w-0 flex-col px-[26px] pb-[var(--screen-bottom-space)] pt-[calc(58px+var(--safe-t))]">
+      <div className="flex h-full w-full min-w-0 flex-col px-[var(--gutter)] pb-[var(--screen-bottom-space)] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
         <ScreenHead title="Tasks" />
         <div className="flex flex-1 flex-col items-center justify-center gap-[22px] text-center">
           <div className="grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[#E44332] shadow-[0_10px_30px_rgba(228,67,50,0.3)]">
@@ -225,7 +234,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         }
       />
 
-      <div className="flex gap-2 px-[22px] pb-2 pt-[14px]">
+      <div className="flex gap-2 px-[var(--gutter)] pb-2 pt-[14px]">
         {([
           ['today', 'Today', counts.today],
           ['upcoming', 'Upcoming', counts.upcoming],
@@ -237,37 +246,41 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         ))}
       </div>
 
-      {error && <div className="mx-[22px] my-3 rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-[13px] text-[#C2615A]">{error}</div>}
+      {error && <div className="anim-fade-up mx-[var(--gutter)] my-3 rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-[13px] text-[var(--warn)]">{error}</div>}
 
-      <div className="px-[22px] py-2">
+      <div className="px-[var(--gutter)] py-2">
         {loading && tasks.length === 0 ? (
-          <div className="py-[50px] text-center text-[14px] text-[var(--ink-3)]">Loading tasks...</div>
+          <div className="flex flex-col gap-[9px]" aria-label="Loading tasks">
+            {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-[66px] rounded-[var(--r-md)]" />)}
+          </div>
         ) : groups.length > 0 ? (
-          groups.map(group => (
-            <div key={group.project} className="mb-6">
-              <div className="mb-[11px] flex items-center gap-2 text-[13px] font-bold tracking-[-0.01em] text-[var(--ink-2)]">
-                <Icon name="inbox" size={15} color="var(--ink-3)" />
-                {group.project}
+          <div key={filter} className="anim-fade">
+            {groups.map(group => (
+              <div key={group.project} className="mb-6">
+                <div className="mb-[11px] flex items-center gap-2 text-[13px] font-bold tracking-[-0.01em] text-[var(--ink-2)]">
+                  <Icon name="inbox" size={15} color="var(--ink-3)" />
+                  {group.project}
+                </div>
+                <div className="stagger flex flex-col gap-[9px]">
+                  {group.items.map(task => {
+                    const category = taskCategory(task, categories)
+                    return (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        category={category}
+                        completing={completingId === task.id}
+                        onComplete={() => completeTask(task.id)}
+                        onFocus={() => onFocusTask({ intention: task.content, category: category?.name, taskId: task.id })}
+                      />
+                    )
+                  })}
+                </div>
               </div>
-              <div className="flex flex-col gap-[9px]">
-                {group.items.map(task => {
-                  const category = taskCategory(task, categories)
-                  return (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      category={category}
-                      completing={completingId === task.id}
-                      onComplete={() => completeTask(task.id)}
-                      onFocus={() => onFocusTask({ intention: task.content, category: category?.name, taskId: task.id })}
-                    />
-                  )
-                })}
-              </div>
-            </div>
-          ))
+            ))}
+          </div>
         ) : (
-          <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
+          <div className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
             <Icon name="check" size={30} color="var(--ink-3)" />
             <div className="mt-3 text-[15px]">Nothing here. Enjoy the calm.</div>
           </div>
