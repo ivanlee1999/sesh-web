@@ -164,7 +164,7 @@ describe('Timer', () => {
     expect(screen.getByText('25:00')).toBeTruthy()
     expect(screen.getByText('Focus length')).toBeTruthy()
     expect(screen.queryByText('Full dial = 60 min')).toBeNull()
-    expect(screen.getByText('Add an intention (optional)')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Add an intention (optional)')).toBeTruthy()
   })
 
   it('renders category chips and respects recency order', async () => {
@@ -177,15 +177,17 @@ describe('Timer', () => {
     expect(labels.slice(0, 2)).toEqual(['Study', 'Work'])
   })
 
-  it('sets an optional intention from the sheet', async () => {
+  it('edits the optional intention inline, with no sheet', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByText('Add an intention (optional)'))
-    const textarea = await screen.findByPlaceholderText(/Draft the Q3 strategy memo/)
-    fireEvent.change(textarea, { target: { value: 'Review design handoff' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Set intention' }))
+    const field = await screen.findByPlaceholderText('Add an intention (optional)') as HTMLInputElement
+    fireEvent.change(field, { target: { value: 'Review design handoff' } })
 
-    expect(screen.getByRole('button', { name: /Review design handoff/ })).toBeTruthy()
+    expect(field.value).toBe('Review design handoff')
+    expect(screen.queryByRole('button', { name: 'Set intention' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear intention' }))
+    expect(field.value).toBe('')
   })
 
   it('lets you drag the idle clock arrow to change focus length', async () => {

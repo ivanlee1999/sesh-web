@@ -6,6 +6,7 @@ import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { useCssSize } from '@/hooks/useCssSize'
+import { useFitSquare } from '@/hooks/useFitSquare'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { readApiError } from '@/lib/api-client'
@@ -390,38 +391,6 @@ function TaskGroup({
   )
 }
 
-function IntentionSheet({
-  open,
-  intention,
-  onClose,
-  onSave,
-}: {
-  open: boolean
-  intention: string
-  onClose: () => void
-  onSave: (value: string) => void
-}) {
-  const [value, setValue] = useState(intention)
-  useEffect(() => { if (open) setValue(intention) }, [open, intention])
-
-  return (
-    <Sheet open={open} onClose={onClose} title="Focus intention">
-      <textarea
-        autoFocus
-        value={value}
-        onChange={event => setValue(event.target.value)}
-        rows={2}
-        placeholder="e.g. Draft the Q3 strategy memo — optional"
-        className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[18px] font-semibold leading-snug tracking-[-0.02em] text-[var(--ink)] outline-none"
-      />
-      <p className="mx-0.5 mb-0 mt-3 text-[13px] leading-normal text-[var(--ink-3)]">A one-line focus for this session. Leave it blank to just track the category.</p>
-      <div className="mt-[22px]">
-        <Btn full size="lg" onClick={() => onSave(value.trim())}>{value.trim() ? 'Set intention' : 'Continue without one'}</Btn>
-      </div>
-    </Sheet>
-  )
-}
-
 /**
  * In-place topic editor. Renders inline on whichever screen hosts it — no
  * overlay — so switching topic never covers the running timer. Category taps
@@ -617,7 +586,7 @@ export default function Timer({
   // Provider-qualified task reference (see lib/task-ref). Named for the API
   // field and DB column it round-trips through, both of which predate Things.
   const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<'intention' | 'tasks' | null>(null)
+  const [sheet, setSheet] = useState<'tasks' | null>(null)
   const [editingTopic, setEditingTopic] = useState(false)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [openTaskCount, setOpenTaskCount] = useState(0)
@@ -878,6 +847,22 @@ export default function Timer({
     })
   }, [category, intention, sessionType, syncToServer, todoistTaskId, updateSettings])
 
+  /** The inline field edits on every keystroke; the server only needs the rest. */
+  const syncIdleIntention = useCallback((nextIntention: string) => {
+    syncToServer({
+      phase: 'idle',
+      sessionType,
+      intention: nextIntention,
+      category,
+      targetMs,
+      remainingMs,
+      overflowMs: 0,
+      startedAt: null,
+      pausedAt: null,
+      todoistTaskId,
+    })
+  }, [category, remainingMs, sessionType, syncToServer, targetMs, todoistTaskId])
+
   const handleIdleDialPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (phase !== 'idle') return
 
@@ -947,7 +932,10 @@ export default function Timer({
   // list then shaves the idle dial down so the screen never overflows.
   const idleRingBase = useCssSize('--ring-idle', 236)
   const runningRingBase = useCssSize('--ring-run', 280)
-  const idleRingSize = Math.round(idleRingBase * (sortedCategories.length > 8 ? 0.88 : sortedCategories.length > 5 ? 0.94 : 1))
+  const idleRingCap = Math.round(idleRingBase * (sortedCategories.length > 8 ? 0.88 : sortedCategories.length > 5 ? 0.94 : 1))
+  // The CSS scale is only a ceiling — the dial then shrinks to whatever space
+  // the fixed rows leave, so the screen fits without scrolling on any phone.
+  const [idleRingFitRef, idleRingSize] = useFitSquare(idleRingCap)
   // Give the inline topic editor room without pushing the controls off-screen.
   const runningRingSize = editingTopic ? Math.round(runningRingBase * 0.8) : runningRingBase
   const isOvertime = remainingMs < 0
@@ -1464,8 +1452,9 @@ export default function Timer({
             <span className="text-[12px] text-[var(--ink-3)]">Long break after this one</span>
           )}
         </div>
-        <div className="timer-slot-ring anim-pop flex flex-col items-center gap-[18px]">
-          <div className="relative">
+        <div className="timer-slot-ring anim-pop">
+          <div ref={idleRingFitRef} className="timer-ring-fit">
+          <div className="relative" style={{ width: idleRingSize, height: idleRingSize }}>
             <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
               <div
                 data-testid="timer-duration-face-fill"
@@ -1536,6 +1525,7 @@ export default function Timer({
               />
             </div>
           </div>
+          </div>
 
           <div className="timer-clock">
             <div className="timer-clock-label text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{idleClockLabel}</div>
@@ -1570,16 +1560,42 @@ export default function Timer({
             {compactCategoryLayout && (
               <div className="timer-scroll-hint px-1 text-center text-[12px] text-[var(--ink-3)]">Swipe to see all categories</div>
             )}
-            <button
-              type="button"
-              onClick={() => setSheet('intention')}
-              className="press flex w-full items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-4 py-[14px] text-left"
-            >
+            {/* Edited in place — an intention is one line, not a screen. */}
+            <div className="timer-intention-field">
               <Icon name={todoistTaskId ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
-              <span className="min-w-0 flex-1 truncate text-[15.5px] font-semibold tracking-[-0.01em]" style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}>
-                {intention || 'Add an intention (optional)'}
-              </span>
-            </button>
+              <input
+                type="text"
+                value={intention}
+                enterKeyHint="done"
+                aria-label="Focus intention"
+                placeholder="Add an intention (optional)"
+                onChange={event => {
+                  setIntention(event.target.value)
+                  // A rewritten intention is no longer the linked task.
+                  setTodoistTaskId(null)
+                }}
+                onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                onBlur={() => {
+                  setIntention(current => current.trim())
+                  syncIdleIntention(intention.trim())
+                }}
+                className="timer-intention-input"
+              />
+              {intention && (
+                <button
+                  type="button"
+                  aria-label="Clear intention"
+                  onClick={() => {
+                    setIntention('')
+                    setTodoistTaskId(null)
+                    syncIdleIntention('')
+                  }}
+                  className="grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--surface-2)] p-0"
+                >
+                  <Icon name="x" size={13} color="var(--ink-3)" />
+                </button>
+              )}
+            </div>
             {openTaskCount > 0 && (
               <button type="button" onClick={() => setSheet('tasks')} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
                 <Icon name="list" size={15} color="var(--ink-3)" />
@@ -1601,16 +1617,6 @@ export default function Timer({
         </Btn>
       </div>
 
-      <IntentionSheet
-        open={sheet === 'intention'}
-        intention={intention}
-        onClose={() => setSheet(null)}
-        onSave={(value) => {
-          setIntention(value)
-          setTodoistTaskId(null)
-          setSheet(null)
-        }}
-      />
       <TaskPickerSheet
         open={sheet === 'tasks'}
         onClose={() => setSheet(null)}

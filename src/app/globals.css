@@ -5,7 +5,12 @@
 @layer base {
   :root {
     /* ---- Viewport & chrome metrics ---- */
+    /* svh, not dvh: the shell must never be taller than the visible area, or
+       Safari hands the page a scroll it should not have. Older engines fall
+       back through the earlier declarations. */
+    --app-viewport-height: 100vh;
     --app-viewport-height: 100dvh;
+    --app-viewport-height: 100svh;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-l: env(safe-area-inset-left, 0px);
@@ -18,8 +23,10 @@
     --screen-top: 24px;
     --screen-bottom-space: 24px;
 
-    /* Timer scale */
-    --ring-idle: 236px;
+    /* Timer scale. --ring-idle is only a ceiling: the idle dial measures the
+       space the fixed rows leave and shrinks into it, so short viewports need
+       no override here — only the rows around it do. */
+    --ring-idle: 300px;
     --ring-run: 280px;
     --clock-size: 58px;
     --control-lg: 86px;
@@ -83,7 +90,7 @@
   @media (max-width: 359px) {
     :root {
       --gutter: 16px;
-      --ring-idle: 196px;
+      --ring-idle: 260px;
       --ring-run: 224px;
       --clock-size: 46px;
       --control-lg: 72px;
@@ -96,7 +103,6 @@
     :root {
       --screen-top: 14px;
       --screen-bottom-space: 14px;
-      --ring-idle: 184px;
       --ring-run: 208px;
       --clock-size: 44px;
       --control-lg: 68px;
@@ -106,7 +112,6 @@
 
   @media (max-height: 660px) {
     :root {
-      --ring-idle: 126px;
       --ring-run: 168px;
       --clock-size: 36px;
       --control-lg: 62px;
@@ -119,7 +124,6 @@
 
   @media (max-height: 560px) {
     :root {
-      --ring-idle: 118px;
       --ring-run: 156px;
       --clock-size: 34px;
       --control-lg: 58px;
@@ -136,7 +140,7 @@
       --content-max: 520px;
       --gutter: 28px;
       --screen-top: 32px;
-      --ring-idle: 272px;
+      --ring-idle: 320px;
       --ring-run: 312px;
       --clock-size: 66px;
     }
@@ -149,7 +153,7 @@
       --content-max: 620px;
       --gutter: 32px;
       --screen-top: 40px;
-      --ring-idle: 300px;
+      --ring-idle: 340px;
       --ring-run: 344px;
       --clock-size: 74px;
       --control-lg: 94px;
@@ -159,7 +163,9 @@
 
   /* Landscape phones get more horizontal room for the two-column dial. */
   @media (orientation: landscape) and (max-height: 560px) {
-    :root { --content-max: 640px; --gutter: 20px }
+    /* The landscape dial sits in a grid cell with no leftover space to
+       absorb, so here the ceiling really is the size. */
+    :root { --content-max: 640px; --gutter: 20px; --ring-idle: 130px }
   }
 
   /* Desktop — side rail replaces the bottom bar */
@@ -185,12 +191,18 @@
     }
   }
 
+  /* Pinned to the viewport so the document itself can never scroll or
+     rubber-band — the app should feel installed, not like a web page. */
   html, body {
     height: 100%;
     overscroll-behavior: none;
   }
 
   body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: var(--app-viewport-height);
     margin: 0;
     background: var(--bg);
     color: var(--ink);
@@ -198,6 +210,13 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
+  }
+
+  /* The document can't scroll any more, so standalone pages (login) own it. */
+  body > main {
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   input, textarea, select, button {
@@ -1024,8 +1043,8 @@ button.sesh-row:active { background: var(--surface-2) }
   padding: calc(var(--screen-top) + var(--safe-t)) var(--gutter) 0;
 }
 
-/* Centres while there is room and scrolls instead of clipping when there
-   isn't — plain `justify-content: center` cuts off the top of an overflow. */
+/* Never scrolls. Every row here is fixed-height except the dial, which
+   absorbs the leftover space (see useFitSquare), so the screen always fits. */
 .timer-idle-center {
   flex: 1;
   min-height: 0;
@@ -1034,17 +1053,72 @@ button.sesh-row:active { background: var(--surface-2) }
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
+  overflow: hidden;
   padding-bottom: 8px;
   padding-top: 12px;
 }
 
-.timer-idle-center > :first-child { margin-top: auto }
-.timer-idle-center > :last-child { margin-bottom: auto }
-.timer-slot-cycle { min-height: 12px }
+.timer-slot-cycle { flex: 0 0 auto; min-height: 12px }
+.timer-slot-mode { flex: 0 0 auto }
+.timer-slot-picker { flex: 0 0 auto }
 
-.timer-clock { text-align: center }
+.timer-slot-ring {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+/* Measured box the dial sizes itself to. */
+.timer-ring-fit {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Inline intention — no sheet, no navigation, just a field. */
+.timer-intention-field {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 12px 14px;
+  transition: border-color var(--dur-2) var(--ease-out);
+}
+
+.timer-intention-field:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-strong));
+}
+
+.timer-intention-input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--ink);
+  font-size: 16px; /* Anything smaller and iOS zooms the page on focus. */
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  outline: none;
+}
+
+.timer-intention-input::placeholder {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.timer-clock { flex: 0 0 auto; text-align: center }
 
 .timer-clock-value {
   margin-top: 8px;
@@ -1110,10 +1184,12 @@ button.sesh-row:active { background: var(--surface-2) }
     row-gap: 8px;
   }
 
-  .timer-idle-center > * { margin-top: 0; margin-bottom: 0 }
   .timer-slot-mode { grid-area: mode; justify-self: start }
-  .timer-slot-ring { grid-area: ring; align-self: center }
   .timer-slot-picker { grid-area: picker }
+
+  /* No leftover space to absorb in a grid — pin the dial to its CSS size. */
+  .timer-slot-ring { grid-area: ring; align-self: center; flex: 0 0 auto; width: auto; gap: 10px }
+  .timer-ring-fit { flex: 0 0 auto; width: var(--ring-idle); height: var(--ring-idle) }
 
   .timer-idle-greeting-prefix { display: none }
   .timer-clock-label { display: none }
