@@ -44,11 +44,14 @@ export interface AppSettings {
   displayName: string
   focusDuration: number    // minutes
   breakDuration: number
+  longBreakDuration: number
+  sessionsBeforeLongBreak: number
   soundEnabled: boolean
   calendarSync: boolean
   darkMode: boolean
   keepScreenAwake: boolean
   autoStartBreak: boolean
+  autoStartFocus: boolean
   todoistAutoComplete: boolean
   accentColor: string
 }
@@ -57,11 +60,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   displayName: 'there',
   focusDuration: 25,
   breakDuration: 5,
+  longBreakDuration: 15,
+  sessionsBeforeLongBreak: 4,
   soundEnabled: true,
   calendarSync: false,
   darkMode: false,
   keepScreenAwake: true,
   autoStartBreak: true,
+  autoStartFocus: false,
   todoistAutoComplete: true,
   accentColor: '#BE6E45',
 }

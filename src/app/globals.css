@@ -1041,6 +1041,7 @@ button.sesh-row:active { background: var(--surface-2) }
 
 .timer-idle-center > :first-child { margin-top: auto }
 .timer-idle-center > :last-child { margin-bottom: auto }
+.timer-slot-cycle { min-height: 12px }
 
 .timer-clock { text-align: center }
 
@@ -1085,11 +1086,16 @@ button.sesh-row:active { background: var(--surface-2) }
   .sesh-btn-lg { padding: 13px 24px; font-size: 16px }
   .timer-idle-center { gap: 8px; padding-top: 6px; padding-bottom: 4px }
   .timer-clock-value { margin-top: 4px }
+  /* Decorative — short screens need the row for the intention field. */
+  .timer-slot-cycle { display: none }
 }
 
 /* Landscape phones: the dial sits beside its controls instead of above them. */
 @media (orientation: landscape) and (max-height: 560px) {
   .timer-idle { padding-top: calc(8px + var(--safe-t)) }
+
+  /* The cycle indicator is decorative; landscape needs the row back. */
+  .timer-slot-cycle { display: none }
 
   .timer-idle-center {
     display: grid;
@@ -1100,15 +1106,13 @@ button.sesh-row:active { background: var(--surface-2) }
     align-content: center;
     justify-content: center;
     column-gap: 26px;
-    row-gap: 10px;
+    row-gap: 8px;
   }
 
-  /* Children are, in order: session-type switch, dial + clock, category picker. */
-  .timer-idle-center > :nth-child(1) { grid-area: mode; justify-self: start; margin-top: 0 }
-  .timer-idle-center > :nth-child(2) { grid-area: ring; align-self: center }
-  .timer-idle-center > :nth-child(3) { grid-area: picker; margin-bottom: 0 }
-  .timer-idle-center > :last-child { margin-bottom: 0 }
-  .timer-idle-center > :first-child { margin-top: 0 }
+  .timer-idle-center > * { margin-top: 0; margin-bottom: 0 }
+  .timer-slot-mode { grid-area: mode; justify-self: start }
+  .timer-slot-ring { grid-area: ring; align-self: center }
+  .timer-slot-picker { grid-area: picker }
 
   .timer-idle-greeting-prefix { display: none }
   .timer-clock-label { display: none }
@@ -1144,7 +1148,11 @@ button.sesh-row:active { background: var(--surface-2) }
 
 .timer-immersive-head {
   flex: 0 0 auto;
+  width: 100%;
   min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
 }
 

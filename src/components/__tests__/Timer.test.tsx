@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, act } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within, act } from '@testing-library/react'
 
 let keepScreenAwake = false
 let autoStartBreak = false
+let autoStartFocus = false
 let timerApiState: Record<string, unknown>
 let visibilityStateValue: DocumentVisibilityState = 'visible'
 const updateSettings = vi.fn()
@@ -12,11 +13,14 @@ vi.mock('@/context/SettingsContext', () => ({
     settings: {
       focusDuration: 25,
       breakDuration: 5,
+      longBreakDuration: 15,
+      sessionsBeforeLongBreak: 4,
       soundEnabled: false,
       calendarSync: false,
       darkMode: false,
       keepScreenAwake,
       autoStartBreak,
+      autoStartFocus,
       todoistAutoComplete: true,
       accentColor: '#BE6E45',
     },
@@ -54,6 +58,8 @@ vi.mock('@/lib/local-store', () => ({
   getCachedCategories: vi.fn(() => null),
   getRecentCategoryNames: vi.fn(() => []),
   markCategoryUsed: vi.fn((categoryName: string) => [categoryName]),
+  getPomodoroCycleCount: vi.fn(() => 0),
+  incrementPomodoroCycle: vi.fn(() => 1),
 }))
 
 import Timer from '../Timer'
@@ -84,6 +90,7 @@ async function flushPromises() {
 beforeEach(() => {
   keepScreenAwake = false
   autoStartBreak = false
+  autoStartFocus = false
   timerApiState = timerState()
   visibilityStateValue = 'visible'
   vi.useRealTimers()
@@ -91,6 +98,8 @@ beforeEach(() => {
   updateSettings.mockReset()
   vi.mocked(localStore.getRecentCategoryNames).mockReturnValue([])
   vi.mocked(localStore.markCategoryUsed).mockImplementation((categoryName: string) => [categoryName])
+  vi.mocked(localStore.getPomodoroCycleCount).mockReturnValue(0)
+  vi.mocked(localStore.incrementPomodoroCycle).mockReturnValue(1)
 
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,
@@ -354,8 +363,39 @@ describe('Timer', () => {
     expect(postCall?.[1]?.body).toEqual(expect.stringContaining('"overflowMs":60000'))
   })
 
-  it('returns to the main page after saving reflection even when auto-start-break is enabled', async () => {
+  it('auto-starts a break after saving reflection when auto-start-break is enabled', async () => {
     autoStartBreak = true
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    expect(await screen.findByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save & start break' }))
+
+    expect(await screen.findByText('Break remaining')).toBeTruthy()
+    expect(screen.getByText('05:00')).toBeTruthy()
+    expect(vi.mocked(localStore.incrementPomodoroCycle)).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts a long break after the final focus session of a cycle', async () => {
+    autoStartBreak = true
+    vi.mocked(localStore.getPomodoroCycleCount).mockReturnValue(3)
+    vi.mocked(localStore.incrementPomodoroCycle).mockReturnValue(4)
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    expect(await screen.findByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save & start long break' }))
+
+    expect(await screen.findByText('Break remaining')).toBeTruthy()
+    expect(screen.getByText('15:00')).toBeTruthy()
+    expect(screen.getByText('Long break')).toBeTruthy()
+  })
+
+  it('returns to idle after reflection when auto-start-break is disabled', async () => {
     render(<Timer />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
@@ -366,7 +406,27 @@ describe('Timer', () => {
 
     expect(await screen.findByRole('button', { name: 'Start focus' })).toBeTruthy()
     expect(screen.queryByText('Break remaining')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Start break' })).toBeNull()
+  })
+
+  it('auto-starts the next focus when a break ends and auto-start-focus is enabled', async () => {
+    vi.useFakeTimers()
+    autoStartFocus = true
+    render(<Timer />)
+    await act(async () => {
+      await flushPromises()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Break' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start break' }))
+    expect(screen.getByText('Break remaining')).toBeTruthy()
+
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1000)
+      await flushPromises()
+    })
+
+    expect(screen.getByText('Remaining')).toBeTruthy()
+    expect(screen.getByText('25:00')).toBeTruthy()
   })
 
   it('reconciles the running timer from the server when the app becomes visible again', async () => {
@@ -442,6 +502,87 @@ describe('Timer', () => {
     })
     expect(timerFetches).toHaveLength(2)
     expect(screen.getByText('24:30')).toBeTruthy()
+  })
+
+  it('edits the focus topic inline on the running screen without a popup', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
+
+    // The editor renders in place — the timer stays on screen, no overlay.
+    const inlineCategories = await screen.findByTestId('running-topic-categories')
+    expect(screen.getByText('Remaining')).toBeTruthy()
+    expect(screen.getByLabelText('Stop session')).toBeTruthy()
+
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What are you working on?'), {
+      target: { value: 'Read the spec' },
+    })
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
+
+    expect(await screen.findByText('Read the spec')).toBeTruthy()
+    expect(screen.getByText('Study')).toBeTruthy()
+    expect(screen.queryByTestId('running-topic-categories')).toBeNull()
+    await waitFor(() => {
+      const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/timer' && init?.method === 'PUT' && String(init?.body).includes('Read the spec')
+      })
+      expect(put?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+      expect(put?.[1]?.body).toEqual(expect.stringContaining('"phase":"running"'))
+    })
+  })
+
+  it('carries a mid-session topic switch into the saved session', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
+    const inlineCategories = await screen.findByTestId('running-topic-categories')
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
+
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/sessions' && init?.method === 'POST'
+      })
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+    })
+  })
+
+  it('changes the topic inline on the reflection screen before saving', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    expect(await screen.findByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Change topic/ }))
+    const inlineCategories = await screen.findByTestId('reflection-topic-categories')
+    expect(screen.getByText('Session complete')).toBeTruthy()
+
+    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
+    fireEvent.change(screen.getByPlaceholderText('What did you focus on?'), {
+      target: { value: 'Actually studied' },
+    })
+    fireEvent.click(screen.getByLabelText('Done editing focus'))
+
+    expect(await screen.findByText(/Actually studied/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
+
+    await waitFor(() => {
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/sessions' && init?.method === 'POST'
+      })
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"intention":"Actually studied"'))
+    })
   })
 
   it('requests screen wake lock directly from the start tap when keep-awake is enabled', async () => {

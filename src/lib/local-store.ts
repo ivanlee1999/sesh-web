@@ -11,6 +11,7 @@ const TIMER_KEY = 'sesh:timer'
 const SESSION_QUEUE_KEY = 'sesh:sessionQueue'
 const CATEGORIES_CACHE_KEY = 'sesh:categories'
 const CATEGORY_RECENCY_KEY = 'sesh:categoryRecency'
+const POMODORO_CYCLE_KEY = 'sesh:pomodoroCycle'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -165,4 +166,37 @@ export function markCategoryUsed(categoryName: string): string[] {
   } catch {
     return [categoryName, ...getRecentCategoryNames().filter(name => name !== categoryName)]
   }
+}
+
+// ── Pomodoro cycle ───────────────────────────────────────────────────────
+// Completed focus sessions today, used to schedule long breaks. Resets on a
+// new local day so a fresh morning always starts a fresh cycle.
+interface PomodoroCycle {
+  count: number
+  date: string // local YYYY-MM-DD
+}
+
+function localDateStr(): string {
+  return new Date().toLocaleDateString('en-CA')
+}
+
+export function getPomodoroCycleCount(): number {
+  try {
+    const raw = localStorage.getItem(POMODORO_CYCLE_KEY)
+    if (!raw) return 0
+    const cycle = JSON.parse(raw) as PomodoroCycle
+    if (cycle.date !== localDateStr()) return 0
+    const n = Number(cycle.count)
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  } catch {
+    return 0
+  }
+}
+
+export function incrementPomodoroCycle(): number {
+  const next = getPomodoroCycleCount() + 1
+  try {
+    localStorage.setItem(POMODORO_CYCLE_KEY, JSON.stringify({ count: next, date: localDateStr() } satisfies PomodoroCycle))
+  } catch {}
+  return next
 }
