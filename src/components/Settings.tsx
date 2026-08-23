@@ -355,7 +355,10 @@ export default function Settings() {
         <Group label="Timer">
           <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={60} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
           <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
-          <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" last right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
+          <Row icon="leaf" title="Long break length" right={<Stepper value={settings.longBreakDuration} min={5} max={45} step={5} onChange={longBreakDuration => updateSettings({ longBreakDuration })} />} />
+          <Row icon="sync" title="Long break after" sub="Focus sessions per cycle" right={<Stepper value={settings.sessionsBeforeLongBreak} min={2} max={8} onChange={sessionsBeforeLongBreak => updateSettings({ sessionsBeforeLongBreak })} />} />
+          <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
+          <Row icon="play" title="Auto-start focus" sub="Begin the next focus when a break ends" last right={<Toggle on={settings.autoStartFocus} onChange={autoStartFocus => updateSettings({ autoStartFocus })} />} />
         </Group>
 
         <Group label="Categories">
