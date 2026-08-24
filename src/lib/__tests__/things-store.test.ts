@@ -233,3 +233,28 @@ describe('to-dos under a project that is gone', () => {
     expect(readTasks(['today'], todayStart).map(t => t.uuid).sort()).toEqual(['a', 'd'])
   })
 })
+
+describe('which area a to-do belongs to', () => {
+  /** A to-do inside a project has no area of its own; it inherits the project's. */
+  it('inherits the area from the enclosing project', () => {
+    applyItems([
+      { uuid: 'a1', kind: 'Area3', action: 0, payload: { tt: 'Health' } },
+      task('p1', { tt: 'Run a marathon', tp: 1, ss: 0, ar: ['a1'] }),
+      task('t1', { tt: 'Buy shoes', st: 1, sr: todaySeconds, tp: 0, ss: 0, pr: ['p1'] }),
+    ])
+    expect(readTasks(['today'], todayStart)[0]).toMatchObject({
+      areaTitle: 'Health',
+      projectTitle: 'Run a marathon',
+    })
+  })
+
+  it('still prefers an area set on the to-do itself', () => {
+    applyItems([
+      { uuid: 'a1', kind: 'Area3', action: 0, payload: { tt: 'Health' } },
+      { uuid: 'a2', kind: 'Area3', action: 0, payload: { tt: 'Errands' } },
+      task('p1', { tt: 'Project', tp: 1, ss: 0, ar: ['a1'] }),
+      task('t1', { tt: 'Odd one out', st: 1, sr: todaySeconds, tp: 0, ss: 0, pr: ['p1'], ar: ['a2'] }),
+    ])
+    expect(readTasks(['today'], todayStart)[0].areaTitle).toBe('Errands')
+  })
+})

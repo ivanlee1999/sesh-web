@@ -54,6 +54,12 @@ export async function GET(request: Request) {
           projectId: projectId ? String(projectId) : null,
           projectName: projectId ? projectNames.get(String(projectId)) ?? 'Todoist' : 'Todoist',
           due: dueKind(task.due?.date, clock),
+          dueDate: task.due?.date ? task.due.date.slice(0, 10) : null,
+          // Todoist has no Inbox/Someday split of its own, so a task is filed
+          // by whether it is scheduled: dated work lands in Today or Upcoming,
+          // everything else in Anytime.
+          bucket: dueKind(task.due?.date, clock) ?? 'anytime',
+          areaName: null,
           dueLabel: dueLabel(task.due?.date, task.due?.string, clock),
           category: (task.labels ?? [])[0] ?? null,
           completed: !!task.completed,

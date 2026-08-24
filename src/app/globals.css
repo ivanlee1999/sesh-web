@@ -468,6 +468,21 @@
     }
     .split-pane > * { min-width: 0 }
   }
+
+  /* All-tasks screen: sidebar beside the list once there is room for both.
+     Below this the sidebar moves into a drawer, so the list keeps the full
+     width it needs on a phone. */
+  .task-pane { display: block }
+
+  @media (min-width: 900px) {
+    .task-pane {
+      display: grid;
+      grid-template-columns: minmax(180px, 232px) minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+    }
+    .task-pane > * { min-width: 0 }
+  }
 }
 
 /* ============================================================

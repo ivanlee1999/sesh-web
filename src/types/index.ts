@@ -47,6 +47,12 @@ export interface ExternalTask {
   projectName?: string
   due?: 'today' | 'tomorrow' | 'upcoming' | null
   dueLabel?: string | null
+  /** The calendar day itself, YYYY-MM-DD — what Upcoming sorts and groups on. */
+  dueDate?: string | null
+  /** Which pile the All sidebar files this under. */
+  bucket?: 'today' | 'inbox' | 'anytime' | 'upcoming' | 'someday' | null
+  /** Things area, kept apart from the project so the sidebar can list both. */
+  areaName?: string | null
   category?: string | null
   completed?: boolean
 }

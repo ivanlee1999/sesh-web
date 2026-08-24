@@ -339,6 +339,12 @@ export interface ThingsTaskView extends StoredThingsTask {
   areaTitle: string | null
   projectTitle: string | null
   tags: string[]
+  /**
+   * The list this to-do belongs to. Views are asked for in priority order and
+   * a to-do is only ever returned once, so this is the first one that claimed
+   * it — which is the same list Things itself would show it under.
+   */
+  view: ThingsView
 }
 
 /**
@@ -356,8 +362,11 @@ export function readTasks(views: ThingsView[], todayStart = serverDayStart()): T
     const rows = db.prepare(`
       SELECT t.*, a.title AS area_title, p.title AS project_title
       FROM things_tasks t
-      LEFT JOIN things_areas a ON a.uuid = t.area_uuid
       LEFT JOIN things_tasks p ON p.uuid = t.project_uuid
+      -- A to-do inside a project carries no area of its own; it belongs to
+      -- whichever area the project sits in. Reading only the task's own field
+      -- left almost everything area-less, which makes the sidebar useless.
+      LEFT JOIN things_areas a ON a.uuid = COALESCE(t.area_uuid, p.area_uuid)
       WHERE t.deleted = 0 AND t.in_trash = 0 AND t.status = 0 AND t.type = 0
         -- Trashing or finishing a project takes its to-dos out of Things'
         -- lists with it; they keep their own open, untrashed flags, so
@@ -393,6 +402,7 @@ export function readTasks(views: ThingsView[], todayStart = serverDayStart()): T
         areaTitle: (row.area_title as string) ?? null,
         projectTitle: (row.project_title as string) ?? null,
         tags: tags.map(t => t.title).filter(Boolean),
+        view,
       })
     }
   }
