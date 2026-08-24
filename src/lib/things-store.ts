@@ -1,6 +1,7 @@
 import 'server-only'
 import type Database from 'better-sqlite3'
 import { getDb } from './server-db'
+import { dayStartUtcSeconds, todayKey } from './task-dates'
 import {
   ACTION_DELETED,
   AREA_KINDS,
@@ -74,40 +75,67 @@ function resetStore() {
   `)
 }
 
+/**
+ * Compiling a statement is not free, and a first sync replays tens of thousands
+ * of items — preparing inside the loop was a large share of the time the whole
+ * server spent blocked. Cached per database so tests, which swap in their own,
+ * are not handed statements belonging to a closed connection.
+ */
+const statementCache = new WeakMap<Database.Database, Map<string, Database.Statement>>()
+
+function stmt(db: Database.Database, sql: string): Database.Statement {
+  let forDb = statementCache.get(db)
+  if (!forDb) {
+    forDb = new Map()
+    statementCache.set(db, forDb)
+  }
+  let prepared = forDb.get(sql)
+  if (!prepared) {
+    prepared = db.prepare(sql)
+    forDb.set(sql, prepared)
+  }
+  return prepared
+}
+
+const UPSERT_TASK = `
+  INSERT INTO things_tasks (uuid, title, note, status, schedule, scheduled_at, deadline_at, type, in_trash, deleted, area_uuid, project_uuid)
+  VALUES (
+    @uuid,
+    -- A create can omit any field; the NOT NULL columns need a default here,
+    -- because the COALESCE below only guards the update branch.
+    COALESCE(@title, ''), COALESCE(@note, ''), COALESCE(@status, 0), COALESCE(@schedule, 0),
+    @scheduledAt, @deadlineAt, COALESCE(@type, 0), COALESCE(@inTrash, 0), 0,
+    @areaUuid, @projectUuid
+  )
+  ON CONFLICT(uuid) DO UPDATE SET
+    title = COALESCE(@title, title),
+    note = COALESCE(@note, note),
+    status = COALESCE(@status, status),
+    schedule = COALESCE(@schedule, schedule),
+    scheduled_at = CASE WHEN @scheduledSet = 1 THEN @scheduledAt ELSE scheduled_at END,
+    deadline_at = CASE WHEN @deadlineSet = 1 THEN @deadlineAt ELSE deadline_at END,
+    type = COALESCE(@type, type),
+    in_trash = COALESCE(@inTrash, in_trash),
+    area_uuid = CASE WHEN @areaSet = 1 THEN @areaUuid ELSE area_uuid END,
+    project_uuid = CASE WHEN @projectSet = 1 THEN @projectUuid ELSE project_uuid END,
+    deleted = 0
+`
+
 function applyTask(db: Database.Database, item: ThingsItem) {
   if (item.action === ACTION_DELETED) {
-    db.prepare('UPDATE things_tasks SET deleted = 1 WHERE uuid = ?').run(item.uuid)
+    stmt(db, 'UPDATE things_tasks SET deleted = 1 WHERE uuid = ?').run(item.uuid)
     return
   }
   const p = item.payload as TaskPayload
-  const existing = db.prepare('SELECT * FROM things_tasks WHERE uuid = ?').get(item.uuid) as
-    { note: string } | undefined
+  // Only read the row back when a note actually needs merging onto it; the
+  // lookup is per item, and most items do not touch the note.
+  const existing = p.nt === undefined
+    ? undefined
+    : stmt(db, 'SELECT note FROM things_tasks WHERE uuid = ?').get(item.uuid) as { note: string } | undefined
 
   // Every field is optional on a modify: an absent key means "unchanged", which
   // is why this merges onto the current row rather than replacing it.
-  db.prepare(`
-    INSERT INTO things_tasks (uuid, title, note, status, schedule, scheduled_at, deadline_at, type, in_trash, deleted, area_uuid, project_uuid)
-    VALUES (
-      @uuid,
-      -- A create can omit any field; the NOT NULL columns need a default here,
-      -- because the COALESCE below only guards the update branch.
-      COALESCE(@title, ''), COALESCE(@note, ''), COALESCE(@status, 0), COALESCE(@schedule, 0),
-      @scheduledAt, @deadlineAt, COALESCE(@type, 0), COALESCE(@inTrash, 0), 0,
-      @areaUuid, @projectUuid
-    )
-    ON CONFLICT(uuid) DO UPDATE SET
-      title = COALESCE(@title, title),
-      note = COALESCE(@note, note),
-      status = COALESCE(@status, status),
-      schedule = COALESCE(@schedule, schedule),
-      scheduled_at = CASE WHEN @scheduledSet = 1 THEN @scheduledAt ELSE scheduled_at END,
-      deadline_at = CASE WHEN @deadlineSet = 1 THEN @deadlineAt ELSE deadline_at END,
-      type = COALESCE(@type, type),
-      in_trash = COALESCE(@inTrash, in_trash),
-      area_uuid = CASE WHEN @areaSet = 1 THEN @areaUuid ELSE area_uuid END,
-      project_uuid = CASE WHEN @projectSet = 1 THEN @projectUuid ELSE project_uuid END,
-      deleted = 0
-  `).run({
+  stmt(db, UPSERT_TASK).run({
     uuid: item.uuid,
     title: p.tt ?? null,
     note: p.nt === undefined ? null : decodeNote(p.nt, existing?.note ?? ''),
@@ -126,19 +154,19 @@ function applyTask(db: Database.Database, item: ThingsItem) {
   })
 
   if (p.tg !== undefined) {
-    db.prepare('DELETE FROM things_task_tags WHERE task_uuid = ?').run(item.uuid)
-    const link = db.prepare('INSERT OR IGNORE INTO things_task_tags (task_uuid, tag_uuid) VALUES (?, ?)')
+    stmt(db, 'DELETE FROM things_task_tags WHERE task_uuid = ?').run(item.uuid)
+    const link = stmt(db, 'INSERT OR IGNORE INTO things_task_tags (task_uuid, tag_uuid) VALUES (?, ?)')
     for (const tag of p.tg) link.run(item.uuid, tag)
   }
 }
 
 function applyNamed(db: Database.Database, table: 'things_areas' | 'things_tags', item: ThingsItem) {
   if (item.action === ACTION_DELETED) {
-    db.prepare(`UPDATE ${table} SET deleted = 1 WHERE uuid = ?`).run(item.uuid)
+    stmt(db, `UPDATE ${table} SET deleted = 1 WHERE uuid = ?`).run(item.uuid)
     return
   }
   const title = (item.payload as { tt?: string }).tt
-  db.prepare(`
+  stmt(db, `
     INSERT INTO ${table} (uuid, title, deleted) VALUES (?, ?, 0)
     ON CONFLICT(uuid) DO UPDATE SET title = COALESCE(?, title), deleted = 0
   `).run(item.uuid, title ?? '', title ?? null)
@@ -156,24 +184,58 @@ export function applyItems(items: ThingsItem[]) {
   })()
 }
 
+/**
+ * Replaying a whole batch in one transaction blocks the event loop for as long
+ * as it takes — and on a first sync that is long enough for every other request
+ * in flight, including unrelated ones, to time out at the proxy. Slicing it and
+ * yielding between slices keeps each blocking span short. Replay is an upsert,
+ * so a crash part-way through just re-applies on the next pass.
+ */
+const APPLY_CHUNK = 400
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
+async function applyItemsYielding(items: ThingsItem[]) {
+  for (let i = 0; i < items.length; i += APPLY_CHUNK) {
+    applyItems(items.slice(i, i + APPLY_CHUNK))
+    await yieldToEventLoop()
+  }
+}
+
 export interface SyncOutcome {
   fetched: number
   serverIndex: number
   caughtUp: boolean
 }
 
+export interface SyncLimits {
+  /** Hard cap on pages fetched in one call. */
+  maxBatches?: number
+  /**
+   * Stop starting new batches once this much time has passed. Progress is
+   * always persisted, so the next call resumes where this one stopped.
+   */
+  budgetMs?: number
+}
+
 /**
  * Pulls new items and replays them.
  *
- * `maxBatches` bounds the work one HTTP request will do — the very first sync
- * of a long-standing account can be tens of thousands of items, and stalling a
- * page load on all of it is worse than catching up over a few requests.
+ * Both limits exist because the very first sync of a long-standing account can
+ * be tens of thousands of items: it cannot be allowed to run for the minutes
+ * that would take while a request is held open on it. Whatever it manages
+ * within the budget is committed, `caughtUp` says whether there is more, and
+ * the caller decides whether to keep going in the background.
  */
 export async function syncThings(
   creds: ThingsCredentials,
   historyKey: string,
-  maxBatches = 12,
+  limits: SyncLimits = {},
 ): Promise<SyncOutcome> {
+  const { maxBatches = 200, budgetMs = 60_000 } = limits
+  const startedAt = Date.now()
   const db = getDb()
   const state = readSyncRow()
 
@@ -189,13 +251,17 @@ export async function syncThings(
   let caughtUp = false
 
   for (let batch = 0; batch < maxBatches; batch += 1) {
+    // Checked before fetching, not after: a batch already under way should
+    // finish and be committed rather than be thrown away at the boundary.
+    if (batch > 0 && Date.now() - startedAt >= budgetMs) break
+
     const { items, currentItemIndex } = await fetchItems(creds, historyKey, index)
     if (items.length === 0) {
       caughtUp = true
       index = Math.max(index, currentItemIndex)
       break
     }
-    applyItems(items)
+    await applyItemsYielding(items)
     fetched += items.length
     index += items.length
     db.prepare('UPDATE things_sync SET server_index = ?, synced_at = ? WHERE id = 1')
@@ -217,14 +283,15 @@ export function thingsSyncState() {
 
 export type ThingsView = 'today' | 'inbox' | 'anytime' | 'upcoming' | 'someday'
 
-function endOfToday(): number {
-  const now = new Date()
-  return Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime() / 1000)
-}
-
 /**
  * Things' views are derived, not stored: `st` says which list a to-do belongs
  * to and the scheduled date decides whether it has surfaced yet.
+ *
+ * `@today` is the Unix second at which the viewer's current day begins in UTC.
+ * Scheduled dates are floating calendar days on the wire, written as UTC
+ * midnight, so comparing two UTC day boundaries is exact — and, unlike an
+ * end-of-day built from the server's own clock, it puts the day break where the
+ * person reading the list actually experiences it.
  */
 function viewClause(view: ThingsView): string {
   // Columns must be qualified: the query self-joins things_tasks to resolve a
@@ -238,15 +305,24 @@ function viewClause(view: ThingsView): string {
   }
 }
 
+function serverDayStart(): number {
+  return dayStartUtcSeconds(todayKey())
+}
+
 export interface ThingsTaskView extends StoredThingsTask {
   areaTitle: string | null
   projectTitle: string | null
   tags: string[]
 }
 
-export function readTasks(views: ThingsView[]): ThingsTaskView[] {
+/**
+ * @param todayStart Unix second at which the viewer's current day starts in
+ *   UTC — see `dayStartUtcSeconds`. Defaults to the server's own day only so
+ *   tests and scripts can call this without a request context.
+ */
+export function readTasks(views: ThingsView[], todayStart = serverDayStart()): ThingsTaskView[] {
   const db = getDb()
-  const today = endOfToday()
+  const today = todayStart
   const seen = new Set<string>()
   const out: ThingsTaskView[] = []
 

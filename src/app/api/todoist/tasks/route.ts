@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { isTodoistConfigured, listActiveTasks, listProjects, listTodayTasks } from '@/lib/todoist'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { dueKind, dueLabel } from '@/lib/task-dates'
+import { dayClock, dueKind, dueLabel, readTimeZone } from '@/lib/task-dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,13 +29,16 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const requested = url.searchParams.get('filter')
     const filter: TaskFilter = requested === 'upcoming' || requested === 'all' ? requested : 'today'
+    // Bucketed against the viewer's day, not the server's: sesh runs in UTC
+    // and would otherwise call tomorrow "today" for part of every day.
+    const clock = dayClock(readTimeZone(url.searchParams))
     const [data, projects] = await Promise.all([
       filter === 'today' ? listTodayTasks() : listActiveTasks(),
       listProjects().catch(() => []),
     ])
     const projectNames = new Map(projects.map(project => [String(project.id), project.name]))
     const filtered = filter === 'upcoming'
-      ? data.filter(task => dueKind(task.due?.date) !== 'today')
+      ? data.filter(task => dueKind(task.due?.date, clock) !== 'today')
       : data
 
     return NextResponse.json({
@@ -50,8 +53,8 @@ export async function GET(request: Request) {
           priority: normalizePriority(task.priority),
           projectId: projectId ? String(projectId) : null,
           projectName: projectId ? projectNames.get(String(projectId)) ?? 'Todoist' : 'Todoist',
-          due: dueKind(task.due?.date),
-          dueLabel: dueLabel(task.due?.date, task.due?.string),
+          due: dueKind(task.due?.date, clock),
+          dueLabel: dueLabel(task.due?.date, task.due?.string, clock),
           category: (task.labels ?? [])[0] ?? null,
           completed: !!task.completed,
         }

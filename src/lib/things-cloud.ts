@@ -18,7 +18,13 @@ function endpoint(): string {
   return (process.env.THINGS_CLOUD_ENDPOINT || 'https://cloud.culturedcode.com').replace(/\/+$/, '')
 }
 const USER_AGENT = 'ThingsMac/32209501'
+/** A page of history can be large, so reading one is given room. */
 const REQUEST_TIMEOUT_MS = 30_000
+/**
+ * A liveness check is not: it runs on every status poll, and letting it hang
+ * for half a minute ties up the server for no answer anyone is waiting on.
+ */
+const VERIFY_TIMEOUT_MS = 8_000
 
 /** Sent as base64 JSON in Things-Client-Info; the server expects it present. */
 const CLIENT_INFO = {
@@ -79,9 +85,14 @@ function headers(creds: ThingsCredentials, withBody: boolean): Record<string, st
   return base
 }
 
-async function request(path: string, creds: ThingsCredentials, init: RequestInit = {}): Promise<Response> {
+async function request(
+  path: string,
+  creds: ThingsCredentials,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(`${endpoint()}${path}`, {
       ...init,
@@ -118,7 +129,7 @@ export interface ThingsAccount {
  * subsequent read and write is addressed to.
  */
 export async function verifyAccount(creds: ThingsCredentials): Promise<ThingsAccount> {
-  const res = await request(`/version/1/account/${encodeURIComponent(creds.email)}`, creds)
+  const res = await request(`/version/1/account/${encodeURIComponent(creds.email)}`, creds, {}, VERIFY_TIMEOUT_MS)
   const body = await res.json() as { email?: string; 'history-key'?: string }
   const historyKey = body['history-key']
   if (!historyKey) {

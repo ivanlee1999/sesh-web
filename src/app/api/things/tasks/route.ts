@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { dueKind, dueLabel } from '@/lib/task-dates'
+import { dayClock, dueKind, dueLabel, formatDayLabel, readTimeZone } from '@/lib/task-dates'
 import { type ThingsTaskRaw } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
-import { loadThingsTasks } from '@/lib/things-service'
+import { loadThingsTasks, thingsCatchingUp } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,9 +36,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    const requested = new URL(request.url).searchParams.get('filter')
+    const params = new URL(request.url).searchParams
+    const requested = params.get('filter')
     const filter: TaskFilter = requested === 'upcoming' || requested === 'all' ? requested : 'today'
-    const raw = await loadThingsTasks(conn, filter)
+    // Which day a task falls on is the viewer's question, not the server's:
+    // sesh runs in UTC and the browser is the only thing that knows better.
+    const clock = dayClock(readTimeZone(params))
+    const raw = await loadThingsTasks(conn, filter, clock)
 
     const tasks = raw
       .filter(task => !isDone(task))
@@ -56,8 +60,10 @@ export async function GET(request: Request) {
           priority: 4,
           projectId: null,
           projectName: groupName(task),
-          due: dueKind(date),
-          dueLabel: dueLabel(date),
+          due: dueKind(date, clock),
+          // Things has no human-written due string of its own the way Todoist
+          // does, so a further-out date is formatted rather than shown raw.
+          dueLabel: dueLabel(date, date ? formatDayLabel(date.slice(0, 10)) : null, clock),
           category: tags[0] ?? null,
           completed: false,
         }
@@ -65,7 +71,10 @@ export async function GET(request: Request) {
       .filter(task => task.id)
 
     const filtered = filter === 'upcoming' ? tasks.filter(task => task.due !== 'today') : tasks
-    return NextResponse.json({ tasks: filtered })
+    // A first connection has more history than one request can replay, so the
+    // list can legitimately be short here. Say so rather than let it read as
+    // "you have nothing to do".
+    return NextResponse.json({ tasks: filtered, syncing: thingsCatchingUp() })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 502 })

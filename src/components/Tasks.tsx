@@ -140,6 +140,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const [filter, setFilter] = useState<Filter>('today')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
   const [completingKey, setCompletingKey] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -156,8 +157,9 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
       }
 
       // A provider that fails here is reported inline; the others still render.
-      const { tasks: loaded, errors } = await loadTasks('all', connected)
+      const { tasks: loaded, errors, syncing: pending } = await loadTasks('all', connected)
       setTasks(loaded)
+      setSyncing(pending)
       if (errors.length > 0) {
         setError(errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · '))
       }
@@ -167,6 +169,17 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * A newly connected Things account has years of history to replay, and the
+   * request that starts it answers with whatever is ready rather than holding
+   * the page open until the rest arrives. Check back until it has.
+   */
+  useEffect(() => {
+    if (!syncing) return
+    const timer = setTimeout(() => { load() }, 5000)
+    return () => clearTimeout(timer)
+  }, [syncing, load])
 
   const counts = useMemo(() => ({
     today: filterTasks(tasks, 'today').length,
@@ -272,6 +285,12 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
       </div>
 
       {error && <div className="anim-fade-up mx-[var(--gutter)] my-3 rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-[13px] text-[var(--warn)]">{error}</div>}
+
+      {syncing && !error && (
+        <div className="anim-fade-up mx-[var(--gutter)] my-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-[13px] text-[var(--ink-3)]">
+          Still catching up with Things — more tasks will appear shortly.
+        </div>
+      )}
 
       <div className="px-[var(--gutter)] py-2">
         {loading && tasks.length === 0 ? (
