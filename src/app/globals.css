@@ -1260,6 +1260,17 @@ button.sesh-row:active { background: var(--surface-2) }
   .timer-immersive-foot { gap: 18px; padding-top: 8px }
 }
 
+/* Sits above the running break (z-index 150) so rest keeps counting behind it. */
+.timer-reflect-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  animation: fadeIn var(--dur-3) var(--ease-out) both;
+}
+
 .reflect-check {
   stroke-dasharray: 32;
   animation: checkDraw var(--dur-4) var(--ease-out) both;

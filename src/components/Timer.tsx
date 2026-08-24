@@ -458,6 +458,7 @@ function Reflection({
   category,
   categories,
   nextBreak,
+  restStarted,
   onChangeTopic,
   onSave,
   onSkip,
@@ -466,6 +467,8 @@ function Reflection({
   category: CategoryRecord | null
   categories: CategoryRecord[]
   nextBreak: 'short' | 'long' | null
+  /** The break is already counting behind this screen. */
+  restStarted?: boolean
   onChangeTopic: (nextCategory: Category, nextIntention: string) => void
   onSave: (rating: number, notes: string) => void
   onSkip: () => void
@@ -487,6 +490,9 @@ function Reflection({
             {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
             {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
           </p>
+          {restStarted && (
+            <p className="mb-0 mt-[10px] text-[13.5px] font-semibold text-[var(--good)]">Your break is already running.</p>
+          )}
           {editingTopic ? (
             <div className="mt-[14px] flex justify-center">
               <TopicEditor
@@ -550,7 +556,9 @@ function Reflection({
 
       <div className="anim-fade-up mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
         <Btn full size="lg" onClick={() => onSave(rating, notes)}>
-          {nextBreak === 'long' ? 'Save & start long break' : nextBreak === 'short' ? 'Save & start break' : 'Save to journal'}
+          {restStarted
+            ? 'Save'
+            : nextBreak === 'long' ? 'Save & start long break' : nextBreak === 'short' ? 'Save & start break' : 'Save to journal'}
         </Btn>
         <button
           type="button"
@@ -782,7 +790,11 @@ export default function Timer({
       if (intervalRef.current) clearInterval(intervalRef.current)
       intervalRef.current = null
     }
-  }, [phase])
+    // Not just phase: a focus session rolling straight into its break stays
+    // 'running' throughout, and finish() clears the interval on the way past —
+    // without this the break would sit there not counting. sessionType covers
+    // the hand-off even if both sessions land on the same millisecond.
+  }, [phase, sessionType, startedAt])
 
   useEffect(() => {
     return () => {
@@ -1136,6 +1148,39 @@ export default function Timer({
       return
     }
     setDraft(nextDraft)
+
+    // The cycle advances when the focus session ends, not when its reflection
+    // is saved — the break that follows needs to know whether it is a long one.
+    const nextCount = incrementPomodoroCycle()
+    setCycleCount(nextCount)
+
+    if (settings.soundEnabled) playChime(880)
+    if (navigator.vibrate) navigator.vibrate([160, 80, 160])
+
+    /*
+     * Rest starts the moment focus ends. Waiting for the reflection to be
+     * saved meant the break only began once you had rated the session and
+     * pressed a button — so the rest you were owed quietly started late, or
+     * not at all if you walked away. The reflection now rides on top of the
+     * running break instead of gating it.
+     */
+    if (settings.autoStartBreak) {
+      // Record it now, before the reflection is answered. The reflection is no
+      // longer a wall you have to get past — you are on a break and may simply
+      // walk away — and a focus session that happened should not depend on
+      // that. Saving the rating later re-posts the same id, which upserts.
+      void fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...nextDraft, notes: '', rating: 0 }),
+      }).catch(() => {})
+
+      const isLongBreak = nextCount % settings.sessionsBeforeLongBreak === 0
+      finishingRef.current = false
+      start('break', '', category, null, isLongBreak ? settings.longBreakDuration : settings.breakDuration)
+      return
+    }
+
     setPhase('reflect')
     clearTimerState()
     syncToServer({
@@ -1151,10 +1196,8 @@ export default function Timer({
       todoistTaskId: null,
     })
     postSwMessage('TIMER_STOPPED')
-    if (settings.soundEnabled) playChime(880)
-    if (navigator.vibrate) navigator.vibrate([160, 80, 160])
     finishingRef.current = false
-  }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartFocus, settings.focusDuration, settings.soundEnabled, start, syncToServer])
+  }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartBreak, settings.autoStartFocus, settings.breakDuration, settings.focusDuration, settings.longBreakDuration, settings.sessionsBeforeLongBreak, settings.soundEnabled, start, syncToServer])
 
   /**
    * A break that reaches zero keeps counting up, exactly like focus — resting
@@ -1230,20 +1273,14 @@ export default function Timer({
     }
 
     setDraft(null)
+
+    // The break is already running underneath: clearing the draft just puts the
+    // reflection away, leaving the rest exactly where it had got to.
+    if (phase === 'running' || phase === 'paused') return
+
     setIntention('')
     setTodoistTaskId(null)
     setStartedAt(0)
-
-    if (draft.type === 'focus') {
-      const nextCount = incrementPomodoroCycle()
-      setCycleCount(nextCount)
-      if (settings.autoStartBreak) {
-        const isLongBreak = nextCount % settings.sessionsBeforeLongBreak === 0
-        start('break', '', draft.category, null, isLongBreak ? settings.longBreakDuration : settings.breakDuration)
-        return
-      }
-    }
-
     setPhase('idle')
     setSessionType('focus')
     setTargetMs(settings.focusDuration * 60000)
@@ -1261,7 +1298,7 @@ export default function Timer({
     const handHeight = runningRingSize / 2 - 26
     const clockColor = isOvertime ? 'var(--warn)' : 'var(--ink)'
 
-    return (
+    const immersive = (
       <div className="timer-immersive" data-phase={phase}>
         <div className="timer-immersive-head">
           {isFocus ? (
@@ -1404,6 +1441,28 @@ export default function Timer({
           <div aria-hidden="true" style={{ width: 'var(--control-sm)' }} />
         </div>
       </div>
+    )
+
+    // A focus session that rolled straight into its break leaves a draft
+    // behind. The rest is already counting underneath; this just asks how the
+    // focus went, and dismisses back to it.
+    if (!draft) return immersive
+    return (
+      <>
+        {immersive}
+        <div className="timer-reflect-overlay">
+          <Reflection
+            draft={draft}
+            category={categoryByName(categories, draft.category)}
+            categories={sortedCategories}
+            nextBreak={null}
+            restStarted
+            onChangeTopic={changeDraftTopic}
+            onSave={saveReflection}
+            onSkip={() => saveReflection(0, '')}
+          />
+        </div>
+      </>
     )
   }
 

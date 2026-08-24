@@ -426,19 +426,115 @@ describe('Timer', () => {
     expect(screen.getByText('Remaining')).toBeTruthy()
   })
 
-  it('auto-starts a break after saving reflection when auto-start-break is enabled', async () => {
+  it('starts the break the moment focus ends, without waiting for the reflection', async () => {
     autoStartBreak = true
     render(<Timer />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
     fireEvent.click(await screen.findByLabelText('Stop session'))
+
+    // The reflection is shown, but rest is already counting behind it.
     expect(await screen.findByText('Session complete')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save & start break' }))
-
-    expect(await screen.findByText('Break remaining')).toBeTruthy()
+    expect(screen.getByText('Your break is already running.')).toBeTruthy()
+    expect(screen.getByText('Break remaining')).toBeTruthy()
     expect(screen.getByText('05:00')).toBeTruthy()
     expect(vi.mocked(localStore.incrementPomodoroCycle)).toHaveBeenCalledTimes(1)
+  })
+
+  it('records the focus session before the reflection is answered', async () => {
+    // The reflection is no longer a wall: you are on a break and can walk away
+    // from it. The session itself must not depend on answering.
+    autoStartBreak = true
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    await screen.findByText('Session complete')
+
+    const posted = vi.mocked(globalThis.fetch).mock.calls.filter(([input, init]) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      return url === '/api/sessions' && init?.method === 'POST'
+    })
+    expect(posted).toHaveLength(1)
+    expect(posted[0][1]?.body).toEqual(expect.stringContaining('"rating":0'))
+
+    // Answering it re-posts the same id, which the API upserts. The rating
+    // click needs its own act, or Save still reads the previous state.
+    fireEvent.click(screen.getByLabelText('Rate 5 of 5'))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await flushPromises()
+    })
+
+    const all = vi.mocked(globalThis.fetch).mock.calls.filter(([input, init]) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      return url === '/api/sessions' && init?.method === 'POST'
+    })
+    expect(all).toHaveLength(2)
+    expect(all[1][1]?.body).toEqual(expect.stringContaining('"rating":5'))
+    // Same session, so the second write updates rather than duplicates.
+    const idOf = (body: unknown) => JSON.parse(String(body)).id
+    expect(idOf(all[0][1]?.body)).toBe(idOf(all[1][1]?.body))
+  })
+
+  it('keeps the auto-started break ticking', async () => {
+    // Regression: finish() clears the tick interval, and the phase stays
+    // 'running' across the hand-off — so the break used to sit frozen.
+    // Fake timers must be installed before the interval is created, which
+    // rules out findBy* here.
+    autoStartBreak = true
+    vi.useFakeTimers()
+    render(<Timer />)
+    await act(async () => { await flushPromises() })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start focus' }))
+    await act(async () => { await flushPromises() })
+    fireEvent.click(screen.getByLabelText('Stop session'))
+    await act(async () => { await flushPromises() })
+
+    expect(screen.getByText('Session complete')).toBeTruthy()
+    expect(screen.getByText('05:00')).toBeTruthy()
+
+    act(() => { vi.advanceTimersByTime(2000) })
+
+    expect(screen.queryByText('05:00')).toBeNull()
+    expect(screen.getByText('04:58')).toBeTruthy()
+  })
+
+  it('leaves the running break in place when the reflection is saved', async () => {
+    autoStartBreak = true
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    await screen.findByText('Session complete')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await flushPromises()
+    })
+
+    expect(screen.queryByText('Session complete')).toBeNull()
+    expect(screen.getByText('Break remaining')).toBeTruthy()
+    // Counted once at the end of focus, not again on save.
+    expect(vi.mocked(localStore.incrementPomodoroCycle)).toHaveBeenCalledTimes(1)
+  })
+
+  it('skipping the reflection also leaves the break running', async () => {
+    autoStartBreak = true
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByLabelText('Stop session'))
+    await screen.findByText('Session complete')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+      await flushPromises()
+    })
+
+    expect(screen.queryByText('Session complete')).toBeNull()
+    expect(screen.getByText('Break remaining')).toBeTruthy()
   })
 
   it('starts a long break after the final focus session of a cycle', async () => {
@@ -449,11 +545,8 @@ describe('Timer', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
     fireEvent.click(await screen.findByLabelText('Stop session'))
+
     expect(await screen.findByText('Session complete')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save & start long break' }))
-
-    expect(await screen.findByText('Break remaining')).toBeTruthy()
     expect(screen.getByText('15:00')).toBeTruthy()
     expect(screen.getByText('Long break')).toBeTruthy()
   })
