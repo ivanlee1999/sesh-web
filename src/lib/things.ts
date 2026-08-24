@@ -1,13 +1,13 @@
 /**
- * Server-side Things 3 helper.
+ * Things 3 through a companion service.
  *
- * Things has no official API — Cultured Code has never published one. This
- * talks to a `things-cloud-mcp` sidecar (https://github.com/mattydsmith/things-cloud-mcp,
- * MIT), a Go service that mirrors Things Cloud into a local SQLite snapshot and
- * exposes a Bearer-auth REST API. It holds the Things Cloud credentials; sesh
- * only ever sees the sidecar.
+ * This is the older of the two connections — sesh now talks to Things Cloud
+ * itself (see things-cloud), and this path is kept for installs already running
+ * a `things-cloud-mcp` sidecar (https://github.com/mattydsmith/things-cloud-mcp,
+ * MIT), a Go service that mirrors Things Cloud and exposes a Bearer-auth REST
+ * API. It holds the Things Cloud credentials; sesh only ever sees the sidecar.
  *
- * Because the sidecar rides on a reverse-engineered protocol, every call here
+ * Either way the underlying protocol is reverse-engineered, so every call here
  * fails soft: a Things outage must never take the Tasks tab down for Todoist.
  */
 

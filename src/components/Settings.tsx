@@ -20,13 +20,15 @@ type TodoistConnection =
 /** Mirrors the safe view from /api/things/config — never carries the API key. */
 type ThingsConfigView = {
   configured: boolean
-  source: 'app' | 'env' | null
+  /** 'cloud' = signed in to Things directly; the others go via a companion service. */
+  mode: 'cloud' | 'sidecar' | 'env' | null
+  email: string
   url: string
   hasKey: boolean
 }
 
 /** The same view plus the liveness probe, as /api/things/status returns it. */
-type ThingsStatusPayload = Partial<ThingsConfigView> & { reachable?: boolean }
+type ThingsStatusPayload = Partial<ThingsConfigView> & { reachable?: boolean; authFailed?: boolean }
 
 type ManualSyncResult = {
   synced?: boolean
@@ -197,12 +199,12 @@ function CategorySheet({ open, onClose }: { open: boolean; onClose: () => void }
  * Things 3 connection editor.
  *
  * sesh reaches Things through a `things-cloud` sidecar; this points sesh at it.
- * The address and key are saved on the server, not in this browser, so
- * connecting on one device connects all of them.
+ * Sign in with a Things account and sesh talks to Things Cloud itself — there
+ * is nothing else to run. The account is saved on the server, not in this
+ * browser, so connecting on one device connects all of them.
  *
- * The Things Cloud login itself stays in the sidecar's own environment — it has
- * no runtime login endpoint — which is why this asks for a service address
- * rather than an email and password.
+ * The companion-service fields are still here, folded away, for installs that
+ * were set up that way before sesh could sign in on its own.
  */
 function ThingsSheet({
   open,
@@ -216,9 +218,12 @@ function ThingsSheet({
   /** Called with the fresh state, or with nothing to ask for a re-check. */
   onSaved: (view?: ThingsStatusPayload) => void
 }) {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [url, setUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [keyTouched, setKeyTouched] = useState(false)
+  const [advanced, setAdvanced] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -230,9 +235,14 @@ function ThingsSheet({
 
   useEffect(() => {
     if (!open) return
-    setUrl(configRef.current?.url ?? '')
+    const current = configRef.current
+    setEmail(current?.email ?? '')
+    setPassword('')
+    setUrl(current?.url ?? '')
     setApiKey('')
     setKeyTouched(false)
+    // Only start on the companion-service form if that is what is in use.
+    setAdvanced(current?.mode === 'sidecar' || current?.mode === 'env')
     setNotice(null)
   }, [open])
 
@@ -244,7 +254,9 @@ function ThingsSheet({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         // Omitting apiKey keeps the stored one; sending '' clears it.
-        body: JSON.stringify(keyTouched ? { url, apiKey } : { url }),
+        body: JSON.stringify(advanced
+          ? (keyTouched ? { url, apiKey } : { url })
+          : { email, password }),
       })
       if (isAuthResponse(res)) return redirectToLogin()
       if (!res.ok) {
@@ -255,9 +267,12 @@ function ThingsSheet({
       // rather than re-fetching, which would race the write we just made.
       const data: ThingsStatusPayload = await res.json()
       onSaved(data)
+      setPassword('')
       setNotice(data.reachable
         ? { type: 'success', message: 'Connected. Your Things tasks will show up in Tasks.' }
-        : { type: 'error', message: 'Saved, but the service did not answer. Check the address and that it is running.' })
+        : { type: 'error', message: advanced
+          ? 'Saved, but the service did not answer. Check the address and that it is running.'
+          : 'Saved, but Things did not answer. Try again in a moment.' })
     } catch (err) {
       setNotice({ type: 'error', message: err instanceof Error ? err.message : 'Could not save the Things connection' })
     } finally {
@@ -297,10 +312,52 @@ function ThingsSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Things 3">
       <p className="mx-0.5 mb-[18px] mt-0 text-[13.5px] leading-normal text-[var(--ink-3)]">
-        sesh reads Things through a small companion service that mirrors Things Cloud.
-        Enter its address below — it is saved on the server, so every device you use is connected at once.
+        {advanced
+          ? 'Point sesh at a companion service that mirrors Things Cloud.'
+          : 'Sign in with your Things account. It is saved on the server, so every device you use is connected at once.'}
       </p>
 
+      {!advanced && (
+        <>
+          <label className="mb-[14px] block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Things account email</span>
+            <input
+              autoFocus
+              type="email"
+              value={email}
+              onChange={event => setEmail(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter' && !busy) save() }}
+              placeholder="you@example.com"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className={fieldClass}
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              onKeyDown={event => { if (event.key === 'Enter' && !busy) save() }}
+              placeholder={config?.mode === 'cloud' ? 'Saved — enter it again to change accounts' : 'Your Things Cloud password'}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className={fieldClass}
+            />
+            <span className="mt-1.5 block px-0.5 text-[12.5px] leading-normal text-[var(--ink-3)]">
+              Stored encrypted on your own server and sent only to Things.
+            </span>
+          </label>
+        </>
+      )}
+
+      {advanced && (
+      <>
       <label className="mb-[14px] block">
         <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Service address</span>
         <input
@@ -334,8 +391,10 @@ function ThingsSheet({
           Only needed if the companion service runs with an API key set.
         </span>
       </label>
+      </>
+      )}
 
-      {config?.source === 'env' && (
+      {config?.mode === 'env' && (
         <p className="mx-0.5 mb-0 mt-[14px] text-[12.5px] leading-normal text-[var(--ink-3)]">
           Currently using THINGS_API_URL from the server environment. Saving here replaces it for every device.
         </p>
@@ -348,12 +407,24 @@ function ThingsSheet({
       )}
 
       <div className="mt-[22px] flex flex-col gap-2">
-        <Btn full size="lg" onClick={save} disabled={busy || !url.trim()}>
-          {busy ? 'Saving...' : 'Save and test'}
+        <Btn
+          full
+          size="lg"
+          onClick={save}
+          disabled={busy || (advanced ? !url.trim() : !email.trim() || !password)}
+        >
+          {busy ? (advanced ? 'Saving...' : 'Signing in...') : advanced ? 'Save and test' : 'Sign in'}
         </Btn>
-        {config?.source === 'app' && (
+        {(config?.mode === 'cloud' || config?.mode === 'sidecar') && (
           <Btn full variant="soft" onClick={disconnect} disabled={busy}>Disconnect</Btn>
         )}
+        <button
+          type="button"
+          onClick={() => { setAdvanced(!advanced); setNotice(null) }}
+          className="mt-1 border-0 bg-transparent p-1 text-[13px] font-medium text-[var(--ink-3)]"
+        >
+          {advanced ? 'Sign in with a Things account instead' : 'Use a companion service instead'}
+        </button>
       </div>
     </Sheet>
   )
@@ -499,17 +570,26 @@ export default function Settings() {
   const applyThingsStatus = useCallback((data: ThingsStatusPayload) => {
     setThingsConfig({
       configured: !!data.configured,
-      source: data.source ?? null,
+      mode: data.mode ?? null,
+      email: data.email ?? '',
       url: data.url ?? '',
       hasKey: !!data.hasKey,
     })
     if (!data.configured) {
       setThings({ kind: 'not_configured', message: 'Not connected' })
+    } else if (data.authFailed) {
+      setThings({ kind: 'error', message: 'Things rejected the saved password. Sign in again.' })
     } else if (!data.reachable) {
-      // Configured but the sidecar is down or its Things Cloud login expired.
-      setThings({ kind: 'error', message: 'Service unreachable. Check the address and that it is running.' })
+      setThings({
+        kind: 'error',
+        message: data.mode === 'cloud'
+          ? 'Things Cloud is not answering right now.'
+          : 'Service unreachable. Check the address and that it is running.',
+      })
+    } else if (data.mode === 'cloud') {
+      setThings({ kind: 'connected', message: data.email ? `Connected as ${data.email}` : 'Connected' })
     } else {
-      setThings({ kind: 'connected', message: data.source === 'env' ? 'Connected via server config' : 'Connected' })
+      setThings({ kind: 'connected', message: data.mode === 'env' ? 'Connected via server config' : 'Connected' })
     }
   }, [])
 

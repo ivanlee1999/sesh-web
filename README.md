@@ -85,20 +85,43 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 **Todoist** is configured with `TODOIST_API_TOKEN` on the server.
 
-**Things 3** is connected from the app: **Settings → Integrations → Things 3**. Enter the
-address of the `things-cloud` companion service (and its API key, if it runs with one).
-The connection is stored in the app database, not in the browser, so connecting on one
-device connects every device.
+**Things 3** is connected from the app: **Settings → Integrations → Things 3**. Sign in with
+your Things account email and password — sesh talks to Things Cloud directly, so there is
+nothing else to run. The account is stored in the app database, not in the browser, so
+connecting on one device connects every device.
 
-Two things worth knowing:
+### How it works, and what that costs
 
-- Things has no official API. sesh talks to a [`things-cloud-mcp`](https://github.com/mattydsmith/things-cloud-mcp)
-  sidecar that mirrors Things Cloud. **Your Things Cloud login lives in that sidecar's own
-  environment** (`THINGS_USERNAME` / `THINGS_PASSWORD`) — it has no runtime login endpoint,
-  so it cannot be entered in sesh. sesh only ever sees the sidecar.
-- `THINGS_API_URL` / `THINGS_API_KEY` still work as a server-side fallback for existing
-  deployments. A connection saved in Settings takes precedence; disconnecting in the app
-  falls back to the environment if one is set.
+Things has no official API — Cultured Code have never published one. sesh speaks the same
+protocol Things.app uses, decoded by [`things-cloud-sdk`](https://github.com/arthursoares/things-cloud-sdk)
+(MIT). Two consequences worth knowing before you rely on it:
+
+- **It can break without warning.** Nothing here is a supported interface. Every call fails
+  soft: if Things stops answering, the Tasks tab still works for Todoist and Things is
+  reported as unreachable.
+- **sesh holds your Things password.** Things authenticates with the password on every
+  request and issues no token, so it cannot be hashed. It is encrypted at rest with a key
+  derived from `NEXTAUTH_SECRET` and sent only to Things. If you rotate `NEXTAUTH_SECRET`,
+  the stored password becomes unreadable and Things asks you to sign in again.
+
+Things Cloud sends *history*, not state: an append-only log of creates and edits. sesh
+replays that log into local tables (`things_tasks` and friends) and remembers its position,
+so the first sync of a long-lived account catches up over a few requests and later ones only
+fetch what is new.
+
+### Other ways to connect
+
+Still supported for installs that predate the direct connection:
+
+- A [`things-cloud-mcp`](https://github.com/mattydsmith/things-cloud-mcp) companion service,
+  set under "Use a companion service instead" in the same sheet.
+- `THINGS_API_URL` / `THINGS_API_KEY` in the server environment.
+
+Precedence is account → companion service → environment. Signing in replaces a saved service,
+and disconnecting falls back to the environment if one is set.
+
+`THINGS_CLOUD_ENDPOINT` overrides the Things Cloud host; it exists for testing against a stub
+and should not be set in production.
 
 ## Operations Notes
 

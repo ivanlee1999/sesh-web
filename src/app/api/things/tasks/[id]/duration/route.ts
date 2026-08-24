@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { appendThingsFocusNote } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
+import { recordThingsFocus } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params
     const body = await request.json().catch(() => ({}))
     const minutes = Math.max(1, Math.round(Number(body.add_minutes) || 0))
-    await appendThingsFocusNote(conn, id, minutes)
+    await recordThingsFocus(conn, id, minutes)
     return NextResponse.json({ ok: true, minutes })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

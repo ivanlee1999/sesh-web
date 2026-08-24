@@ -127,7 +127,7 @@ describe('Settings task-source status', () => {
   it('flags Things as unreachable when configured but the service is down', async () => {
     mockSettingsFetch(
       json({ configured: false }),
-      json({ configured: true, reachable: false, source: 'app', url: 'http://things:8080', hasKey: false }),
+      json({ configured: true, reachable: false, mode: 'sidecar', url: 'http://things:8080', hasKey: false }),
     )
 
     render(<Settings />)
@@ -135,10 +135,21 @@ describe('Settings task-source status', () => {
     expect(await screen.findByText(/Service unreachable/)).toBeTruthy()
   })
 
+  it('names the connected Things account', async () => {
+    mockSettingsFetch(
+      json({ configured: false }),
+      json({ configured: true, reachable: true, mode: 'cloud', email: 'me@example.com', url: '', hasKey: true }),
+    )
+
+    render(<Settings />)
+
+    expect(await screen.findByText('Connected as me@example.com')).toBeTruthy()
+  })
+
   it('offers to edit an existing Things connection', async () => {
     mockSettingsFetch(
       json({ configured: false }),
-      json({ configured: true, reachable: true, source: 'app', url: 'http://things:8080', hasKey: true }),
+      json({ configured: true, reachable: true, mode: 'sidecar', url: 'http://things:8080', hasKey: true }),
     )
 
     render(<Settings />)
@@ -150,7 +161,7 @@ describe('Settings task-source status', () => {
   it('says so when Things is connected through the server environment', async () => {
     mockSettingsFetch(
       json({ configured: false }),
-      json({ configured: true, reachable: true, source: 'env', url: 'http://env-things:8080', hasKey: false }),
+      json({ configured: true, reachable: true, mode: 'env', url: 'http://env-things:8080', hasKey: false }),
     )
 
     render(<Settings />)
@@ -158,30 +169,65 @@ describe('Settings task-source status', () => {
     expect(await screen.findByText('Connected via server config')).toBeTruthy()
   })
 
-  it('saves a Things connection from the sheet without leaking the stored key', async () => {
-    const puts: { url: string; body: unknown }[] = []
+  function mockThingsConfigPut(puts: unknown[], response: Record<string, unknown>) {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : (input as Request).url
       if (url.includes('/api/auth/google/status')) return json({ connected: false })
       if (url.includes('/api/todoist/status')) return json({ configured: false })
       if (url.includes('/api/things/config') && init?.method === 'PUT') {
-        puts.push({ url, body: JSON.parse(String(init.body)) })
-        return json({ configured: true, source: 'app', url: 'http://things:8080', hasKey: false, reachable: true })
+        puts.push(JSON.parse(String(init.body)))
+        return json(response)
       }
       if (url.includes('/api/things/status')) return json({ configured: false })
       return json({})
+    })
+  }
+
+  it('signs in to Things with an email and password', async () => {
+    const puts: unknown[] = []
+    mockThingsConfigPut(puts, {
+      configured: true, mode: 'cloud', email: 'me@example.com', url: '', hasKey: true, reachable: true,
     })
 
     render(<Settings />)
 
     fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Connect' }))
+    fireEvent.change(await screen.findByPlaceholderText('you@example.com'), { target: { value: 'me@example.com' } })
+    fireEvent.change(screen.getByPlaceholderText('Your Things Cloud password'), { target: { value: 'hunter2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await screen.findByText(/Connected\./)
+    expect(puts).toEqual([{ email: 'me@example.com', password: 'hunter2' }])
+  })
+
+  it('still saves a companion service through the advanced form', async () => {
+    const puts: unknown[] = []
+    mockThingsConfigPut(puts, {
+      configured: true, mode: 'sidecar', email: '', url: 'http://things:8080', hasKey: false, reachable: true,
+    })
+
+    render(<Settings />)
+
+    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Connect' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use a companion service instead' }))
     const address = await screen.findByPlaceholderText('http://sesh-things-cloud:8080')
     fireEvent.change(address, { target: { value: 'things:8080' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
 
     await screen.findByText(/Connected\./)
     // No apiKey field at all, so the server keeps whatever key it already had.
-    expect(puts).toEqual([{ url: '/api/things/config', body: { url: 'things:8080' } }])
+    expect(puts).toEqual([{ url: 'things:8080' }])
+  })
+
+  it('says when the saved Things password stopped working', async () => {
+    mockSettingsFetch(
+      json({ configured: false }),
+      json({ configured: true, mode: 'cloud', email: 'me@example.com', reachable: false, authFailed: true }),
+    )
+
+    render(<Settings />)
+
+    expect(await screen.findByText(/rejected the saved password/)).toBeTruthy()
   })
 
   it('shows Todoist setup text when the server token is missing', async () => {

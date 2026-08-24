@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { completeThingsTask } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
+import { completeThings } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   try {
     const { id } = await params
-    await completeThingsTask(conn, id)
+    await completeThings(conn, id)
     return NextResponse.json({ ok: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

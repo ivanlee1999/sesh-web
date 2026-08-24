@@ -4,37 +4,60 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 
 /**
- * Stands in for the single-row things_config table. Only the two statements the
+ * Stands in for the single-row things_config table. Only the statements the
  * module actually issues are recognised, so a change in SQL shows up as a test
  * failure rather than silently passing.
  */
-const row = { api_url: '', api_key: '', updated_at: 0 }
+const row = {
+  api_url: '',
+  api_key: '',
+  email: '',
+  password_enc: '',
+  history_key: '',
+  updated_at: 0,
+}
 
 vi.mock('../server-db', () => ({
   getDb: () => ({
     prepare(sql: string) {
-      if (sql.startsWith('SELECT')) return { get: () => ({ ...row }) }
-      if (sql.startsWith('UPDATE things_config SET api_url = ?, api_key = ?')) {
+      const flat = sql.replace(/\s+/g, ' ').trim()
+      if (flat.startsWith('SELECT')) return { get: () => ({ ...row }) }
+      if (flat.startsWith('UPDATE things_config SET api_url = ?, api_key = ?, email')) {
         return {
           run: (url: string, key: string, at: number) => {
-            row.api_url = url
-            row.api_key = key
-            row.updated_at = at
+            Object.assign(row, { api_url: url, api_key: key, email: '', password_enc: '', history_key: '', updated_at: at })
           },
         }
       }
-      if (sql.startsWith("UPDATE things_config SET api_url = '', api_key = ''")) {
+      if (flat.startsWith('UPDATE things_config SET email = ?, password_enc = ?')) {
+        return {
+          run: (email: string, enc: string, historyKey: string, at: number) => {
+            Object.assign(row, { email, password_enc: enc, history_key: historyKey, api_url: '', api_key: '', updated_at: at })
+          },
+        }
+      }
+      if (flat.startsWith('UPDATE things_config SET history_key = ?')) {
+        return { run: (historyKey: string) => { row.history_key = historyKey } }
+      }
+      if (flat.startsWith("UPDATE things_config SET api_url = '', api_key = '', email = ''")) {
         return {
           run: (at: number) => {
-            row.api_url = ''
-            row.api_key = ''
-            row.updated_at = at
+            Object.assign(row, { api_url: '', api_key: '', email: '', password_enc: '', history_key: '', updated_at: at })
           },
         }
       }
-      throw new Error(`unexpected SQL: ${sql}`)
+      throw new Error(`unexpected SQL: ${flat}`)
     },
   }),
+}))
+
+const verifyAccount = vi.fn(async (creds: { email: string; password: string }) => ({
+  email: creds.email,
+  historyKey: 'history-1',
+}))
+
+vi.mock('../things-cloud', () => ({
+  verifyAccount: (creds: { email: string; password: string }) => verifyAccount(creds),
 }))
 
 const ORIGINAL_ENV = { ...process.env }
@@ -44,11 +67,11 @@ async function load() {
 }
 
 beforeEach(() => {
-  row.api_url = ''
-  row.api_key = ''
-  row.updated_at = 0
+  Object.assign(row, { api_url: '', api_key: '', email: '', password_enc: '', history_key: '', updated_at: 0 })
+  verifyAccount.mockClear()
   delete process.env.THINGS_API_URL
   delete process.env.THINGS_API_KEY
+  process.env.NEXTAUTH_SECRET = 'test-secret'
 })
 
 afterEach(() => {
@@ -71,7 +94,7 @@ describe('normalizeThingsUrl', () => {
 })
 
 describe('readThingsConfig', () => {
-  it('is unconfigured with neither a saved row nor env vars', async () => {
+  it('is unconfigured with no account, no service and no env vars', async () => {
     const { readThingsConfig } = await load()
     expect(readThingsConfig()).toBeNull()
   })
@@ -80,14 +103,54 @@ describe('readThingsConfig', () => {
     process.env.THINGS_API_URL = 'http://env-host:8080'
     process.env.THINGS_API_KEY = 'env-key'
     const { readThingsConfig } = await load()
-    expect(readThingsConfig()).toEqual({ url: 'http://env-host:8080', apiKey: 'env-key', source: 'env' })
+    expect(readThingsConfig()).toEqual({ mode: 'env', url: 'http://env-host:8080', apiKey: 'env-key' })
   })
 
-  it('prefers a connection saved in the app over the environment', async () => {
+  it('prefers a saved service over the environment', async () => {
     process.env.THINGS_API_URL = 'http://env-host:8080'
     const { saveThingsConfig, readThingsConfig } = await load()
     saveThingsConfig('http://app-host:9090', 'app-key')
-    expect(readThingsConfig()).toEqual({ url: 'http://app-host:9090', apiKey: 'app-key', source: 'app' })
+    expect(readThingsConfig()).toEqual({ mode: 'sidecar', url: 'http://app-host:9090', apiKey: 'app-key' })
+  })
+
+  it('prefers a signed-in account over everything else', async () => {
+    process.env.THINGS_API_URL = 'http://env-host:8080'
+    const { saveThingsAccount, readThingsConfig } = await load()
+    await saveThingsAccount('me@example.com', 'hunter2')
+    expect(readThingsConfig()).toEqual({
+      mode: 'cloud',
+      credentials: { email: 'me@example.com', password: 'hunter2' },
+      historyKey: 'history-1',
+    })
+  })
+})
+
+describe('saveThingsAccount', () => {
+  it('verifies the credentials before storing them', async () => {
+    const { saveThingsAccount } = await load()
+    await saveThingsAccount(' me@example.com ', 'hunter2')
+    expect(verifyAccount).toHaveBeenCalledWith({ email: 'me@example.com', password: 'hunter2' })
+  })
+
+  it('does not store the password in clear text', async () => {
+    const { saveThingsAccount } = await load()
+    await saveThingsAccount('me@example.com', 'hunter2')
+    expect(row.password_enc).not.toContain('hunter2')
+    expect(row.password_enc.length).toBeGreaterThan(0)
+  })
+
+  it('refuses a blank email or password without calling out', async () => {
+    const { saveThingsAccount, ThingsConfigError } = await load()
+    await expect(saveThingsAccount('  ', 'pw')).rejects.toThrow(ThingsConfigError)
+    await expect(saveThingsAccount('me@example.com', '')).rejects.toThrow(ThingsConfigError)
+    expect(verifyAccount).not.toHaveBeenCalled()
+  })
+
+  it('replaces a service connection, so only one is ever live', async () => {
+    const { saveThingsConfig, saveThingsAccount, readThingsConfig } = await load()
+    saveThingsConfig('http://app-host:9090', 'app-key')
+    await saveThingsAccount('me@example.com', 'hunter2')
+    expect(readThingsConfig()).toMatchObject({ mode: 'cloud' })
   })
 })
 
@@ -113,19 +176,27 @@ describe('saveThingsConfig', () => {
 })
 
 describe('readThingsConfigView', () => {
-  it('reports that a key exists without disclosing it', async () => {
+  it('reports the account without disclosing the password', async () => {
+    const { saveThingsAccount, readThingsConfigView } = await load()
+    await saveThingsAccount('me@example.com', 'super-secret')
+    const view = readThingsConfigView()
+    expect(view).toEqual({ configured: true, mode: 'cloud', email: 'me@example.com', url: '', hasKey: true })
+    expect(JSON.stringify(view)).not.toContain('super-secret')
+  })
+
+  it('reports that a service key exists without disclosing it', async () => {
     const { saveThingsConfig, readThingsConfigView } = await load()
     saveThingsConfig('http://a:1', 'super-secret')
     const view = readThingsConfigView()
-    expect(view).toEqual({ configured: true, source: 'app', url: 'http://a:1', hasKey: true })
+    expect(view).toEqual({ configured: true, mode: 'sidecar', email: '', url: 'http://a:1', hasKey: true })
     expect(JSON.stringify(view)).not.toContain('super-secret')
   })
 })
 
 describe('clearThingsConfig', () => {
   it('drops the saved connection', async () => {
-    const { saveThingsConfig, clearThingsConfig, readThingsConfig } = await load()
-    saveThingsConfig('http://a:1', 'k')
+    const { saveThingsAccount, clearThingsConfig, readThingsConfig } = await load()
+    await saveThingsAccount('me@example.com', 'hunter2')
     clearThingsConfig()
     expect(readThingsConfig()).toBeNull()
   })
@@ -135,6 +206,16 @@ describe('clearThingsConfig', () => {
     const { saveThingsConfig, clearThingsConfig, readThingsConfig } = await load()
     saveThingsConfig('http://a:1', 'k')
     clearThingsConfig()
-    expect(readThingsConfig()).toMatchObject({ url: 'http://env-host:8080', source: 'env' })
+    expect(readThingsConfig()).toMatchObject({ url: 'http://env-host:8080', mode: 'env' })
+  })
+})
+
+describe('an unreadable stored password', () => {
+  it('falls through instead of throwing, so the UI can ask again', async () => {
+    const { saveThingsAccount, readThingsConfig } = await load()
+    await saveThingsAccount('me@example.com', 'hunter2')
+    // Simulates a rotated NEXTAUTH_SECRET: the ciphertext no longer decrypts.
+    process.env.NEXTAUTH_SECRET = 'a-different-secret'
+    expect(readThingsConfig()).toBeNull()
   })
 })

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { verifyThings } from '@/lib/things'
 import { readThingsConfig, readThingsConfigView } from '@/lib/things-config'
+import { checkThings } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,8 +25,9 @@ export async function GET(request: Request) {
   if (!view.configured) {
     return NextResponse.json({ ...view, reachable: false }, NO_STORE)
   }
-  // Configured but unreachable is a real state: the sidecar may be starting up
-  // or its Things Cloud credentials may have gone stale.
-  const conn = readThingsConfig()
-  return NextResponse.json({ ...view, reachable: conn ? await verifyThings(conn) : false }, NO_STORE)
+  // Configured but unreachable is a real state: Things Cloud may be down, or a
+  // password may have been changed since it was saved.
+  const config = readThingsConfig()
+  const health = config ? await checkThings(config) : { reachable: false }
+  return NextResponse.json({ ...view, ...health }, NO_STORE)
 }
