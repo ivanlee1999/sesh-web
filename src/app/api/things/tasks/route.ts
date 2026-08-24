@@ -2,18 +2,13 @@ import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
 import { dueKind, dueLabel } from '@/lib/task-dates'
-import { listThingsTasks, type ThingsTaskRaw, type ThingsView } from '@/lib/things'
+import { type ThingsTaskRaw } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
+import { loadThingsTasks } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
 type TaskFilter = 'today' | 'upcoming' | 'all'
-
-const VIEWS_BY_FILTER: Record<TaskFilter, ThingsView[]> = {
-  today: ['today'],
-  upcoming: ['upcoming', 'anytime', 'inbox'],
-  all: ['today', 'upcoming', 'anytime', 'inbox'],
-}
 
 function scheduledDate(task: ThingsTaskRaw): string | null {
   return task.start_date ?? task.startDate ?? task.scheduled ?? task.deadline ?? task.due_date ?? null
@@ -43,7 +38,7 @@ export async function GET(request: Request) {
   try {
     const requested = new URL(request.url).searchParams.get('filter')
     const filter: TaskFilter = requested === 'upcoming' || requested === 'all' ? requested : 'today'
-    const raw = await listThingsTasks(conn, VIEWS_BY_FILTER[filter])
+    const raw = await loadThingsTasks(conn, filter)
 
     const tasks = raw
       .filter(task => !isDone(task))

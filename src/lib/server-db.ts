@@ -194,6 +194,63 @@ function initSchema(d: Database.Database) {
   ensureColumn(d, 'google_oauth', 'calendar_id', "calendar_id TEXT NOT NULL DEFAULT ''")
   ensureColumn(d, 'google_oauth', 'scope', "scope TEXT NOT NULL DEFAULT ''")
 
+  // Things: the account sesh signs in as, when talking to Things Cloud
+  // directly. The password is stored encrypted — see lib/things-config.
+  ensureColumn(d, 'things_config', 'email', "email TEXT NOT NULL DEFAULT ''")
+  ensureColumn(d, 'things_config', 'password_enc', "password_enc TEXT NOT NULL DEFAULT ''")
+  ensureColumn(d, 'things_config', 'history_key', "history_key TEXT NOT NULL DEFAULT ''")
+
+  /*
+   * Local replay of the Things event log. Things Cloud sends history rather
+   * than state, so the current shape of a task is whatever is left after
+   * applying every item about it — materialised here so a page load is a
+   * query, not a replay. See lib/things-store.
+   */
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS things_tasks (
+      uuid TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      status INTEGER NOT NULL DEFAULT 0,
+      schedule INTEGER NOT NULL DEFAULT 0,
+      scheduled_at INTEGER,
+      deadline_at INTEGER,
+      type INTEGER NOT NULL DEFAULT 0,
+      in_trash INTEGER NOT NULL DEFAULT 0,
+      deleted INTEGER NOT NULL DEFAULT 0,
+      area_uuid TEXT,
+      project_uuid TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_things_tasks_schedule ON things_tasks(schedule);
+    CREATE INDEX IF NOT EXISTS idx_things_tasks_status ON things_tasks(status);
+
+    CREATE TABLE IF NOT EXISTS things_areas (
+      uuid TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      deleted INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS things_tags (
+      uuid TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      deleted INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS things_task_tags (
+      task_uuid TEXT NOT NULL,
+      tag_uuid TEXT NOT NULL,
+      PRIMARY KEY (task_uuid, tag_uuid)
+    );
+
+    CREATE TABLE IF NOT EXISTS things_sync (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      history_key TEXT NOT NULL DEFAULT '',
+      server_index INTEGER NOT NULL DEFAULT 0,
+      synced_at INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO things_sync (id) VALUES (1);
+  `)
+
   // Categories table
   d.exec(`
     CREATE TABLE IF NOT EXISTS categories (

@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { sendPushToAll } from '@/lib/push'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
-import { appendThingsFocusNote } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
+import { recordThingsFocus } from '@/lib/things-service'
 import { decodeTaskRef } from '@/lib/task-ref'
 import { syncSessionToGoogleCalendar, persistCalendarSyncResult } from '@/lib/google-calendar'
 import {
@@ -36,7 +36,7 @@ async function syncTaskDuration(taskRef: string, actualMs: number) {
     }
     const conn = readThingsConfig()
     if (!conn) return
-    await appendThingsFocusNote(conn, ref.id, minutes)
+    await recordThingsFocus(conn, ref.id, minutes)
   } catch (err) {
     console.error(`[${ref.provider}] Failed to sync duration:`, err)
   }
