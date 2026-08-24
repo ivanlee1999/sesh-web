@@ -365,6 +365,67 @@ describe('Timer', () => {
     expect(postCall?.[1]?.body).toEqual(expect.stringContaining('"overflowMs":60000'))
   })
 
+  /** Sets up an already-overdue break and returns control after the catch-up. */
+  async function renderOverdueBreak() {
+    vi.useFakeTimers()
+    const base = new Date('2026-06-15T14:00:00.000Z')
+    vi.setSystemTime(base)
+    timerApiState = timerState({
+      phase: 'running',
+      sessionType: 'break',
+      intention: '',
+      category: 'work',
+      startedAt: base.getTime(),
+      updatedAt: base.getTime(),
+      targetMs: 5 * 60 * 1000,
+      remainingMs: 5 * 60 * 1000,
+    })
+
+    render(<Timer />)
+    await act(async () => {
+      await flushPromises()
+    })
+
+    vi.setSystemTime(base.getTime() + 6 * 60 * 1000)
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+    })
+    await act(async () => {
+      await flushPromises()
+    })
+  }
+
+  it('keeps an overdue break running and counts the extra rest', async () => {
+    await renderOverdueBreak()
+
+    expect(screen.getByText('Extra rest')).toBeTruthy()
+    expect(screen.getByText('+01:00')).toBeTruthy()
+    // The break must not end itself out from under you.
+    expect(screen.queryByRole('button', { name: 'Start focus' })).toBeNull()
+  })
+
+  it('returns to idle when an overrunning break is stopped', async () => {
+    await renderOverdueBreak()
+
+    // findBy* would hang here: the suite runs on fake timers.
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Stop session'))
+      await flushPromises()
+    })
+
+    expect(screen.getByRole('button', { name: 'Start focus' })).toBeTruthy()
+    // Breaks are not reflected on.
+    expect(screen.queryByText('Session complete')).toBeNull()
+  })
+
+  it('still ends the break at zero when auto-start focus is on', async () => {
+    autoStartFocus = true
+    await renderOverdueBreak()
+
+    expect(screen.queryByText('Extra rest')).toBeNull()
+    expect(screen.getByText('Remaining')).toBeTruthy()
+  })
+
   it('auto-starts a break after saving reflection when auto-start-break is enabled', async () => {
     autoStartBreak = true
     render(<Timer />)

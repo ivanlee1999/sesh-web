@@ -16,6 +16,8 @@ interface SessionRow {
   notes: string
   rating: number
   todoist_task_id: string | null
+  google_event_id: string
+  is_synced: number
 }
 
 function rowToJson(row: SessionRow) {
@@ -49,10 +51,29 @@ export async function POST(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
+
+    /*
+     * Upsert, not INSERT OR IGNORE.
+     *
+     * The row often already exists by the time this runs: the background
+     * auto-completer saves a session as soon as the timer expires, under the
+     * same `manual-<startedAt>` id the reflection screen uses. Ignoring the
+     * second write silently dropped whatever topic the person had just typed
+     * on that screen, and left the calendar event on the old title.
+     *
+     * Only the fields a person can actually edit are overwritten. Timings come
+     * from whoever completed the session and are not the client's to revise.
+     */
     db.prepare(`
-      INSERT OR IGNORE INTO sessions
+      INSERT INTO sessions
         (id, intention, category, type, target_ms, actual_ms, overflow_ms, started_at, ended_at, notes, rating, todoist_task_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        intention = excluded.intention,
+        category = excluded.category,
+        notes = excluded.notes,
+        rating = excluded.rating,
+        todoist_task_id = excluded.todoist_task_id
     `).run(
       body.id,
       body.intention ?? '',
@@ -68,22 +89,26 @@ export async function POST(request: Request) {
       body.todoistTaskId ?? null,
     )
 
-    // Google Calendar sync, non-fatal
-    const calendar = await syncSessionToGoogleCalendar({
-      id: body.id,
-      intention: body.intention ?? '',
-      category: body.category ?? 'other',
-      type: body.type ?? body.sessionType ?? 'focus',
-      targetMs: body.targetMs ?? 0,
-      actualMs: body.actualMs ?? 0,
-      overflowMs: body.overflowMs ?? 0,
-      notes: body.notes ?? '',
-      startedAt: body.startedAt,
-      endedAt: body.endedAt,
-      googleEventId: '',
-      isSynced: false,
-    })
-    if (body.id && calendar) persistCalendarSyncResult(body.id, calendar)
+    // Sync from the stored row: it carries the event id, so an edit updates the
+    // existing calendar entry instead of creating a second one beside it.
+    const stored = db.prepare('SELECT * FROM sessions WHERE id = ?').get(body.id) as SessionRow | undefined
+    const calendar = stored
+      ? await syncSessionToGoogleCalendar({
+        id: stored.id,
+        intention: stored.intention,
+        category: stored.category,
+        type: stored.type,
+        targetMs: stored.target_ms,
+        actualMs: stored.actual_ms,
+        overflowMs: stored.overflow_ms,
+        notes: stored.notes,
+        startedAt: stored.started_at,
+        endedAt: stored.ended_at,
+        googleEventId: stored.google_event_id,
+        isSynced: stored.is_synced === 1,
+      })
+      : undefined
+    if (stored && calendar) persistCalendarSyncResult(stored.id, calendar)
 
     return NextResponse.json({ ok: true, calendar })
   } catch {
