@@ -46,7 +46,14 @@ export interface ThingsCredentials {
 }
 
 export class ThingsAuthError extends Error {}
-export class ThingsCloudError extends Error {}
+export class ThingsCloudError extends Error {
+  /** HTTP status, when the failure came from a response rather than the wire. */
+  readonly status?: number
+  constructor(message: string, status?: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 /** Item kinds we care about; everything else is ignored on replay. */
 export const TASK_KINDS = new Set(['Task6', 'Task4', 'Task3', 'Task'])
@@ -69,6 +76,17 @@ export interface ThingsItem {
 
 export interface ThingsItemBatch {
   items: ThingsItem[]
+  /**
+   * How far this page moves the stream position.
+   *
+   * The position counts history *entries*, and a single entry carries every
+   * item written in one commit — Things.app batches routinely, so fifty items
+   * under one entry is ordinary. Advancing by the flattened item count
+   * therefore runs the position ahead of the truth, silently skipping history
+   * and eventually overshooting the head, after which the server rejects every
+   * read and the sync is wedged for good.
+   */
+  entryCount: number
   /** Server head; caught up once the loaded index reaches it. */
   currentItemIndex: number
 }
@@ -104,7 +122,7 @@ async function request(
       throw new ThingsAuthError('Things rejected those credentials.')
     }
     if (!res.ok) {
-      throw new ThingsCloudError(`Things Cloud returned ${res.status}`)
+      throw new ThingsCloudError(`Things Cloud returned ${res.status}`, res.status)
     }
     return res
   } catch (err) {
@@ -164,7 +182,8 @@ export async function fetchItems(
       })
     }
   }
-  return { items, currentItemIndex: body['current-item-index'] ?? startIndex + (body.items?.length ?? 0) }
+  const entryCount = body.items?.length ?? 0
+  return { items, entryCount, currentItemIndex: body['current-item-index'] ?? startIndex + entryCount }
 }
 
 // ── Writes ─────────────────────────────────────────────────────────────────
