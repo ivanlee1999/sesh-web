@@ -679,16 +679,12 @@ export default function Timer({
       setTargetMs(data.targetMs)
       setStartedAt(data.startedAt)
       setTodoistTaskId(data.todoistTaskId)
-      if (nextRemaining > 0) {
-        setPhase('running')
-        setRemainingMs(nextRemaining)
-      } else if (data.sessionType === 'focus') {
-        setPhase('running')
-        setRemainingMs(nextRemaining)
-      } else {
-        setRemainingMs(settings.focusDuration * 60000)
-        setPhase('idle')
-      }
+      // Breaks restore into overtime just like focus. Coming back to the app
+      // after the break ran long should show the rest still counting, not drop
+      // you on the idle screen having quietly thrown the extra time away. The
+      // auto-start-focus effect picks an overdue break up from here.
+      setPhase('running')
+      setRemainingMs(nextRemaining)
     } else if (data.phase === 'paused') {
       setPhase('paused')
       setSessionType(data.sessionType as SessionType)
@@ -718,20 +714,10 @@ export default function Timer({
     setTargetMs(local.targetMs)
     setTodoistTaskId(local.todoistTaskId)
     if (local.phase === 'running' && local.startedAt) {
-      const nextRemaining = local.remainingMs - (Date.now() - local.savedAt)
-      if (nextRemaining > 0) {
-        setPhase('running')
-        setRemainingMs(nextRemaining)
-        setStartedAt(local.startedAt)
-      } else if (local.sessionType === 'focus') {
-        setPhase('running')
-        setRemainingMs(nextRemaining)
-        setStartedAt(local.startedAt)
-      } else {
-        setPhase('idle')
-        setRemainingMs(Math.max(0, nextRemaining))
-        setStartedAt(local.startedAt)
-      }
+      // Overdue breaks keep running, same as focus — see applyRemote.
+      setPhase('running')
+      setRemainingMs(local.remainingMs - (Date.now() - local.savedAt))
+      setStartedAt(local.startedAt)
     } else if (local.phase === 'paused') {
       setPhase('paused')
       setRemainingMs(local.remainingMs)
@@ -943,7 +929,7 @@ export default function Timer({
   const runningClockLabel = phase === 'paused'
     ? 'Paused'
     : remainingMs < 0
-      ? 'Overtime'
+      ? (isFocus ? 'Overtime' : 'Extra rest')
       : isFocus
         ? 'Remaining'
         : 'Break remaining'
@@ -1170,21 +1156,30 @@ export default function Timer({
     finishingRef.current = false
   }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartFocus, settings.focusDuration, settings.soundEnabled, start, syncToServer])
 
+  /**
+   * A break that reaches zero keeps counting up, exactly like focus — resting
+   * longer than planned is a normal thing to do, and the old behaviour ended
+   * the break out from under you. Auto-start focus is the one exception: it is
+   * a standing instruction to move on the moment the break is over.
+   */
   useEffect(() => {
-    if (phase === 'running' && remainingMs <= 0 && sessionType === 'break') finish(true)
-  }, [finish, phase, remainingMs, sessionType])
+    if (phase !== 'running' || sessionType !== 'break' || remainingMs > 0) return
+    if (settings.autoStartFocus) finish(true)
+  }, [finish, phase, remainingMs, sessionType, settings.autoStartFocus])
 
-  // Chime once the moment a running focus session crosses zero, then let it
-  // run into overtime. Only fires on a live tick across zero — restoring an
+  // Chime once the moment a running session crosses zero, then let it run into
+  // overtime. Only fires on a live tick across zero — restoring an
   // already-overdue session from the server stays silent.
   useEffect(() => {
     const prev = prevRemainingRef.current
     prevRemainingRef.current = remainingMs
-    if (phase !== 'running' || sessionType !== 'focus') return
+    if (phase !== 'running') return
     if (prev === null || prev <= 0 || remainingMs > 0) return
-    if (settings.soundEnabled) playChime(880)
+    // The auto-start path ends the break here and chimes on its own.
+    if (sessionType === 'break' && settings.autoStartFocus) return
+    if (settings.soundEnabled) playChime(sessionType === 'focus' ? 880 : 660)
     if (navigator.vibrate) navigator.vibrate([160, 80, 160])
-  }, [phase, remainingMs, sessionType, settings.soundEnabled])
+  }, [phase, remainingMs, sessionType, settings.autoStartFocus, settings.soundEnabled])
 
   /**
    * Record time against the linked task and optionally tick it off. The stored
