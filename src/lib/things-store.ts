@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3'
 import { getDb } from './server-db'
 import { dayStartUtcSeconds, todayKey } from './task-dates'
 import {
+  ThingsCloudError,
   ACTION_DELETED,
   AREA_KINDS,
   TAG_KINDS,
@@ -11,6 +12,7 @@ import {
   fetchItems,
   type ThingsCredentials,
   type ThingsItem,
+  type ThingsItemBatch,
 } from './things-cloud'
 
 /**
@@ -204,6 +206,11 @@ async function applyItemsYielding(items: ThingsItem[]) {
   }
 }
 
+/** The server rejects a start-index beyond its head rather than clamping it. */
+function isBadIndex(err: unknown): boolean {
+  return err instanceof ThingsCloudError && err.status === 400
+}
+
 export interface SyncOutcome {
   fetched: number
   serverIndex: number
@@ -249,21 +256,40 @@ export async function syncThings(
   let index = state.history_key === historyKey ? state.server_index : 0
   let fetched = 0
   let caughtUp = false
+  let restarted = false
 
   for (let batch = 0; batch < maxBatches; batch += 1) {
     // Checked before fetching, not after: a batch already under way should
     // finish and be committed rather than be thrown away at the boundary.
     if (batch > 0 && Date.now() - startedAt >= budgetMs) break
 
-    const { items, currentItemIndex } = await fetchItems(creds, historyKey, index)
-    if (items.length === 0) {
+    let page: ThingsItemBatch
+    try {
+      page = await fetchItems(creds, historyKey, index)
+    } catch (err) {
+      // A position past the server's head is rejected outright, and no amount
+      // of retrying moves it — the sync would stay wedged forever. Whatever is
+      // stored was reached by counting wrong, so it cannot be trusted either:
+      // throw the replay away and read the stream from the start. Done once,
+      // so a genuinely broken account still surfaces its error.
+      if (restarted || index === 0 || !isBadIndex(err)) throw err
+      restarted = true
+      resetStore()
+      index = 0
+      db.prepare('UPDATE things_sync SET server_index = 0 WHERE id = 1').run()
+      continue
+    }
+
+    const { items, entryCount, currentItemIndex } = page
+    if (entryCount === 0) {
       caughtUp = true
       index = Math.max(index, currentItemIndex)
       break
     }
     await applyItemsYielding(items)
     fetched += items.length
-    index += items.length
+    // By entries, not by items: see ThingsItemBatch.entryCount.
+    index += entryCount
     db.prepare('UPDATE things_sync SET server_index = ?, synced_at = ? WHERE id = 1')
       .run(index, Date.now())
     if (index >= currentItemIndex) {

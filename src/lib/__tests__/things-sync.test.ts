@@ -35,19 +35,23 @@ vi.mock('../things-cloud', async (importOriginal) => ({
   fetchItems: (...args: unknown[]) => fetchItems(...args),
 }))
 
-import { syncThings, thingsSyncState } from '../things-store'
+import { applyItems, syncThings, thingsSyncState } from '../things-store'
+import { ThingsCloudError } from '../things-cloud'
 
 const creds = { email: 'a@b.c', password: 'secret' }
 
 /** A page of `count` distinct tasks, as the event log would hand them over. */
-function page(startIndex: number, count: number, total: number) {
+function page(startIndex: number, count: number, total: number, perEntry = 1) {
   return {
-    items: Array.from({ length: count }, (_, i) => ({
-      uuid: `t${startIndex + i}`,
+    items: Array.from({ length: count * perEntry }, (_, i) => ({
+      uuid: `t${startIndex * perEntry + i}`,
       kind: 'Task6',
       action: 0,
-      payload: { tt: `Task ${startIndex + i}`, st: 1, tp: 0, ss: 0 },
+      payload: { tt: `Task ${startIndex * perEntry + i}`, st: 1, tp: 0, ss: 0 },
     })),
+    // `count` entries carrying `perEntry` items each — the stream position
+    // moves by entries, so these two numbers must not be conflated.
+    entryCount: count,
     currentItemIndex: total,
   }
 }
@@ -108,10 +112,74 @@ describe('bounding how long one sync runs', () => {
     await syncThings(creds, 'hk', {})
     expect(db.prepare('SELECT count(*) AS n FROM things_tasks').get()).toEqual({ n: 5 })
 
-    fetchItems.mockResolvedValueOnce({ items: [], currentItemIndex: 0 })
+    fetchItems.mockResolvedValueOnce({ items: [], entryCount: 0, currentItemIndex: 0 })
     await syncThings(creds, 'other-key', {})
 
     expect(db.prepare('SELECT count(*) AS n FROM things_tasks').get()).toEqual({ n: 0 })
     expect(fetchItems.mock.calls[1][2]).toBe(0)
+  })
+})
+
+describe('where the stream position comes from', () => {
+  /**
+   * The regression this guards. One history entry carries every item written
+   * in a single commit, and Things.app batches — fifty items under one entry
+   * is ordinary. Counting items instead of entries walked the position ahead
+   * of the truth, skipping the history in between (so completions never
+   * landed and long-finished tasks kept showing up) until it passed the head,
+   * after which the server rejected every read and the sync never recovered.
+   */
+  it('advances by entries, not by the items inside them', async () => {
+    // 10 entries, 50 items each: 500 items but only 10 positions.
+    fetchItems.mockResolvedValueOnce(page(0, 10, 10, 50))
+
+    const outcome = await syncThings(creds, 'hk', { maxBatches: 1 })
+
+    expect(outcome.serverIndex).toBe(10)
+    expect(thingsSyncState().serverIndex).toBe(10)
+    expect(outcome.fetched).toBe(500)
+    expect(db.prepare('SELECT count(*) AS n FROM things_tasks').get()).toEqual({ n: 500 })
+  })
+
+  it('never runs the position past the head', async () => {
+    fetchItems.mockResolvedValueOnce(page(0, 5, 5, 20))
+    const outcome = await syncThings(creds, 'hk', {})
+    expect(outcome.serverIndex).toBeLessThanOrEqual(5)
+    expect(outcome.caughtUp).toBe(true)
+  })
+
+  /** Recovers a database already wedged by the old item-counted position. */
+  it('replays from the start when the server rejects the stored position', async () => {
+    db.prepare('UPDATE things_sync SET history_key = ?, server_index = ?, synced_at = ? WHERE id = 1')
+      .run('hk', 11497, 1)
+    applyItems([{ uuid: 'stale', kind: 'Task6', action: 0, payload: { tt: 'Long done', st: 1, tp: 0, ss: 0 } }])
+
+    fetchItems
+      .mockRejectedValueOnce(new ThingsCloudError('Things Cloud returned 400', 400))
+      .mockResolvedValueOnce(page(0, 3, 3))
+
+    const outcome = await syncThings(creds, 'hk', {})
+
+    expect(fetchItems.mock.calls[0][2]).toBe(11497)
+    expect(fetchItems.mock.calls[1][2]).toBe(0)
+    expect(outcome.caughtUp).toBe(true)
+    // The stale replay is gone, not merged into the fresh one.
+    expect(db.prepare("SELECT count(*) AS n FROM things_tasks WHERE uuid = 'stale'").get()).toEqual({ n: 0 })
+  })
+
+  it('gives up rather than looping when a fresh read is also rejected', async () => {
+    db.prepare('UPDATE things_sync SET history_key = ?, server_index = ? WHERE id = 1').run('hk', 500)
+    fetchItems.mockRejectedValue(new ThingsCloudError('Things Cloud returned 400', 400))
+
+    await expect(syncThings(creds, 'hk', {})).rejects.toThrow('400')
+    expect(fetchItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('lets a real failure surface instead of wiping the replay', async () => {
+    db.prepare('UPDATE things_sync SET history_key = ?, server_index = ? WHERE id = 1').run('hk', 500)
+    fetchItems.mockRejectedValue(new ThingsCloudError('Things Cloud timed out'))
+
+    await expect(syncThings(creds, 'hk', {})).rejects.toThrow('timed out')
+    expect(fetchItems).toHaveBeenCalledTimes(1)
   })
 })
