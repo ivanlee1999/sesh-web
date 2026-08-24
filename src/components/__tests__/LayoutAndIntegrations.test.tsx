@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import Calendar from '../Calendar'
 import Analytics from '../Analytics'
 import Settings from '../Settings'
@@ -112,29 +112,76 @@ describe('Settings task-source status', () => {
     expect(within(rowFor('Todoist')).getByRole('button', { name: 'Check' })).toBeTruthy()
   })
 
-  it('shows Things setup text when the sidecar URL is missing', async () => {
+  it('offers to connect Things when nothing is configured', async () => {
     mockSettingsFetch(json({ configured: false }))
 
     render(<Settings />)
 
-    expect(await screen.findByText('Set THINGS_API_URL on the server to sync Things 3.')).toBeTruthy()
+    await screen.findByText('Things 3')
+    // Google Calendar shows the same words, so scope to the Things row.
+    const row = within(rowFor('Things 3'))
+    expect(await row.findByText('Not connected')).toBeTruthy()
+    expect(row.getByRole('button', { name: 'Connect' })).toBeTruthy()
   })
 
-  it('flags Things as unreachable when configured but the sidecar is down', async () => {
-    mockSettingsFetch(json({ configured: false }), json({ configured: true, reachable: false }))
+  it('flags Things as unreachable when configured but the service is down', async () => {
+    mockSettingsFetch(
+      json({ configured: false }),
+      json({ configured: true, reachable: false, source: 'app', url: 'http://things:8080', hasKey: false }),
+    )
 
     render(<Settings />)
 
-    expect(await screen.findByText(/Things service unreachable/)).toBeTruthy()
+    expect(await screen.findByText(/Service unreachable/)).toBeTruthy()
   })
 
-  it('shows Things connected when the sidecar answers', async () => {
-    mockSettingsFetch(json({ configured: false }), json({ configured: true, reachable: true }))
+  it('offers to edit an existing Things connection', async () => {
+    mockSettingsFetch(
+      json({ configured: false }),
+      json({ configured: true, reachable: true, source: 'app', url: 'http://things:8080', hasKey: true }),
+    )
 
     render(<Settings />)
 
     await screen.findByText('Things 3')
-    expect(within(rowFor('Things 3')).getByRole('button', { name: 'Check' })).toBeTruthy()
+    expect(within(rowFor('Things 3')).getByRole('button', { name: 'Edit' })).toBeTruthy()
+  })
+
+  it('says so when Things is connected through the server environment', async () => {
+    mockSettingsFetch(
+      json({ configured: false }),
+      json({ configured: true, reachable: true, source: 'env', url: 'http://env-things:8080', hasKey: false }),
+    )
+
+    render(<Settings />)
+
+    expect(await screen.findByText('Connected via server config')).toBeTruthy()
+  })
+
+  it('saves a Things connection from the sheet without leaking the stored key', async () => {
+    const puts: { url: string; body: unknown }[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/auth/google/status')) return json({ connected: false })
+      if (url.includes('/api/todoist/status')) return json({ configured: false })
+      if (url.includes('/api/things/config') && init?.method === 'PUT') {
+        puts.push({ url, body: JSON.parse(String(init.body)) })
+        return json({ configured: true, source: 'app', url: 'http://things:8080', hasKey: false, reachable: true })
+      }
+      if (url.includes('/api/things/status')) return json({ configured: false })
+      return json({})
+    })
+
+    render(<Settings />)
+
+    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Connect' }))
+    const address = await screen.findByPlaceholderText('http://sesh-things-cloud:8080')
+    fireEvent.change(address, { target: { value: 'things:8080' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and test' }))
+
+    await screen.findByText(/Connected\./)
+    // No apiKey field at all, so the server keeps whatever key it already had.
+    expect(puts).toEqual([{ url: '/api/things/config', body: { url: 'things:8080' } }])
   })
 
   it('shows Todoist setup text when the server token is missing', async () => {

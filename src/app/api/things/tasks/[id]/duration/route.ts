@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { appendThingsFocusNote, isThingsConfigured } from '@/lib/things'
+import { appendThingsFocusNote } from '@/lib/things'
+import { readThingsConfig } from '@/lib/things-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (isRateLimited(getClientIp(request))) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
-  if (!isThingsConfigured()) {
+  const conn = readThingsConfig()
+  if (!conn) {
     return NextResponse.json({ error: 'Things not configured' }, { status: 503 })
   }
 
@@ -25,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params
     const body = await request.json().catch(() => ({}))
     const minutes = Math.max(1, Math.round(Number(body.add_minutes) || 0))
-    await appendThingsFocusNote(id, minutes)
+    await appendThingsFocusNote(conn, id, minutes)
     return NextResponse.json({ ok: true, minutes })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

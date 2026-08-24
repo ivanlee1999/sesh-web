@@ -81,6 +81,25 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
+## Task sources
+
+**Todoist** is configured with `TODOIST_API_TOKEN` on the server.
+
+**Things 3** is connected from the app: **Settings → Integrations → Things 3**. Enter the
+address of the `things-cloud` companion service (and its API key, if it runs with one).
+The connection is stored in the app database, not in the browser, so connecting on one
+device connects every device.
+
+Two things worth knowing:
+
+- Things has no official API. sesh talks to a [`things-cloud-mcp`](https://github.com/mattydsmith/things-cloud-mcp)
+  sidecar that mirrors Things Cloud. **Your Things Cloud login lives in that sidecar's own
+  environment** (`THINGS_USERNAME` / `THINGS_PASSWORD`) — it has no runtime login endpoint,
+  so it cannot be entered in sesh. sesh only ever sees the sidecar.
+- `THINGS_API_URL` / `THINGS_API_KEY` still work as a server-side fallback for existing
+  deployments. A connection saved in Settings takes precedence; disconnecting in the app
+  falls back to the environment if one is set.
+
 ## Operations Notes
 
 For production redeploys and incident recovery of push notifications / PWA alerts and Google Calendar sync, see:

@@ -57,7 +57,7 @@ async function checkOne(provider: TaskProvider): Promise<ProviderStatus> {
         state: 'not_configured',
         message: provider === 'todoist'
           ? 'Set TODOIST_API_TOKEN on the server to pull tasks.'
-          : 'Set THINGS_API_URL on the server to pull tasks.',
+          : 'Connect Things 3 in Settings to pull tasks.',
       }
     }
     // Things reports reachability separately: configured but the sidecar is down.

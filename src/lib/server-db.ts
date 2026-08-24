@@ -160,6 +160,17 @@ function initSchema(d: Database.Database) {
     );
     INSERT OR IGNORE INTO google_oauth (id, updated_at) VALUES (1, 0);
 
+    -- Connection to the Things sidecar. Lives server-side rather than in the
+    -- client settings blob for two reasons: the API key must never be sent to
+    -- a browser, and every device has to see the same connection.
+    CREATE TABLE IF NOT EXISTS things_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      api_url TEXT NOT NULL DEFAULT '',
+      api_key TEXT NOT NULL DEFAULT '',
+      updated_at INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO things_config (id, updated_at) VALUES (1, 0);
+
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       endpoint TEXT NOT NULL UNIQUE,
