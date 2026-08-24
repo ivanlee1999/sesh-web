@@ -9,6 +9,7 @@ import { loadThingsTasks, thingsCatchingUp } from '@/lib/things-service'
 export const dynamic = 'force-dynamic'
 
 type TaskFilter = 'today' | 'upcoming' | 'all'
+type TaskBucket = 'today' | 'inbox' | 'anytime' | 'upcoming' | 'someday'
 
 function scheduledDate(task: ThingsTaskRaw): string | null {
   return task.start_date ?? task.startDate ?? task.scheduled ?? task.deadline ?? task.due_date ?? null
@@ -16,6 +17,20 @@ function scheduledDate(task: ThingsTaskRaw): string | null {
 
 function groupName(task: ThingsTaskRaw): string {
   return task.project_title ?? task.projectTitle ?? task.area_title ?? task.areaTitle ?? 'Things'
+}
+
+function areaName(task: ThingsTaskRaw): string | null {
+  return task.area_title ?? task.areaTitle ?? null
+}
+
+/**
+ * Which pile the sidebar files this under. The connection usually says; when
+ * it does not, the date is enough to tell a scheduled to-do from a loose one.
+ */
+function bucketOf(task: ThingsTaskRaw, date: string | null, kind: string | null): TaskBucket {
+  if (task.view) return task.view
+  if (kind === 'today') return 'today'
+  return date ? 'upcoming' : 'anytime'
 }
 
 function isDone(task: ThingsTaskRaw): boolean {
@@ -49,6 +64,7 @@ export async function GET(request: Request) {
       .map(task => {
         const date = scheduledDate(task)
         const tags = task.tags ?? []
+        const kind = dueKind(date, clock)
         return {
           id: String(task.uuid ?? task.id ?? ''),
           provider: 'things' as const,
@@ -60,7 +76,10 @@ export async function GET(request: Request) {
           priority: 4,
           projectId: null,
           projectName: groupName(task),
-          due: dueKind(date, clock),
+          due: kind,
+          dueDate: date ? date.slice(0, 10) : null,
+          bucket: bucketOf(task, date, kind),
+          areaName: areaName(task),
           // Things has no human-written due string of its own the way Todoist
           // does, so a further-out date is formatted rather than shown raw.
           dueLabel: dueLabel(date, date ? formatDayLabel(date.slice(0, 10)) : null, clock),

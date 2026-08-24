@@ -207,6 +207,7 @@ export async function loadThingsTasks(
     area_title: task.areaTitle,
     tags: task.tags,
     completed: false,
+    view: task.view,
   }))
 }
 

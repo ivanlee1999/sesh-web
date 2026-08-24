@@ -34,6 +34,8 @@ export interface ThingsTaskRaw {
   tags?: string[] | null
   completed?: boolean
   status?: string | null
+  /** Which Things list this sits in, when the connection can say. */
+  view?: 'today' | 'inbox' | 'anytime' | 'upcoming' | 'someday' | null
 }
 
 /** Views the sidecar exposes that map onto how sesh groups work. */
@@ -119,7 +121,12 @@ export async function listThingsView(conn: ThingsConnection, view: ThingsView): 
  */
 export async function listThingsTasks(conn: ThingsConnection, views: ThingsView[]): Promise<ThingsTaskRaw[]> {
   const results = await Promise.all(
-    views.map(view => listThingsView(conn, view).catch(() => [] as ThingsTaskRaw[])),
+    views.map(async view => {
+      const tasks = await listThingsView(conn, view).catch(() => [] as ThingsTaskRaw[])
+      // Tag as it arrives: the merge below drops duplicates, so afterwards
+      // there is no way to tell which list a to-do came from.
+      return tasks.map(task => ({ ...task, view: task.view ?? view }))
+    }),
   )
   const seen = new Set<string>()
   const merged: ThingsTaskRaw[] = []

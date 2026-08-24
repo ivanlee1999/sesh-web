@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CategoryRecord, ExternalTask, TaskProvider } from '@/types'
 import { resolveProvider } from '@/types'
+import TaskSidebar from './TaskSidebar'
+import TaskListOptions from './TaskListOptions'
+import {
+  ALL_SCOPE,
+  DEFAULT_ALL_OPTIONS,
+  applyAllOptions,
+  availableTags,
+  buildSidebar,
+  sectionize,
+  type AllOptions,
+} from '@/lib/task-views'
 import { useCategories } from '@/context/CategoriesContext'
 import { redirectToLogin } from '@/lib/api-client'
 import { encodeTaskRef } from '@/lib/task-ref'
@@ -71,7 +82,14 @@ function groupTasks(tasks: ExternalTask[]): TaskGroup[] {
 function filterTasks(tasks: ExternalTask[], filter: Filter) {
   const active = tasks.filter(task => !task.completed)
   if (filter === 'today') return active.filter(task => task.due === 'today')
-  if (filter === 'upcoming') return active.filter(task => task.due !== 'today')
+  if (filter === 'upcoming') {
+    // Upcoming answers "what lands, and when" — so it is only the dated work.
+    // Anything undated is a someday pile, not a schedule; sweeping it in here
+    // buried the handful of real dates under hundreds of them.
+    return active
+      .filter(task => task.due === 'tomorrow' || task.due === 'upcoming')
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+  }
   return active
 }
 
@@ -142,6 +160,8 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const [error, setError] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [completingKey, setCompletingKey] = useState<string | null>(null)
+  const [allOptions, setAllOptions] = useState<AllOptions>(DEFAULT_ALL_OPTIONS)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -187,8 +207,27 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     all: filterTasks(tasks, 'all').length,
   }), [tasks])
 
-  const shown = useMemo(() => filterTasks(tasks, filter), [tasks, filter])
-  const groups = useMemo(() => groupTasks(shown), [shown])
+  const sidebar = useMemo(() => buildSidebar(tasks), [tasks])
+  const tags = useMemo(() => availableTags(tasks), [tasks])
+
+  // All is the only filter with controls; Today and Upcoming each answer a
+  // single question and stay grouped by project.
+  const shown = useMemo(
+    () => (filter === 'all' ? applyAllOptions(tasks, allOptions) : filterTasks(tasks, filter)),
+    [tasks, filter, allOptions],
+  )
+  const sections = useMemo(
+    () => (filter === 'all'
+      ? sectionize(shown, allOptions.group)
+      : groupTasks(shown).map(g => ({ key: g.key, title: g.project, provider: g.provider, items: g.items }))),
+    [filter, shown, allOptions.group],
+  )
+
+  const scopeLabel = useMemo(() => {
+    if (allOptions.scope === ALL_SCOPE) return 'All'
+    const rows = [...sidebar.views, ...sidebar.areas, ...sidebar.projects]
+    return rows.find(row => row.id === allOptions.scope)?.label ?? 'All'
+  }, [allOptions.scope, sidebar])
 
   const connected = statuses.filter(s => s.state === 'connected')
   const authRequired = statuses.some(s => s.state === 'auth_required')
@@ -292,23 +331,54 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         </div>
       )}
 
-      <div className="px-[var(--gutter)] py-2">
+      {filter === 'all' && (
+        <div className="flex items-center gap-[9px] px-[var(--gutter)] pb-1 pt-1">
+          {/* Below 900px the sidebar lives in a drawer, so it needs a way in. */}
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="press flex flex-shrink-0 items-center gap-[6px] rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--surface)] px-[10px] py-[5px] text-[12.5px] font-medium text-[var(--ink-2)] min-[900px]:hidden"
+          >
+            <Icon name="list" size={14} color="var(--ink-2)" />
+            {scopeLabel}
+          </button>
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <TaskListOptions options={allOptions} tags={tags} onChange={setAllOptions} />
+          </div>
+        </div>
+      )}
+
+      <div className={`px-[var(--gutter)] py-2 ${filter === 'all' ? 'task-pane' : ''}`}>
+        {filter === 'all' && (
+          <div className="hidden min-[900px]:block">
+            <TaskSidebar
+              sidebar={sidebar}
+              scope={allOptions.scope}
+              onSelect={scope => setAllOptions({ ...allOptions, scope })}
+            />
+          </div>
+        )}
+        <div>
         {loading && tasks.length === 0 ? (
           <div className="flex flex-col gap-[9px]" aria-label="Loading tasks">
             {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-[66px] rounded-[var(--r-md)]" />)}
           </div>
-        ) : groups.length > 0 ? (
+        ) : sections.length > 0 ? (
           <div key={filter} className="anim-fade">
-            {groups.map(group => (
+            {sections.map(group => (
               <div key={group.key} className="mb-6">
+                {group.title && (
                 <div className="mb-[11px] flex items-center gap-2 text-[13px] font-bold tracking-[-0.01em] text-[var(--ink-2)]">
-                  <span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR[group.provider] }} />
-                  {group.project}
+                  {group.provider && (
+                    <span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR[group.provider] }} />
+                  )}
+                  {group.title}
                   {/* Only name the source when both are connected, to avoid noise. */}
-                  {connected.length > 1 && (
+                  {group.provider && connected.length > 1 && (
                     <span className="text-[11.5px] font-medium text-[var(--ink-3)]">{PROVIDER_LABEL[group.provider]}</span>
                   )}
                 </div>
+                )}
                 <div className="stagger flex flex-col gap-[9px]">
                   {group.items.map(task => {
                     const category = taskCategory(task, categories)
@@ -337,7 +407,29 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
             <div className="mt-3 text-[15px]">Nothing here. Enjoy the calm.</div>
           </div>
         )}
+        </div>
       </div>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 min-[900px]:hidden" role="dialog" aria-modal="true" aria-label="Task lists">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setDrawerOpen(false)}
+            className="absolute inset-0 border-0 bg-black/35 p-0"
+          />
+          <div className="anim-slide-in absolute inset-y-0 left-0 w-[78%] max-w-[300px] overflow-y-auto bg-[var(--surface)] px-[10px] pb-[var(--screen-bottom-space)] pt-[calc(var(--screen-top)+var(--safe-t))] shadow-xl">
+            <TaskSidebar
+              sidebar={sidebar}
+              scope={allOptions.scope}
+              onSelect={scope => {
+                setAllOptions({ ...allOptions, scope })
+                setDrawerOpen(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
