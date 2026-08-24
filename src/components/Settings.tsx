@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_SETTINGS, type Session } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
@@ -16,6 +16,17 @@ type TodoistConnection =
   | { kind: 'not_configured'; message: string }
   | { kind: 'auth_required'; message: string }
   | { kind: 'error'; message: string }
+
+/** Mirrors the safe view from /api/things/config — never carries the API key. */
+type ThingsConfigView = {
+  configured: boolean
+  source: 'app' | 'env' | null
+  url: string
+  hasKey: boolean
+}
+
+/** The same view plus the liveness probe, as /api/things/status returns it. */
+type ThingsStatusPayload = Partial<ThingsConfigView> & { reachable?: boolean }
 
 type ManualSyncResult = {
   synced?: boolean
@@ -182,6 +193,172 @@ function CategorySheet({ open, onClose }: { open: boolean; onClose: () => void }
   )
 }
 
+/**
+ * Things 3 connection editor.
+ *
+ * sesh reaches Things through a `things-cloud` sidecar; this points sesh at it.
+ * The address and key are saved on the server, not in this browser, so
+ * connecting on one device connects all of them.
+ *
+ * The Things Cloud login itself stays in the sidecar's own environment — it has
+ * no runtime login endpoint — which is why this asks for a service address
+ * rather than an email and password.
+ */
+function ThingsSheet({
+  open,
+  config,
+  onClose,
+  onSaved,
+}: {
+  open: boolean
+  config: ThingsConfigView | null
+  onClose: () => void
+  /** Called with the fresh state, or with nothing to ask for a re-check. */
+  onSaved: (view?: ThingsStatusPayload) => void
+}) {
+  const [url, setUrl] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [keyTouched, setKeyTouched] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // Read through a ref so the reset below can depend on `open` alone. Keying it
+  // on `config` would re-run on every refresh of the parent's status object and
+  // wipe the "Connected" message the save just produced.
+  const configRef = useRef(config)
+  configRef.current = config
+
+  useEffect(() => {
+    if (!open) return
+    setUrl(configRef.current?.url ?? '')
+    setApiKey('')
+    setKeyTouched(false)
+    setNotice(null)
+  }, [open])
+
+  const save = async () => {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const res = await fetch('/api/things/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        // Omitting apiKey keeps the stored one; sending '' clears it.
+        body: JSON.stringify(keyTouched ? { url, apiKey } : { url }),
+      })
+      if (isAuthResponse(res)) return redirectToLogin()
+      if (!res.ok) {
+        setNotice({ type: 'error', message: await readApiError(res, 'Could not save the Things connection') })
+        return
+      }
+      // The response already describes the saved state; hand it straight up
+      // rather than re-fetching, which would race the write we just made.
+      const data: ThingsStatusPayload = await res.json()
+      onSaved(data)
+      setNotice(data.reachable
+        ? { type: 'success', message: 'Connected. Your Things tasks will show up in Tasks.' }
+        : { type: 'error', message: 'Saved, but the service did not answer. Check the address and that it is running.' })
+    } catch (err) {
+      setNotice({ type: 'error', message: err instanceof Error ? err.message : 'Could not save the Things connection' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const disconnect = async () => {
+    setBusy(true)
+    setNotice(null)
+    try {
+      const res = await fetch('/api/things/config', { method: 'DELETE' })
+      if (isAuthResponse(res)) return redirectToLogin()
+      if (!res.ok) {
+        setNotice({ type: 'error', message: await readApiError(res, 'Could not disconnect Things') })
+        return
+      }
+      const data: ThingsConfigView = await res.json()
+      // No payload: whether the env fallback (if any) is live needs a real probe.
+      onSaved()
+      setUrl(data.url)
+      setNotice({
+        type: 'success',
+        message: data.configured
+          ? 'Removed. Still connected through the server environment.'
+          : 'Disconnected.',
+      })
+    } catch (err) {
+      setNotice({ type: 'error', message: err instanceof Error ? err.message : 'Could not disconnect Things' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fieldClass = 'w-full rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-[14px] py-[11px] text-[16px] font-semibold tracking-[-0.01em] text-[var(--ink)] outline-none'
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Things 3">
+      <p className="mx-0.5 mb-[18px] mt-0 text-[13.5px] leading-normal text-[var(--ink-3)]">
+        sesh reads Things through a small companion service that mirrors Things Cloud.
+        Enter its address below — it is saved on the server, so every device you use is connected at once.
+      </p>
+
+      <label className="mb-[14px] block">
+        <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">Service address</span>
+        <input
+          autoFocus
+          value={url}
+          onChange={event => setUrl(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Enter' && !busy) save() }}
+          placeholder="http://sesh-things-cloud:8080"
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          className={fieldClass}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-1.5 block text-[12.5px] font-semibold uppercase tracking-[0.07em] text-[var(--ink-3)]">API key</span>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={event => { setApiKey(event.target.value); setKeyTouched(true) }}
+          onKeyDown={event => { if (event.key === 'Enter' && !busy) save() }}
+          placeholder={config?.hasKey ? 'Saved — leave blank to keep it' : 'Optional'}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          className={fieldClass}
+        />
+        <span className="mt-1.5 block px-0.5 text-[12.5px] leading-normal text-[var(--ink-3)]">
+          Only needed if the companion service runs with an API key set.
+        </span>
+      </label>
+
+      {config?.source === 'env' && (
+        <p className="mx-0.5 mb-0 mt-[14px] text-[12.5px] leading-normal text-[var(--ink-3)]">
+          Currently using THINGS_API_URL from the server environment. Saving here replaces it for every device.
+        </p>
+      )}
+
+      {notice && (
+        <p className={`anim-fade-up mx-0.5 mb-0 mt-[14px] text-[13px] leading-normal ${notice.type === 'success' ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
+          {notice.message}
+        </p>
+      )}
+
+      <div className="mt-[22px] flex flex-col gap-2">
+        <Btn full size="lg" onClick={save} disabled={busy || !url.trim()}>
+          {busy ? 'Saving...' : 'Save and test'}
+        </Btn>
+        {config?.source === 'app' && (
+          <Btn full variant="soft" onClick={disconnect} disabled={busy}>Disconnect</Btn>
+        )}
+      </div>
+    </Sheet>
+  )
+}
+
 function ColorDots({ value, onChange, compact }: { value: string; onChange: (value: string) => void; compact?: boolean }) {
   const colors = compact ? [value] : CATEGORY_PALETTE
   return (
@@ -279,6 +456,8 @@ export default function Settings() {
   const [calConnected, setCalConnected] = useState(false)
   const [todoist, setTodoist] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
   const [things, setThings] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Things...' })
+  const [thingsConfig, setThingsConfig] = useState<ThingsConfigView | null>(null)
+  const [thingsSheet, setThingsSheet] = useState(false)
   const [manualSyncBusy, setManualSyncBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -316,10 +495,29 @@ export default function Settings() {
     }
   }, [])
 
+  /** One place that turns a status payload into the row's state. */
+  const applyThingsStatus = useCallback((data: ThingsStatusPayload) => {
+    setThingsConfig({
+      configured: !!data.configured,
+      source: data.source ?? null,
+      url: data.url ?? '',
+      hasKey: !!data.hasKey,
+    })
+    if (!data.configured) {
+      setThings({ kind: 'not_configured', message: 'Not connected' })
+    } else if (!data.reachable) {
+      // Configured but the sidecar is down or its Things Cloud login expired.
+      setThings({ kind: 'error', message: 'Service unreachable. Check the address and that it is running.' })
+    } else {
+      setThings({ kind: 'connected', message: data.source === 'env' ? 'Connected via server config' : 'Connected' })
+    }
+  }, [])
+
   const checkThings = useCallback(async () => {
     setThings({ kind: 'checking', message: 'Checking Things...' })
     try {
-      const res = await fetch('/api/things/status')
+      // no-store: a liveness probe served from the HTTP cache is worse than none.
+      const res = await fetch('/api/things/status', { cache: 'no-store' })
       if (isAuthResponse(res)) {
         setThings({ kind: 'auth_required', message: 'Auth required. Sign in again to use Things.' })
         return
@@ -328,19 +526,16 @@ export default function Settings() {
         setThings({ kind: 'error', message: await readApiError(res, 'Things status check failed') })
         return
       }
-      const data = await res.json()
-      if (!data.configured) {
-        setThings({ kind: 'not_configured', message: 'Set THINGS_API_URL on the server to sync Things 3.' })
-      } else if (!data.reachable) {
-        // Configured but the sidecar is down or its Things Cloud login expired.
-        setThings({ kind: 'error', message: 'Things service unreachable. Check the sidecar and its credentials.' })
-      } else {
-        setThings({ kind: 'connected', message: 'Connected' })
-      }
+      applyThingsStatus(await res.json())
     } catch (err) {
       setThings({ kind: 'error', message: err instanceof Error ? err.message : 'Things status check failed' })
     }
-  }, [])
+  }, [applyThingsStatus])
+
+  const handleThingsSaved = useCallback((view?: ThingsStatusPayload) => {
+    if (view) applyThingsStatus(view)
+    else void checkThings()
+  }, [applyThingsStatus, checkThings])
 
   useEffect(() => { void checkTodoist() }, [checkTodoist])
   useEffect(() => { void checkThings() }, [checkThings])
@@ -454,9 +649,9 @@ export default function Settings() {
                 size="sm"
                 variant={thingsConnected ? 'soft' : 'outline'}
                 disabled={thingsBusy}
-                onClick={things.kind === 'auth_required' ? () => redirectToLogin() : checkThings}
+                onClick={things.kind === 'auth_required' ? () => redirectToLogin() : () => setThingsSheet(true)}
               >
-                {thingsBusy ? 'Checking...' : things.kind === 'auth_required' ? 'Sign in' : 'Check'}
+                {thingsBusy ? 'Checking...' : things.kind === 'auth_required' ? 'Sign in' : thingsConfig?.configured ? 'Edit' : 'Connect'}
               </Btn>
             }
           />
@@ -520,6 +715,12 @@ export default function Settings() {
       </div>
 
       <CategorySheet open={catSheet} onClose={() => setCatSheet(false)} />
+      <ThingsSheet
+        open={thingsSheet}
+        config={thingsConfig}
+        onClose={() => setThingsSheet(false)}
+        onSaved={handleThingsSaved}
+      />
     </div>
   )
 }

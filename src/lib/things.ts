@@ -39,31 +39,37 @@ export interface ThingsTaskRaw {
 /** Views the sidecar exposes that map onto how sesh groups work. */
 export type ThingsView = 'today' | 'inbox' | 'anytime' | 'upcoming' | 'someday'
 
-function baseUrl(): string {
-  const raw = process.env.THINGS_API_URL
-  if (!raw) throw new Error('THINGS_NOT_CONFIGURED')
-  return raw.replace(/\/+$/, '')
+/**
+ * Where the sidecar lives and how to authenticate to it. Passed in rather than
+ * read from the environment here: the connection is configurable in Settings
+ * and stored in the database (see lib/things-config), so only the caller knows
+ * which one applies.
+ */
+export interface ThingsConnection {
+  url: string
+  /** Empty when the sidecar runs without API_KEY set. */
+  apiKey: string
 }
 
-function authHeaders(): Record<string, string> {
+function baseUrl(conn: ThingsConnection): string {
+  if (!conn.url) throw new Error('THINGS_NOT_CONFIGURED')
+  return conn.url.replace(/\/+$/, '')
+}
+
+function authHeaders(conn: ThingsConnection): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const key = process.env.THINGS_API_KEY
   // The sidecar only enforces Bearer auth when it has API_KEY set.
-  if (key) headers.Authorization = `Bearer ${key}`
+  if (conn.apiKey) headers.Authorization = `Bearer ${conn.apiKey}`
   return headers
 }
 
-export function isThingsConfigured(): boolean {
-  return Boolean(process.env.THINGS_API_URL)
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(conn: ThingsConnection, path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
   try {
-    const res = await fetch(`${baseUrl()}${path}`, {
+    const res = await fetch(`${baseUrl(conn)}${path}`, {
       ...init,
-      headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+      headers: { ...authHeaders(conn), ...(init?.headers ?? {}) },
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -93,17 +99,17 @@ function readTaskArray(payload: unknown): ThingsTaskRaw[] {
   return []
 }
 
-export async function verifyThings(): Promise<boolean> {
+export async function verifyThings(conn: ThingsConnection): Promise<boolean> {
   try {
-    await request<unknown>('/api/verify')
+    await request<unknown>(conn, '/api/verify')
     return true
   } catch {
     return false
   }
 }
 
-export async function listThingsView(view: ThingsView): Promise<ThingsTaskRaw[]> {
-  return readTaskArray(await request<unknown>(`/api/tasks/${view}`))
+export async function listThingsView(conn: ThingsConnection, view: ThingsView): Promise<ThingsTaskRaw[]> {
+  return readTaskArray(await request<unknown>(conn, `/api/tasks/${view}`))
 }
 
 /**
@@ -111,9 +117,9 @@ export async function listThingsView(view: ThingsView): Promise<ThingsTaskRaw[]>
  * de-duplicated by uuid. A failing view yields nothing rather than blowing up
  * the whole list.
  */
-export async function listThingsTasks(views: ThingsView[]): Promise<ThingsTaskRaw[]> {
+export async function listThingsTasks(conn: ThingsConnection, views: ThingsView[]): Promise<ThingsTaskRaw[]> {
   const results = await Promise.all(
-    views.map(view => listThingsView(view).catch(() => [] as ThingsTaskRaw[])),
+    views.map(view => listThingsView(conn, view).catch(() => [] as ThingsTaskRaw[])),
   )
   const seen = new Set<string>()
   const merged: ThingsTaskRaw[] = []
@@ -126,8 +132,8 @@ export async function listThingsTasks(views: ThingsView[]): Promise<ThingsTaskRa
   return merged
 }
 
-export async function completeThingsTask(uuid: string): Promise<void> {
-  await request<unknown>('/api/tasks/complete', {
+export async function completeThingsTask(conn: ThingsConnection, uuid: string): Promise<void> {
+  await request<unknown>(conn, '/api/tasks/complete', {
     method: 'POST',
     body: JSON.stringify({ uuid }),
   })
@@ -137,8 +143,8 @@ export async function completeThingsTask(uuid: string): Promise<void> {
  * Things has no duration field, so focused time is appended to the task note
  * instead. Best-effort: a failure here must not fail the session save.
  */
-export async function appendThingsFocusNote(uuid: string, minutes: number): Promise<void> {
-  await request<unknown>('/api/tasks/edit', {
+export async function appendThingsFocusNote(conn: ThingsConnection, uuid: string, minutes: number): Promise<void> {
+  await request<unknown>(conn, '/api/tasks/edit', {
     method: 'POST',
     body: JSON.stringify({ uuid, note: `Focused ${minutes}m via sesh` }),
   })

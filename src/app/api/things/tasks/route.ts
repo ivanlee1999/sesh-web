@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
 import { dueKind, dueLabel } from '@/lib/task-dates'
-import { isThingsConfigured, listThingsTasks, type ThingsTaskRaw, type ThingsView } from '@/lib/things'
+import { listThingsTasks, type ThingsTaskRaw, type ThingsView } from '@/lib/things'
+import { readThingsConfig } from '@/lib/things-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,14 +35,15 @@ export async function GET(request: Request) {
   if (isRateLimited(getClientIp(request))) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
   }
-  if (!isThingsConfigured()) {
+  const conn = readThingsConfig()
+  if (!conn) {
     return NextResponse.json({ error: 'Things not configured' }, { status: 503 })
   }
 
   try {
     const requested = new URL(request.url).searchParams.get('filter')
     const filter: TaskFilter = requested === 'upcoming' || requested === 'all' ? requested : 'today'
-    const raw = await listThingsTasks(VIEWS_BY_FILTER[filter])
+    const raw = await listThingsTasks(conn, VIEWS_BY_FILTER[filter])
 
     const tasks = raw
       .filter(task => !isDone(task))
