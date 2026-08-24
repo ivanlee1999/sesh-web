@@ -37,7 +37,16 @@ vi.mock('../server-db', () => ({ getDb: () => db }))
 import { applyItems, readTaskNote, readTasks } from '../things-store'
 
 const DAY = 86_400
-const todaySeconds = Math.floor(new Date().setHours(9, 0, 0, 0) / 1000)
+
+/**
+ * Things writes a scheduled date as the UTC midnight of a floating calendar
+ * day — the exact shape a Things 3.15 capture shows on the wire — so the tests
+ * use that rather than an arbitrary instant, and read it back against the same
+ * UTC day boundary the app now passes in.
+ */
+const TODAY = '2026-08-24'
+const todaySeconds = Date.UTC(2026, 7, 24) / 1000
+const todayStart = todaySeconds
 
 function task(uuid: string, payload: Record<string, unknown>, action = 0) {
   return { uuid, kind: 'Task6', action, payload }
@@ -50,7 +59,7 @@ beforeEach(() => {
 describe('replaying the event log', () => {
   it('builds a task from a create', () => {
     applyItems([task('t1', { tt: 'Write the memo', st: 1, sr: todaySeconds, tp: 0, ss: 0 })])
-    expect(readTasks(['today'])).toMatchObject([{ uuid: 't1', title: 'Write the memo' }])
+    expect(readTasks(['today'], todayStart)).toMatchObject([{ uuid: 't1', title: 'Write the memo' }])
   })
 
   it('treats an absent field on a modify as unchanged, not as null', () => {
@@ -58,7 +67,7 @@ describe('replaying the event log', () => {
     // A status-only modify, exactly as Things sends when you tick something.
     applyItems([task('t1', { ss: 0 }, 1)])
 
-    const [found] = readTasks(['today'])
+    const [found] = readTasks(['today'], todayStart)
     expect(found.title).toBe('Original')
     expect(found.scheduledAt).toBe(todaySeconds)
   })
@@ -67,8 +76,8 @@ describe('replaying the event log', () => {
     applyItems([task('t1', { tt: 'Someday thing', st: 1, sr: todaySeconds, tp: 0, ss: 0 })])
     applyItems([task('t1', { sr: null }, 1)])
 
-    expect(readTasks(['today'])).toEqual([])
-    expect(readTasks(['anytime'])).toMatchObject([{ uuid: 't1', scheduledAt: null }])
+    expect(readTasks(['today'], todayStart)).toEqual([])
+    expect(readTasks(['anytime'], todayStart)).toMatchObject([{ uuid: 't1', scheduledAt: null }])
   })
 
   it('hides a task once it is completed, deleted or trashed', () => {
@@ -79,7 +88,7 @@ describe('replaying the event log', () => {
     ])
     applyItems([task('gone', {}, 2)])
 
-    expect(readTasks(['today'])).toEqual([])
+    expect(readTasks(['today'], todayStart)).toEqual([])
   })
 
   it('leaves projects and headings out of the task list', () => {
@@ -87,7 +96,7 @@ describe('replaying the event log', () => {
       task('p1', { tt: 'A project', st: 1, sr: todaySeconds, tp: 1, ss: 0 }),
       task('t1', { tt: 'A to-do', st: 1, sr: todaySeconds, tp: 0, ss: 0 }),
     ])
-    expect(readTasks(['today']).map(t => t.uuid)).toEqual(['t1'])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['t1'])
   })
 
   it('resolves area and project names for the group heading', () => {
@@ -96,7 +105,7 @@ describe('replaying the event log', () => {
       task('p1', { tt: 'Big project', tp: 1, ss: 0 }),
       task('t1', { tt: 'Child task', st: 1, sr: todaySeconds, tp: 0, ss: 0, ar: ['a1'], pr: ['p1'] }),
     ])
-    expect(readTasks(['today'])[0]).toMatchObject({ areaTitle: 'Work', projectTitle: 'Big project' })
+    expect(readTasks(['today'], todayStart)[0]).toMatchObject({ areaTitle: 'Work', projectTitle: 'Big project' })
   })
 
   it('replaces the tag set on each modify that mentions tags', () => {
@@ -105,10 +114,10 @@ describe('replaying the event log', () => {
       { uuid: 'g2', kind: 'Tag3', action: 0, payload: { tt: 'later' } },
       task('t1', { tt: 'Tagged', st: 1, sr: todaySeconds, tp: 0, ss: 0, tg: ['g1', 'g2'] }),
     ])
-    expect(readTasks(['today'])[0].tags.sort()).toEqual(['later', 'urgent'])
+    expect(readTasks(['today'], todayStart)[0].tags.sort()).toEqual(['later', 'urgent'])
 
     applyItems([task('t1', { tg: ['g1'] }, 1)])
-    expect(readTasks(['today'])[0].tags).toEqual(['urgent'])
+    expect(readTasks(['today'], todayStart)[0].tags).toEqual(['urgent'])
   })
 
   it('keeps a note across a modify that does not mention it', () => {
@@ -128,16 +137,16 @@ describe('the view a task lands in', () => {
       task('someday', { tt: 'Someday', st: 2, sr: null, tp: 0, ss: 0 }),
     ])
 
-    expect(readTasks(['inbox']).map(t => t.uuid)).toEqual(['inbox'])
-    expect(readTasks(['today']).map(t => t.uuid)).toEqual(['today'])
-    expect(readTasks(['anytime']).map(t => t.uuid)).toEqual(['anytime'])
-    expect(readTasks(['upcoming']).map(t => t.uuid)).toEqual(['later'])
-    expect(readTasks(['someday']).map(t => t.uuid)).toEqual(['someday'])
+    expect(readTasks(['inbox'], todayStart).map(t => t.uuid)).toEqual(['inbox'])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['today'])
+    expect(readTasks(['anytime'], todayStart).map(t => t.uuid)).toEqual(['anytime'])
+    expect(readTasks(['upcoming'], todayStart).map(t => t.uuid)).toEqual(['later'])
+    expect(readTasks(['someday'], todayStart).map(t => t.uuid)).toEqual(['someday'])
   })
 
   it('surfaces an overdue task in Today rather than hiding it', () => {
     applyItems([task('overdue', { tt: 'Overdue', st: 1, sr: todaySeconds - 3 * DAY, tp: 0, ss: 0 })])
-    expect(readTasks(['today']).map(t => t.uuid)).toEqual(['overdue'])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['overdue'])
   })
 
   it('returns a task once even when several views would match', () => {
@@ -145,7 +154,38 @@ describe('the view a task lands in', () => {
       task('t1', { tt: 'Today', st: 1, sr: todaySeconds, tp: 0, ss: 0 }),
       task('t2', { tt: 'Inbox', st: 0, tp: 0, ss: 0 }),
     ])
-    const all = readTasks(['today', 'upcoming', 'anytime', 'inbox'])
+    const all = readTasks(['today', 'upcoming', 'anytime', 'inbox'], todayStart)
     expect(all.map(t => t.uuid).sort()).toEqual(['t1', 't2'])
+  })
+})
+
+describe('which day the Today view means', () => {
+  /**
+   * The regression this guards: the boundary used to be built from the
+   * server's own clock, so a UTC container put tomorrow's tasks in Today for
+   * anyone west of it and hid today's from anyone east. The boundary is now
+   * handed in by the caller, who knows where the viewer is.
+   */
+  it('follows the viewer, not the machine', () => {
+    applyItems([
+      task('today', { tt: 'Today', st: 1, sr: Date.UTC(2026, 7, 24) / 1000, tp: 0, ss: 0 }),
+      task('tomorrow', { tt: 'Tomorrow', st: 1, sr: Date.UTC(2026, 7, 25) / 1000, tp: 0, ss: 0 }),
+    ])
+
+    const onThe24th = Date.UTC(2026, 7, 24) / 1000
+    const onThe25th = Date.UTC(2026, 7, 25) / 1000
+
+    expect(readTasks(['today'], onThe24th).map(t => t.uuid)).toEqual(['today'])
+    expect(readTasks(['upcoming'], onThe24th).map(t => t.uuid)).toEqual(['tomorrow'])
+
+    // A viewer for whom it is already the 25th sees both, the 24th as overdue.
+    expect(readTasks(['today'], onThe25th).map(t => t.uuid).sort()).toEqual(['today', 'tomorrow'])
+    expect(readTasks(['upcoming'], onThe25th)).toEqual([])
+  })
+
+  it('puts a task scheduled for the viewer today in Today, not Upcoming', () => {
+    applyItems([task('t1', { tt: 'Due today', st: 1, sr: todaySeconds, tp: 0, ss: 0 })])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['t1'])
+    expect(readTasks(['upcoming'], todayStart)).toEqual([])
   })
 })

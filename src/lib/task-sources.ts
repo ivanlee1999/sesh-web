@@ -78,24 +78,51 @@ export interface LoadedTasks {
   tasks: ExternalTask[]
   /** Provider-keyed failures, so the UI can show a partial list plus a warning. */
   errors: { provider: TaskProvider; message: string }[]
+  /** Some provider is still catching up; the list will grow on its own. */
+  syncing: boolean
 }
 
-async function fetchOne(provider: TaskProvider, filter: TaskFilter): Promise<ExternalTask[]> {
-  const res = await fetch(`${base(provider)}/tasks?filter=${filter}`)
+/**
+ * The server groups tasks into Today / Tomorrow / Upcoming, but only this side
+ * knows which day it currently is where the person is sitting — sesh is
+ * normally served from a UTC container. Sending the zone keeps the buckets from
+ * running a day ahead or behind for the hours the two clocks disagree.
+ */
+function viewerTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+  } catch {
+    return ''
+  }
+}
+
+interface FetchedPage {
+  tasks: ExternalTask[]
+  /** The provider is still replaying history, so this list may be short. */
+  syncing: boolean
+}
+
+async function fetchOne(provider: TaskProvider, filter: TaskFilter): Promise<FetchedPage> {
+  const tz = viewerTimeZone()
+  const query = `filter=${filter}${tz ? `&tz=${encodeURIComponent(tz)}` : ''}`
+  const res = await fetch(`${base(provider)}/tasks?${query}`)
   if (!res.ok) throw new Error(await readApiError(res, `Failed to load ${PROVIDER_LABEL[provider]} tasks`))
   const data = await res.json()
-  return ((data.tasks ?? []) as ExternalTask[]).map(task => ({ ...task, provider }))
+  return {
+    tasks: ((data.tasks ?? []) as ExternalTask[]).map(task => ({ ...task, provider })),
+    syncing: Boolean(data.syncing),
+  }
 }
 
 type FetchOutcome =
-  | { ok: true; provider: TaskProvider; tasks: ExternalTask[] }
+  | { ok: true; provider: TaskProvider; page: FetchedPage }
   | { ok: false; provider: TaskProvider; message: string }
 
 export async function loadTasks(filter: TaskFilter, providers: TaskProvider[]): Promise<LoadedTasks> {
   const settled = await Promise.all(
     providers.map(async (provider): Promise<FetchOutcome> => {
       try {
-        return { ok: true, provider, tasks: await fetchOne(provider, filter) }
+        return { ok: true, provider, page: await fetchOne(provider, filter) }
       } catch (err) {
         return { ok: false, provider, message: err instanceof Error ? err.message : 'Failed to load tasks' }
       }
@@ -104,11 +131,16 @@ export async function loadTasks(filter: TaskFilter, providers: TaskProvider[]): 
 
   const tasks: ExternalTask[] = []
   const errors: { provider: TaskProvider; message: string }[] = []
+  let syncing = false
   for (const result of settled) {
-    if (result.ok) tasks.push(...result.tasks)
-    else errors.push({ provider: result.provider, message: result.message })
+    if (result.ok) {
+      tasks.push(...result.page.tasks)
+      syncing = syncing || result.page.syncing
+    } else {
+      errors.push({ provider: result.provider, message: result.message })
+    }
   }
-  return { tasks, errors }
+  return { tasks, errors, syncing }
 }
 
 /** Task ids are only unique within a provider, so key on both. */
