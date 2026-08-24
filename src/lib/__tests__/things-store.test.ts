@@ -189,3 +189,47 @@ describe('which day the Today view means', () => {
     expect(readTasks(['upcoming'], todayStart)).toEqual([])
   })
 })
+
+describe('kinds the replay must not drop', () => {
+  /**
+   * The regression this guards. The number on a kind is a schema version, and
+   * one history holds every version it has ever written. `Task7` was not on
+   * the recognised list, so when it began carrying completions they were
+   * dropped in silence and finished tasks kept reappearing as open work.
+   */
+  it('accepts a task schema version it has never seen', () => {
+    applyItems([{ uuid: 't1', kind: 'Task6', action: 0, payload: { tt: 'Done later', st: 1, sr: todaySeconds, tp: 0, ss: 0 } }])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['t1'])
+
+    applyItems([{ uuid: 't1', kind: 'Task7', action: 1, payload: { ss: 3 } }])
+    expect(readTasks(['today'], todayStart)).toEqual([])
+
+    applyItems([{ uuid: 't2', kind: 'Task9', action: 0, payload: { tt: 'From the future', st: 1, sr: todaySeconds, tp: 0, ss: 0 } }])
+    expect(readTasks(['today'], todayStart).map(t => t.uuid)).toEqual(['t2'])
+  })
+
+  it('still ignores kinds that are not tasks, areas or tags', () => {
+    applyItems([
+      { uuid: 'c1', kind: 'ChecklistItem3', action: 0, payload: { tt: 'A step', st: 1, sr: todaySeconds, tp: 0, ss: 0 } },
+      { uuid: 'x1', kind: 'Tombstone2', action: 0, payload: { tt: 'Gone', st: 1, sr: todaySeconds, tp: 0, ss: 0 } },
+    ])
+    expect(readTasks(['today'], todayStart)).toEqual([])
+  })
+})
+
+describe('to-dos under a project that is gone', () => {
+  /** Things takes a project's to-dos out of its lists along with the project. */
+  it('hides them when the project is trashed, finished or deleted', () => {
+    applyItems([
+      task('live', { tt: 'Live project', tp: 1, ss: 0 }),
+      task('trashed', { tt: 'Trashed project', tp: 1, ss: 0, tr: true }),
+      task('done', { tt: 'Finished project', tp: 1, ss: 3 }),
+      task('a', { tt: 'Under live', st: 1, sr: todaySeconds, tp: 0, ss: 0, pr: ['live'] }),
+      task('b', { tt: 'Under trashed', st: 1, sr: todaySeconds, tp: 0, ss: 0, pr: ['trashed'] }),
+      task('c', { tt: 'Under finished', st: 1, sr: todaySeconds, tp: 0, ss: 0, pr: ['done'] }),
+      task('d', { tt: 'No project', st: 1, sr: todaySeconds, tp: 0, ss: 0 }),
+    ])
+
+    expect(readTasks(['today'], todayStart).map(t => t.uuid).sort()).toEqual(['a', 'd'])
+  })
+})
