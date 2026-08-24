@@ -55,10 +55,29 @@ export class ThingsCloudError extends Error {
   }
 }
 
-/** Item kinds we care about; everything else is ignored on replay. */
-export const TASK_KINDS = new Set(['Task6', 'Task4', 'Task3', 'Task'])
-export const AREA_KINDS = new Set(['Area3', 'Area2', 'Area'])
-export const TAG_KINDS = new Set(['Tag3', 'Tag4', 'Tag'])
+/**
+ * Item kinds we care about; everything else is ignored on replay.
+ *
+ * The trailing number is a schema version that Things bumps as the format
+ * moves on, and one history holds every version it has ever written. Matching
+ * the family rather than a fixed list matters: an unrecognised kind is dropped
+ * silently, so when `Task7` began carrying completions they simply never
+ * landed and long-finished tasks kept coming back as open work. A version this
+ * code has never heard of is still a task.
+ */
+const TASK_KIND = /^Task\d*$/
+const AREA_KIND = /^Area\d*$/
+const TAG_KIND = /^Tag\d*$/
+
+export function isTaskKind(kind: string): boolean {
+  return TASK_KIND.test(kind)
+}
+export function isAreaKind(kind: string): boolean {
+  return AREA_KIND.test(kind)
+}
+export function isTagKind(kind: string): boolean {
+  return TAG_KIND.test(kind)
+}
 
 export const ACTION_CREATED = 0
 export const ACTION_MODIFIED = 1

@@ -5,9 +5,9 @@ import { dayStartUtcSeconds, todayKey } from './task-dates'
 import {
   ThingsCloudError,
   ACTION_DELETED,
-  AREA_KINDS,
-  TAG_KINDS,
-  TASK_KINDS,
+  isAreaKind,
+  isTagKind,
+  isTaskKind,
   decodeNote,
   fetchItems,
   type ThingsCredentials,
@@ -178,9 +178,9 @@ export function applyItems(items: ThingsItem[]) {
   const db = getDb()
   db.transaction(() => {
     for (const item of items) {
-      if (TASK_KINDS.has(item.kind)) applyTask(db, item)
-      else if (AREA_KINDS.has(item.kind)) applyNamed(db, 'things_areas', item)
-      else if (TAG_KINDS.has(item.kind)) applyNamed(db, 'things_tags', item)
+      if (isTaskKind(item.kind)) applyTask(db, item)
+      else if (isAreaKind(item.kind)) applyNamed(db, 'things_areas', item)
+      else if (isTagKind(item.kind)) applyNamed(db, 'things_tags', item)
       // Settings, checklists and tombstones carry nothing sesh shows.
     }
   })()
@@ -359,6 +359,10 @@ export function readTasks(views: ThingsView[], todayStart = serverDayStart()): T
       LEFT JOIN things_areas a ON a.uuid = t.area_uuid
       LEFT JOIN things_tasks p ON p.uuid = t.project_uuid
       WHERE t.deleted = 0 AND t.in_trash = 0 AND t.status = 0 AND t.type = 0
+        -- Trashing or finishing a project takes its to-dos out of Things'
+        -- lists with it; they keep their own open, untrashed flags, so
+        -- checking only the task leaves years of dead work in Today.
+        AND (t.project_uuid IS NULL OR (p.deleted = 0 AND p.in_trash = 0 AND p.status = 0))
         AND (${viewClause(view)})
       ORDER BY t.scheduled_at IS NULL, t.scheduled_at
     `).all({ today }) as Array<Record<string, unknown>>
