@@ -44,8 +44,8 @@ const DAY = 86_400
  * use that rather than an arbitrary instant, and read it back against the same
  * UTC day boundary the app now passes in.
  */
-const TODAY = '2026-08-24'
 const todaySeconds = Date.UTC(2026, 7, 24) / 1000
+/** The same instant, named for its other role: the boundary readTasks asks about. */
 const todayStart = todaySeconds
 
 function task(uuid: string, payload: Record<string, unknown>, action = 0) {
