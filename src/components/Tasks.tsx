@@ -15,12 +15,14 @@ import {
   type AllOptions,
 } from '@/lib/task-views'
 import { useCategories } from '@/context/CategoriesContext'
+import { useSettings } from '@/context/SettingsContext'
 import { redirectToLogin } from '@/lib/api-client'
 import { encodeTaskRef } from '@/lib/task-ref'
 import {
   PROVIDER_COLOR,
   PROVIDER_LABEL,
   completeTask as completeProviderTask,
+  enabledProviders,
   loadProviderStatuses,
   loadTasks,
   taskKey,
@@ -153,6 +155,10 @@ function TaskRow({
 
 export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingFocus) => void }) {
   const { categories } = useCategories()
+  const { settings } = useSettings()
+  // Only this one setting changes which providers are asked; depending on the
+  // whole object would re-fetch every task on an unrelated preference change.
+  const providers = useMemo(() => enabledProviders(settings), [settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
   const [tasks, setTasks] = useState<ExternalTask[]>([])
   const [filter, setFilter] = useState<Filter>('today')
@@ -167,7 +173,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     setLoading(true)
     setError(null)
     try {
-      const next = await loadProviderStatuses()
+      const next = await loadProviderStatuses(providers)
       setStatuses(next)
 
       const connected = next.filter(s => s.state === 'connected').map(s => s.provider)
@@ -186,7 +192,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [providers])
 
   useEffect(() => { load() }, [load])
 

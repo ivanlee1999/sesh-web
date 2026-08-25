@@ -26,6 +26,27 @@ export const PROVIDER_COLOR: Record<TaskProvider, string> = {
   things: '#1A79E5',
 }
 
+/**
+ * Which providers to ask about at all.
+ *
+ * A provider switched off is not queried, does not report a status and cannot
+ * contribute tasks — the difference between "off" and "connected but empty"
+ * should be that nothing goes near it, not that its results are hidden after
+ * the fact.
+ */
+/**
+ * Absent means on. The setting arrives from the server and from localStorage,
+ * either of which can predate it, and an upgrade must not quietly take Todoist
+ * away from someone who was using it.
+ */
+export function isTodoistEnabled(settings: { todoistEnabled?: boolean }): boolean {
+  return settings.todoistEnabled !== false
+}
+
+export function enabledProviders(settings: { todoistEnabled?: boolean }): TaskProvider[] {
+  return TASK_PROVIDERS.filter(provider => provider !== 'todoist' || isTodoistEnabled(settings))
+}
+
 export type ProviderState = 'checking' | 'connected' | 'not_configured' | 'auth_required' | 'error'
 
 export interface ProviderStatus {
@@ -70,8 +91,8 @@ async function checkOne(provider: TaskProvider): Promise<ProviderStatus> {
   }
 }
 
-export async function loadProviderStatuses(): Promise<ProviderStatus[]> {
-  return Promise.all(TASK_PROVIDERS.map(checkOne))
+export async function loadProviderStatuses(providers: TaskProvider[] = [...TASK_PROVIDERS]): Promise<ProviderStatus[]> {
+  return Promise.all(providers.map(checkOne))
 }
 
 export interface LoadedTasks {

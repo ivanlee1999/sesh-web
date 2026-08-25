@@ -7,7 +7,7 @@ import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
-import { PROVIDER_COLOR } from '@/lib/task-sources'
+import { PROVIDER_COLOR, isTodoistEnabled } from '@/lib/task-sources'
 import { ACCENT_OPTIONS, Btn, Group, Icon, Row, ScreenHead, Sheet, Stepper, Toggle, Wordmark, fmtHM } from './sesh-ui'
 
 type TodoistConnection =
@@ -521,6 +521,7 @@ function MiniStat({ value, label, icon }: { value: string | number; label: strin
 
 export default function Settings() {
   const { settings, updateSettings } = useSettings()
+  const todoistOn = isTodoistEnabled(settings)
   const { categories } = useCategories()
   const [profile, setProfile] = useState(false)
   const [catSheet, setCatSheet] = useState(false)
@@ -617,7 +618,10 @@ export default function Settings() {
     else void checkThings()
   }, [applyThingsStatus, checkThings])
 
-  useEffect(() => { void checkTodoist() }, [checkTodoist])
+  // Nothing to check while it is off, and no reason to call Todoist either.
+  // Depends on the value, not the settings object: the object's identity is
+  // not guaranteed stable, and re-running this every render loops forever.
+  useEffect(() => { if (todoistOn) void checkTodoist() }, [checkTodoist, todoistOn])
   useEffect(() => { void checkThings() }, [checkThings])
 
   const manualSync = async () => {
@@ -657,7 +661,8 @@ export default function Settings() {
   if (profile) return <ProfileScreen onBack={() => setProfile(false)} />
 
   const todoistBusy = todoist.kind === 'checking'
-  const todoistConnected = todoist.kind === 'connected'
+  // Switched off counts as no source, whatever the last check said.
+  const todoistConnected = todoistOn && todoist.kind === 'connected'
   const thingsBusy = things.kind === 'checking'
   const thingsConnected = things.kind === 'connected'
   // The auto-complete toggle applies to whichever task source is connected.
@@ -708,16 +713,24 @@ export default function Settings() {
           <Row
             icon="list"
             title="Todoist"
-            sub={todoist.message}
+            sub={todoistOn ? todoist.message : 'Off — not used for tasks'}
             right={
-              <Btn
-                size="sm"
-                variant={todoistConnected ? 'soft' : 'outline'}
-                disabled={todoistBusy}
-                onClick={todoist.kind === 'auth_required' ? () => redirectToLogin() : checkTodoist}
-              >
-                {todoistBusy ? 'Checking...' : todoist.kind === 'auth_required' ? 'Sign in' : 'Check'}
-              </Btn>
+              <div className="flex items-center gap-2">
+                {todoistOn && (
+                  <Btn
+                    size="sm"
+                    variant={todoistConnected ? 'soft' : 'outline'}
+                    disabled={todoistBusy}
+                    onClick={todoist.kind === 'auth_required' ? () => redirectToLogin() : checkTodoist}
+                  >
+                    {todoistBusy ? 'Checking...' : todoist.kind === 'auth_required' ? 'Sign in' : 'Check'}
+                  </Btn>
+                )}
+                <Toggle
+                  on={todoistOn}
+                  onChange={todoistEnabled => updateSettings({ todoistEnabled })}
+                />
+              </div>
             }
           />
           <Row

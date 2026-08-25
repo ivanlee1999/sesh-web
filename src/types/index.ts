@@ -77,6 +77,12 @@ export interface AppSettings {
   autoStartBreak: boolean
   autoStartFocus: boolean
   todoistAutoComplete: boolean
+  /**
+   * Whether Todoist is used at all. Set on the server like the Things
+   * connection, so switching it off applies to every device rather than the
+   * one that happened to do it.
+   */
+  todoistEnabled: boolean
   accentColor: string
 }
 
@@ -93,5 +99,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoStartBreak: true,
   autoStartFocus: false,
   todoistAutoComplete: true,
+  todoistEnabled: true,
   accentColor: '#BE6E45',
 }
