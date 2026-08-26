@@ -32,3 +32,30 @@ export function decodeTaskRef(ref: string | null | undefined): TaskRef | null {
   }
   return { provider: 'todoist', id: ref }
 }
+
+/**
+ * A session can be pointed at several tasks at once, so the single
+ * `todoist_task_id` column now carries a comma-separated list of the refs
+ * above. Neither Todoist ids nor Things uuids contain a comma, and a list of
+ * one encodes to exactly the bare ref it always was — so every existing row,
+ * queued session and Raycast client keeps reading and writing what it expects.
+ */
+const LIST_SEPARATOR = ','
+
+export function encodeTaskRefs(refs: readonly string[]): string | null {
+  const cleaned = refs.map(ref => ref.trim()).filter(Boolean)
+  return cleaned.length > 0 ? cleaned.join(LIST_SEPARATOR) : null
+}
+
+/** The individual refs in a stored value, still encoded. */
+export function splitTaskRefs(value: string | null | undefined): string[] {
+  if (!value) return []
+  return value.split(LIST_SEPARATOR).map(ref => ref.trim()).filter(Boolean)
+}
+
+/** The individual refs in a stored value, decoded to provider + id. */
+export function decodeTaskRefs(value: string | null | undefined): TaskRef[] {
+  return splitTaskRefs(value)
+    .map(decodeTaskRef)
+    .filter((ref): ref is TaskRef => ref !== null)
+}

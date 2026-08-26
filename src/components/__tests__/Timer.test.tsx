@@ -6,6 +6,8 @@ let autoStartBreak = false
 let autoStartFocus = false
 let timerApiState: Record<string, unknown>
 let visibilityStateValue: DocumentVisibilityState = 'visible'
+/** Whether the fake Todoist is configured — off by default, as it is on a bare install. */
+let todoistConfigured = false
 const updateSettings = vi.fn()
 
 vi.mock('@/context/SettingsContext', () => ({
@@ -22,8 +24,10 @@ vi.mock('@/context/SettingsContext', () => ({
       autoStartBreak,
       autoStartFocus,
       todoistAutoComplete: true,
+      todoistEnabled: true,
       accentColor: '#BE6E45',
     },
+    loaded: true,
     updateSettings,
   }),
 }))
@@ -93,6 +97,7 @@ beforeEach(() => {
   autoStartFocus = false
   timerApiState = timerState()
   visibilityStateValue = 'visible'
+  todoistConfigured = false
   vi.useRealTimers()
   vi.clearAllMocks()
   updateSettings.mockReset()
@@ -124,20 +129,37 @@ beforeEach(() => {
     if (url.includes('/api/analytics')) {
       return new Response(JSON.stringify({ streak: 3, todayMs: 0, todayCount: 0, days: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
+    if (url.includes('/api/todoist/status')) {
+      return new Response(JSON.stringify({ configured: todoistConfigured }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
     if (url.includes('/api/todoist/tasks')) {
       return new Response(JSON.stringify({
-        tasks: [{
-          id: 't1',
-          content: 'Draft memo',
-          duration: null,
-          labels: ['work'],
-          priority: 1,
-          projectName: 'Work',
-          due: 'today',
-          dueLabel: 'Today',
-          category: 'work',
-          completed: false,
-        }],
+        tasks: [
+          {
+            id: 't1',
+            content: 'Draft memo',
+            duration: null,
+            labels: ['work'],
+            priority: 1,
+            projectName: 'Work',
+            due: 'today',
+            dueLabel: 'Today',
+            category: 'work',
+            completed: false,
+          },
+          {
+            id: 't2',
+            content: 'Book the room',
+            duration: null,
+            labels: ['work'],
+            priority: 4,
+            projectName: 'Work',
+            due: 'today',
+            dueLabel: 'Today',
+            category: 'work',
+            completed: false,
+          },
+        ],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -761,5 +783,86 @@ describe('Timer', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('screen'))
+  })
+
+  describe('working several tasks in one session', () => {
+    /** Open the picker and select the two open tasks. */
+    async function pickBothTasks() {
+      render(<Timer />)
+      fireEvent.click(await screen.findByRole('button', { name: /Choose tasks/ }))
+      fireEvent.click(await screen.findByRole('button', { name: /Draft memo/ }))
+      fireEvent.click(await screen.findByRole('button', { name: /Book the room/ }))
+    }
+
+    it('keeps the picker open so a second task can be added without reopening it', async () => {
+      todoistConfigured = true
+      await pickBothTasks()
+
+      expect(await screen.findByText('2 tasks in this session')).toBeTruthy()
+    })
+
+    it('names every picked task in the topic', async () => {
+      todoistConfigured = true
+      await pickBothTasks()
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+
+      const field = await screen.findByLabelText('Focus intention')
+      expect((field as HTMLInputElement).value).toBe('Draft memo · Book the room')
+    })
+
+    it('starts the session against both tasks', async () => {
+      todoistConfigured = true
+      await pickBothTasks()
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+
+      await waitFor(() => {
+        const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+          const url = typeof input === 'string' ? input : (input as Request).url
+          return url === '/api/timer' && init?.method === 'PUT'
+            && String(init?.body).includes('"todoistTaskId":"t1,t2"')
+        })
+        expect(put).toBeTruthy()
+      })
+    })
+
+    it('drops one task without disturbing the other', async () => {
+      todoistConfigured = true
+      await pickBothTasks()
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Remove Draft memo from the session' }))
+
+      const field = await screen.findByLabelText('Focus intention')
+      await waitFor(() => expect((field as HTMLInputElement).value).toBe('Book the room'))
+    })
+
+    it('logs the time to every task and ticks them all off when the session is saved', async () => {
+      todoistConfigured = true
+      await pickBothTasks()
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+      fireEvent.click(await screen.findByLabelText('Stop session'))
+      fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+
+      const posted = (path: string) => vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === path && init?.method === 'POST'
+      })
+
+      await waitFor(() => {
+        expect(posted('/api/todoist/tasks/t1/duration')).toBe(true)
+        expect(posted('/api/todoist/tasks/t2/duration')).toBe(true)
+        expect(posted('/api/todoist/tasks/t1/close')).toBe(true)
+        expect(posted('/api/todoist/tasks/t2/close')).toBe(true)
+      })
+    })
+
+    it('offers no tasks at all once Todoist is the only source and it is unconfigured', async () => {
+      render(<Timer />)
+      await screen.findByRole('button', { name: 'Start focus' })
+
+      expect(screen.queryByRole('button', { name: /Choose tasks/ })).toBeNull()
+    })
   })
 })

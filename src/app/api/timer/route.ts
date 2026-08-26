@@ -4,7 +4,7 @@ import { sendPushToAll } from '@/lib/push'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
 import { readThingsConfig } from '@/lib/things-config'
 import { recordThingsFocus } from '@/lib/things-service'
-import { decodeTaskRef } from '@/lib/task-ref'
+import { decodeTaskRefs } from '@/lib/task-ref'
 import { syncSessionToGoogleCalendar, persistCalendarSyncResult } from '@/lib/google-calendar'
 import {
   checkAndSendOverflowNotifications,
@@ -18,28 +18,32 @@ import {
 export const dynamic = 'force-dynamic'
 
 /**
- * Record focused time against the linked task after session completion
- * (non-fatal). The stored reference may belong to any provider, so decode it
- * first — sending a Things uuid to Todoist would 404 on every session.
+ * Record focused time against the linked tasks after session completion
+ * (non-fatal). A session can be against several, and each stored reference may
+ * belong to a different provider — so decode before dispatching, or a Things
+ * uuid would go to Todoist and 404 on every session.
+ *
+ * One task failing must not stop the rest, hence a settled loop rather than a
+ * fail-fast Promise.all.
  */
-async function syncTaskDuration(taskRef: string, actualMs: number) {
+async function syncTaskDuration(taskRefs: string, actualMs: number) {
   const minutes = Math.round(actualMs / 60000)
   if (minutes <= 0) return
-  const ref = decodeTaskRef(taskRef)
-  if (!ref) return
 
-  try {
-    if (ref.provider === 'todoist') {
-      if (!isTodoistConfigured()) return
-      await addTaskDuration(ref.id, minutes)
-      return
+  await Promise.all(decodeTaskRefs(taskRefs).map(async ref => {
+    try {
+      if (ref.provider === 'todoist') {
+        if (!isTodoistConfigured()) return
+        await addTaskDuration(ref.id, minutes)
+        return
+      }
+      const conn = readThingsConfig()
+      if (!conn) return
+      await recordThingsFocus(conn, ref.id, minutes)
+    } catch (err) {
+      console.error(`[${ref.provider}] Failed to sync duration:`, err)
     }
-    const conn = readThingsConfig()
-    if (!conn) return
-    await recordThingsFocus(conn, ref.id, minutes)
-  } catch (err) {
-    console.error(`[${ref.provider}] Failed to sync duration:`, err)
-  }
+  }))
 }
 
 

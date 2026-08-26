@@ -304,6 +304,10 @@
   to { stroke-dashoffset: 0 }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg) }
+}
+
 @keyframes rowLeave {
   from { opacity: 1; transform: none; max-height: 90px }
   to { opacity: 0; transform: translate3d(-24px, 0, 0); max-height: 0 }
@@ -350,6 +354,7 @@
   .anim-number-pop { animation: numberPop var(--dur-3) var(--ease-spring) }
   .anim-chip-pop { animation: chipPop var(--dur-3) var(--ease-spring) }
   .anim-row-leave { animation: rowLeave var(--dur-3) var(--ease-in-out) forwards }
+  .anim-spin { animation: spin 900ms linear infinite; transform-origin: 50% 50% }
 
   .grow-bar {
     transform-origin: bottom;

@@ -12,6 +12,7 @@
 import type { ExternalTask, TaskProvider } from '@/types'
 import { resolveProvider } from '@/types'
 import { isAuthResponse, readApiError } from '@/lib/api-client'
+import { decodeTaskRef, splitTaskRefs } from '@/lib/task-ref'
 
 export const TASK_PROVIDERS: readonly TaskProvider[] = ['todoist', 'things'] as const
 
@@ -45,6 +46,19 @@ export function isTodoistEnabled(settings: { todoistEnabled?: boolean }): boolea
 
 export function enabledProviders(settings: { todoistEnabled?: boolean }): TaskProvider[] {
   return TASK_PROVIDERS.filter(provider => provider !== 'todoist' || isTodoistEnabled(settings))
+}
+
+/**
+ * The refs in a stored task reference that belong to a provider still switched
+ * on. A session started before Todoist was switched off keeps its Todoist ref
+ * in the database — but it must stop naming it on screen and stop logging time
+ * to it, or "off" only means "off for new sessions".
+ */
+export function refsForProviders(value: string | null | undefined, providers: TaskProvider[]): string[] {
+  return splitTaskRefs(value).filter(ref => {
+    const decoded = decodeTaskRef(ref)
+    return decoded !== null && providers.includes(decoded.provider)
+  })
 }
 
 export type ProviderState = 'checking' | 'connected' | 'not_configured' | 'auth_required' | 'error'

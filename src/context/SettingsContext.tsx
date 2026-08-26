@@ -8,16 +8,25 @@ export const THEME_COLOR_DARK = '#15120D'
 
 interface SettingsContextType {
   settings: AppSettings
+  /**
+   * Whether the stored settings have arrived yet. Until they have, `settings`
+   * is only the defaults — screens that act on a preference (which task
+   * providers to query, say) must wait, or they briefly do the opposite of
+   * what the person asked for.
+   */
+  loaded: boolean
   updateSettings: (updates: Partial<AppSettings>) => void
 }
 
 const SettingsContext = createContext<SettingsContextType>({
   settings: DEFAULT_SETTINGS,
+  loaded: false,
   updateSettings: () => {},
 })
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+  const [loaded, setLoaded] = useState(false)
 
   // Load settings: server first, then merge with localStorage
   useEffect(() => {
@@ -39,6 +48,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       // Server takes priority over local
       const merged = { ...DEFAULT_SETTINGS, ...localSettings, ...serverSettings }
       setSettings(merged)
+      setLoaded(true)
       localStorage.setItem('sesh-settings', JSON.stringify(merged))
     }
     load()
@@ -88,7 +98,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings }}>
+    <SettingsContext.Provider value={{ settings, loaded, updateSettings }}>
       {children}
     </SettingsContext.Provider>
   )
