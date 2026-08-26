@@ -23,7 +23,6 @@ vi.mock('@/context/SettingsContext', () => ({
       keepScreenAwake,
       autoStartBreak,
       autoStartFocus,
-      todoistAutoComplete: true,
       todoistEnabled: true,
       accentColor: '#BE6E45',
     },
@@ -64,6 +63,11 @@ vi.mock('@/lib/local-store', () => ({
   markCategoryUsed: vi.fn((categoryName: string) => [categoryName]),
   getPomodoroCycleCount: vi.fn(() => 0),
   incrementPomodoroCycle: vi.fn(() => 1),
+  enqueueFocusTime: vi.fn(),
+  getFocusTimeQueue: vi.fn(() => []),
+  removeQueuedFocusTime: vi.fn(),
+  markFocusTimeAttempt: vi.fn(),
+  MAX_FOCUS_TIME_ATTEMPTS: 5,
 }))
 
 import Timer from '../Timer'
@@ -105,6 +109,7 @@ beforeEach(() => {
   vi.mocked(localStore.markCategoryUsed).mockImplementation((categoryName: string) => [categoryName])
   vi.mocked(localStore.getPomodoroCycleCount).mockReturnValue(0)
   vi.mocked(localStore.incrementPomodoroCycle).mockReturnValue(1)
+  vi.mocked(localStore.getFocusTimeQueue).mockReturnValue([])
 
   Object.defineProperty(document, 'visibilityState', {
     configurable: true,
@@ -837,25 +842,60 @@ describe('Timer', () => {
       await waitFor(() => expect((field as HTMLInputElement).value).toBe('Book the room'))
     })
 
-    it('logs the time to every task and ticks them all off when the session is saved', async () => {
-      todoistConfigured = true
+    const posted = (path: string) => vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      return url === path && init?.method === 'POST'
+    })
+
+    /** Pick both tasks, run a session and save it. */
+    async function runAndSaveSession() {
       await pickBothTasks()
       fireEvent.click(screen.getByRole('button', { name: 'Done' }))
       fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
       fireEvent.click(await screen.findByLabelText('Stop session'))
       fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+    }
 
-      const posted = (path: string) => vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => {
-        const url = typeof input === 'string' ? input : (input as Request).url
-        return url === path && init?.method === 'POST'
-      })
+    it('logs the time to every task in the session', async () => {
+      todoistConfigured = true
+      await runAndSaveSession()
 
       await waitFor(() => {
         expect(posted('/api/todoist/tasks/t1/duration')).toBe(true)
         expect(posted('/api/todoist/tasks/t2/duration')).toBe(true)
-        expect(posted('/api/todoist/tasks/t1/close')).toBe(true)
-        expect(posted('/api/todoist/tasks/t2/close')).toBe(true)
       })
+    })
+
+    it('never ticks a task off — finishing a session is not finishing the work', async () => {
+      todoistConfigured = true
+      await runAndSaveSession()
+
+      await waitFor(() => expect(posted('/api/todoist/tasks/t1/duration')).toBe(true))
+      expect(posted('/api/todoist/tasks/t1/close')).toBe(false)
+      expect(posted('/api/todoist/tasks/t2/close')).toBe(false)
+    })
+
+    it('queues focused minutes the provider refused, rather than losing them', async () => {
+      todoistConfigured = true
+      const realFetch = vi.mocked(globalThis.fetch).getMockImplementation()!
+      vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        if (url.includes('/duration')) {
+          return new Response('<html>502</html>', { status: 502, statusText: 'Bad Gateway' })
+        }
+        return realFetch(input, init)
+      })
+
+      await runAndSaveSession()
+
+      await waitFor(() => {
+        expect(vi.mocked(localStore.enqueueFocusTime)).toHaveBeenCalledTimes(2)
+      })
+      const queued = vi.mocked(localStore.enqueueFocusTime).mock.calls.map(([entry]) => entry.taskRef)
+      expect(queued).toEqual(['t1', 't2'])
+      // The gateway's HTML page must not reach the notice — see lib/api-client.
+      expect(await screen.findByText(/502 Bad Gateway/)).toBeTruthy()
+      expect(screen.queryByText(/<html>/)).toBeNull()
     })
 
     it('offers no tasks at all once Todoist is the only source and it is unconfigured', async () => {

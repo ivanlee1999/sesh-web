@@ -8,10 +8,9 @@ import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { useCssSize } from '@/hooks/useCssSize'
 import { useFitSquare } from '@/hooks/useFitSquare'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
-import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
-import { readApiError } from '@/lib/api-client'
+import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs } from '@/lib/task-ref'
-import { PROVIDER_COLOR, PROVIDER_LABEL, enabledProviders, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders, taskKey } from '@/lib/task-sources'
+import { PROVIDER_COLOR, PROVIDER_LABEL, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders, taskKey } from '@/lib/task-sources'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
 
@@ -797,6 +796,26 @@ export default function Timer({
     }
   }, [refreshTimerFromServer])
 
+  /**
+   * Replay focused minutes that never landed — on open, on reconnect, and on
+   * coming back to the app. The timer is mounted for as long as sesh is, so
+   * this is the one place guaranteed to be listening. A failure here is the
+   * queue's business, not the screen's, so nothing is reported.
+   */
+  useEffect(() => {
+    if (!settingsLoaded) return
+    const retry = () => { void flushFocusTimeQueue() }
+    const onVisible = () => { if (document.visibilityState === 'visible') retry() }
+
+    retry()
+    window.addEventListener('online', retry)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('online', retry)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [settingsLoaded])
+
   useEffect(() => {
     if (phase === 'reflect') return
     saveTimerState({
@@ -1299,32 +1318,40 @@ export default function Timer({
   }, [phase, remainingMs, sessionType, settings.autoStartFocus, settings.soundEnabled])
 
   /**
-   * Record time against every task the session was pointed at, and optionally
-   * tick them off. Each stored reference carries its provider, so a Things task
-   * never gets sent to Todoist — and a provider switched off since the session
-   * started is left alone rather than called behind the person's back.
+   * Record time against every task the session was pointed at. Each stored
+   * reference carries its provider, so a Things task never gets sent to
+   * Todoist — and a provider switched off since the session started is left
+   * alone rather than called behind the person's back.
    *
    * The session's minutes go to each task in full: sesh knows how long the
    * sitting was, not how it was divided, and splitting it evenly would be a
    * guess dressed up as a measurement.
+   *
+   * Nothing is ticked off. Finishing a session says the sitting is over, not
+   * that the work is — least of all when the session was pointed at several
+   * tasks, which is close to saying you did not expect to finish them all.
+   * Completing a task is a deliberate tap on the Tasks screen.
+   *
+   * A write that fails is queued rather than lost: the minutes are real
+   * whether or not the network agreed at that moment.
    */
   const syncTasksAfterSession = async (taskRefValues: string | null, actualMs: number) => {
     const refs = decodeTaskRefs(taskRefValues).filter(ref => providers.includes(ref.provider))
     if (refs.length === 0) return
 
+    const minutes = actualMs / 60000
     const failures: string[] = []
     await Promise.all(refs.map(async ref => {
-      const label = PROVIDER_LABEL[ref.provider]
       try {
-        await recordFocusTime(ref.provider, ref.id, actualMs / 60000)
-        if (!settings.todoistAutoComplete) return
-        const closeRes = await fetch(`/api/${ref.provider}/tasks/${ref.id}/close`, { method: 'POST' })
-        if (!closeRes.ok) failures.push(await readApiError(closeRes, `Failed to close ${label} task`))
+        await recordFocusTime(ref.provider, ref.id, minutes)
       } catch (err) {
-        failures.push(err instanceof Error ? err.message : `Failed to sync ${label} task`)
+        enqueueFocusTime({ taskRef: encodeTaskRef(ref.provider, ref.id), minutes, queuedAt: Date.now() })
+        failures.push(err instanceof Error ? err.message : `Failed to reach ${PROVIDER_LABEL[ref.provider]}`)
       }
     }))
-    setTaskNotice(failures.length > 0 ? failures.join(' · ') : null)
+    setTaskNotice(failures.length > 0
+      ? `${failures.join(' · ')} — will retry`
+      : null)
   }
 
   const saveReflection = async (rating: number, notes: string) => {
