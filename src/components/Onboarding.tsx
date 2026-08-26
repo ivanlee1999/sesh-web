@@ -24,10 +24,12 @@ const slides = [
     ),
   },
   {
-    key: 'todoist',
-    kicker: 'Todoist · Calendar',
+    key: 'tasks',
+    // Named no provider: which ones are connected is a setting, and onboarding
+    // runs before anyone has made that choice.
+    kicker: 'Tasks · Calendar',
     title: 'Your tasks become\nyour sessions.',
-    body: 'Pull tasks in from Todoist and focus on them one at a time. Finish a session and the task checks itself off.',
+    body: 'Pull tasks in from your task manager and focus on them — one, or a few at a time. Finish a session and they check themselves off.',
     art: (
       <div className="flex w-[280px] flex-col gap-[10px]">
         {([

@@ -10,8 +10,8 @@ import { useFitSquare } from '@/hooks/useFitSquare'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { readApiError } from '@/lib/api-client'
-import { decodeTaskRef, encodeTaskRef } from '@/lib/task-ref'
-import { PROVIDER_COLOR, PROVIDER_LABEL, loadProviderStatuses, loadTasks, recordFocusTime, taskKey } from '@/lib/task-sources'
+import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs } from '@/lib/task-ref'
+import { PROVIDER_COLOR, PROVIDER_LABEL, enabledProviders, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders, taskKey } from '@/lib/task-sources'
 import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
 import type { PendingFocus } from './Tasks'
 
@@ -200,49 +200,30 @@ function taskCategory(task: ExternalTask, categories: CategoryRecord[], fallback
   return fallback
 }
 
+/**
+ * Pick the tasks for the next session. Tapping toggles rather than picks and
+ * closes: a sitting often covers several small things, and having to reopen
+ * the sheet for each one made that not worth doing.
+ */
 function TaskPickerSheet({
   open,
   onClose,
-  onPick,
-  activeId,
+  onToggle,
+  selectedRefs,
+  tasks,
+  loading,
   categories,
   fallbackCategory,
 }: {
   open: boolean
   onClose: () => void
-  onPick: (task: ExternalTask, categoryName: string) => void
-  activeId: string | null
+  onToggle: (task: ExternalTask) => void
+  selectedRefs: string[]
+  tasks: ExternalTask[]
+  loading: boolean
   categories: CategoryRecord[]
   fallbackCategory: string
 }) {
-  const [tasks, setTasks] = useState<ExternalTask[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    loadProviderStatuses()
-      .then(statuses => loadTasks('all', statuses.filter(s => s.state === 'connected').map(s => s.provider)))
-      .then(({ tasks: loaded, errors }) => {
-        if (cancelled) return
-        setTasks(loaded.filter(task => !task.completed))
-        if (errors.length > 0) {
-          setError(errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · '))
-        }
-      })
-      .catch(err => {
-        if (!cancelled) {
-          setTasks([])
-          setError(err instanceof Error ? err.message : 'Failed to load tasks')
-        }
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [open])
-
   const today = tasks.filter(task => task.due === 'today')
   const tomorrow = tasks.filter(task => task.due === 'tomorrow')
   const upcoming = tasks.filter(task => task.due === 'upcoming')
@@ -254,15 +235,22 @@ function TaskPickerSheet({
   ].filter(column => column.items.length > 0)
 
   return (
-    <Sheet open={open} onClose={onClose} title="Focus on a task">
+    <Sheet open={open} onClose={onClose} title="Focus on tasks">
       <div className="flex max-h-[420px] flex-col gap-[14px] overflow-y-auto">
-        {loading && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading tasks...</div>}
-        {error && <div className="rounded-[var(--r-md)] border border-[#C2615A]/20 bg-[#C2615A]/10 px-4 py-3 text-[13px] text-[#C2615A]">{error}</div>}
-        <TaskGroup label="Today" items={today} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+        {loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading tasks...</div>}
+        <TaskGroup label="Today" items={today} categories={categories} selectedRefs={selectedRefs} fallbackCategory={fallbackCategory} onToggle={onToggle} />
         {boardColumns.length > 0 && (
-          <TaskBoard columns={boardColumns} categories={categories} activeId={activeId} fallbackCategory={fallbackCategory} onPick={onPick} />
+          <TaskBoard columns={boardColumns} categories={categories} selectedRefs={selectedRefs} fallbackCategory={fallbackCategory} onToggle={onToggle} />
         )}
         {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left to do.</div>}
+      </div>
+      <div className="mt-[14px] flex items-center gap-3">
+        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink-3)]">
+          {selectedRefs.length > 0
+            ? `${selectedRefs.length} ${selectedRefs.length === 1 ? 'task' : 'tasks'} in this session`
+            : 'Tap a task to add it'}
+        </span>
+        <Btn size="sm" onClick={onClose}>Done</Btn>
       </div>
     </Sheet>
   )
@@ -271,15 +259,15 @@ function TaskPickerSheet({
 function TaskBoard({
   columns,
   categories,
-  activeId,
+  selectedRefs,
   fallbackCategory,
-  onPick,
+  onToggle,
 }: {
   columns: { key: string; label: string; items: ExternalTask[] }[]
   categories: CategoryRecord[]
-  activeId: string | null
+  selectedRefs: string[]
   fallbackCategory: string
-  onPick: (task: ExternalTask, categoryName: string) => void
+  onToggle: (task: ExternalTask) => void
 }) {
   return (
     <div>
@@ -298,9 +286,9 @@ function TaskBoard({
                     key={taskKey(task)}
                     task={task}
                     categories={categories}
-                    activeId={activeId}
+                    selectedRefs={selectedRefs}
                     fallbackCategory={fallbackCategory}
-                    onPick={onPick}
+                    onToggle={onToggle}
                   />
                 ))}
               </div>
@@ -315,26 +303,27 @@ function TaskBoard({
 function TaskCard({
   task,
   categories,
-  activeId,
+  selectedRefs,
   fallbackCategory,
-  onPick,
+  onToggle,
 }: {
   task: ExternalTask
   categories: CategoryRecord[]
-  activeId: string | null
+  selectedRefs: string[]
   fallbackCategory: string
-  onPick: (task: ExternalTask, categoryName: string) => void
+  onToggle: (task: ExternalTask) => void
 }) {
   const categoryName = taskCategory(task, categories, fallbackCategory)
   const category = categoryByName(categories, categoryName)
-  // activeId is a provider-qualified ref; ids alone collide across providers.
-  const active = activeId === encodeTaskRef(resolveProvider(task), task.id)
+  // Selection is by provider-qualified ref; ids alone collide across providers.
+  const active = selectedRefs.includes(encodeTaskRef(resolveProvider(task), task.id))
   const priorityLabel = task.priority > 1 ? `P${task.priority}` : null
 
   return (
     <button
       type="button"
-      onClick={() => onPick(task, categoryName)}
+      onClick={() => onToggle(task)}
+      aria-pressed={active}
       className="flex items-center gap-3 rounded-[var(--r-md)] border px-[14px] py-3 text-left"
       style={{
         borderColor: active ? 'var(--accent)' : 'var(--line)',
@@ -342,7 +331,15 @@ function TaskCard({
         background: active ? 'var(--accent-soft)' : 'var(--surface)',
       }}
     >
-      <span className="h-4 w-4 flex-shrink-0 rounded-full border-2" style={{ borderColor: category?.color ?? 'var(--line-strong)' }} />
+      <span
+        className="grid h-4 w-4 flex-shrink-0 place-items-center rounded-full border-2"
+        style={{
+          borderColor: category?.color ?? 'var(--line-strong)',
+          background: active ? (category?.color ?? 'var(--accent)') : 'transparent',
+        }}
+      >
+        {active && <Icon name="check" size={9} color="#fff" stroke={3.5} />}
+      </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
         <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
@@ -360,16 +357,16 @@ function TaskGroup({
   label,
   items,
   categories,
-  activeId,
+  selectedRefs,
   fallbackCategory,
-  onPick,
+  onToggle,
 }: {
   label: string
   items: ExternalTask[]
   categories: CategoryRecord[]
-  activeId: string | null
+  selectedRefs: string[]
   fallbackCategory: string
-  onPick: (task: ExternalTask, categoryName: string) => void
+  onToggle: (task: ExternalTask) => void
 }) {
   if (!items.length) return null
   return (
@@ -381,9 +378,9 @@ function TaskGroup({
             key={taskKey(task)}
             task={task}
             categories={categories}
-            activeId={activeId}
+            selectedRefs={selectedRefs}
             fallbackCategory={fallbackCategory}
-            onPick={onPick}
+            onToggle={onToggle}
           />
         ))}
       </div>
@@ -581,8 +578,11 @@ export default function Timer({
   pendingFocus?: PendingFocus | null
   clearPendingFocus?: () => void
 }) {
-  const { settings, updateSettings } = useSettings()
+  const { settings, loaded: settingsLoaded, updateSettings } = useSettings()
   const { categories, byName } = useCategories()
+  // Only this one setting decides which providers are asked; depending on the
+  // whole object would re-fetch every task on an unrelated preference change.
+  const providers = useMemo(() => enabledProviders(settings), [settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
   const [phase, setPhase] = useState<TimerRunPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
   const [intention, setIntention] = useState('')
@@ -591,13 +591,15 @@ export default function Timer({
   const [targetMs, setTargetMs] = useState(settings.focusDuration * 60000)
   const [dragMinutes, setDragMinutes] = useState<number | null>(null)
   const [startedAt, setStartedAt] = useState(0)
-  // Provider-qualified task reference (see lib/task-ref). Named for the API
-  // field and DB column it round-trips through, both of which predate Things.
-  const [todoistTaskId, setTodoistTaskId] = useState<string | null>(null)
+  // The tasks this session is against, as provider-qualified refs (see
+  // lib/task-ref). A session can carry several; the API field and DB column
+  // still take the one string they always did.
+  const [taskRefs, setTaskRefs] = useState<string[]>([])
   const [sheet, setSheet] = useState<'tasks' | null>(null)
   const [editingTopic, setEditingTopic] = useState(false)
   const [recentCategories, setRecentCategories] = useState<string[]>([])
-  const [openTaskCount, setOpenTaskCount] = useState(0)
+  const [tasks, setTasks] = useState<ExternalTask[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
   const [taskNotice, setTaskNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
   const [streak, setStreak] = useState(0)
@@ -618,27 +620,47 @@ export default function Timer({
     setRecentCategories(getRecentCategoryNames())
     setCycleCount(getPomodoroCycleCount())
     fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
-    loadProviderStatuses()
-      .then(async statuses => {
-        if (statuses.some(s => s.state === 'auth_required')) {
-          setTaskNotice('Auth required. Sign in again to choose tasks.')
-          return 0
-        }
-        const connected = statuses.filter(s => s.state === 'connected').map(s => s.provider)
-        if (connected.length === 0) {
-          // Nothing configured is a normal state, not an error worth surfacing.
-          setTaskNotice(null)
-          return 0
-        }
-        const { tasks, errors } = await loadTasks('all', connected)
-        setTaskNotice(errors.length > 0
-          ? errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · ')
-          : null)
-        return tasks.filter(task => !task.completed).length
-      })
-      .then(setOpenTaskCount)
-      .catch(() => setOpenTaskCount(0))
   }, [])
+
+  /**
+   * The open tasks, held here rather than in the picker: the idle screen also
+   * names the tasks a session is already pointed at, and both should be
+   * looking at the same list.
+   */
+  const refreshTasks = useCallback(async () => {
+    setTasksLoading(true)
+    try {
+      const statuses = await loadProviderStatuses(providers)
+      if (statuses.some(s => s.state === 'auth_required')) {
+        setTaskNotice('Auth required. Sign in again to choose tasks.')
+        setTasks([])
+        return
+      }
+      const connected = statuses.filter(s => s.state === 'connected').map(s => s.provider)
+      if (connected.length === 0) {
+        // Nothing configured is a normal state, not an error worth surfacing.
+        setTaskNotice(null)
+        setTasks([])
+        return
+      }
+      const { tasks: loaded, errors } = await loadTasks('all', connected)
+      setTasks(loaded.filter(task => !task.completed))
+      setTaskNotice(errors.length > 0
+        ? errors.map(e => `${PROVIDER_LABEL[e.provider]}: ${e.message}`).join(' · ')
+        : null)
+    } catch {
+      setTasks([])
+    } finally {
+      setTasksLoading(false)
+    }
+  }, [providers])
+
+  // Waits for the stored settings: `providers` is only the default until they
+  // land, and a provider that has been switched off must not be queried at all.
+  useEffect(() => {
+    if (!settingsLoaded) return
+    void refreshTasks()
+  }, [refreshTasks, settingsLoaded])
 
   useEffect(() => {
     if (categories.length === 0) return
@@ -647,11 +669,26 @@ export default function Timer({
     setCategory(defaultCategory.name)
   }, [byName, categories, category])
 
+  /** What the server and local store take: one string, however many tasks. */
+  const taskRefValue = useMemo(() => encodeTaskRefs(taskRefs), [taskRefs])
+
+  /**
+   * The picked tasks themselves, resolved against the live list so a refresh
+   * cannot leave a stale title on screen. A ref with no match — the task was
+   * closed elsewhere, or its provider has since been switched off — is still
+   * shown, named by its source, rather than silently vanishing from a session
+   * that is going to log time against it.
+   */
+  const selectedTasks = useMemo(() => {
+    const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
+    return taskRefs.map(ref => ({ ref, task: byRef.get(ref) ?? null }))
+  }, [taskRefs, tasks])
+
   useEffect(() => {
     if (!pendingFocus) return
     setIntention(pendingFocus.intention)
     if (pendingFocus.category && byName[pendingFocus.category]) setCategory(pendingFocus.category)
-    setTodoistTaskId(pendingFocus.taskId)
+    setTaskRefs(pendingFocus.taskIds)
     setSessionType('focus')
     setRemainingMs(settings.focusDuration * 60000)
     setTargetMs(settings.focusDuration * 60000)
@@ -686,7 +723,7 @@ export default function Timer({
       setCategory(data.category as Category)
       setTargetMs(data.targetMs)
       setStartedAt(data.startedAt)
-      setTodoistTaskId(data.todoistTaskId)
+      setTaskRefs(refsForProviders(data.todoistTaskId, providers))
       // Breaks restore into overtime just like focus. Coming back to the app
       // after the break ran long should show the rest still counting, not drop
       // you on the idle screen having quietly thrown the extra time away. The
@@ -701,7 +738,7 @@ export default function Timer({
       setRemainingMs(data.remainingMs)
       setTargetMs(data.targetMs)
       setStartedAt(data.startedAt ?? 0)
-      setTodoistTaskId(data.todoistTaskId)
+      setTaskRefs(refsForProviders(data.todoistTaskId, providers))
     } else if (data.phase === 'idle') {
       setPhase('idle')
       if (data.category) setCategory(data.category as Category)
@@ -711,7 +748,7 @@ export default function Timer({
       setRemainingMs(settings.focusDuration * 60000)
       setStartedAt(0)
     }
-  }, [settings.focusDuration])
+  }, [providers, settings.focusDuration])
 
   const restoreLocal = useCallback(() => {
     const local = loadTimerState()
@@ -720,7 +757,7 @@ export default function Timer({
     setIntention(local.intention)
     setCategory(local.category)
     setTargetMs(local.targetMs)
-    setTodoistTaskId(local.todoistTaskId)
+    setTaskRefs(refsForProviders(local.todoistTaskId, providers))
     if (local.phase === 'running' && local.startedAt) {
       // Overdue breaks keep running, same as focus — see applyRemote.
       setPhase('running')
@@ -731,7 +768,7 @@ export default function Timer({
       setRemainingMs(local.remainingMs)
       setStartedAt(local.startedAt ?? 0)
     }
-  }, [])
+  }, [providers])
 
   const refreshTimerFromServer = useCallback(() => {
     fetch('/api/timer')
@@ -772,10 +809,10 @@ export default function Timer({
       overflowMs: Math.max(0, -remainingMs),
       startedAt: startedAt || null,
       pausedAt: phase === 'paused' ? Date.now() : null,
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
       savedAt: Date.now(),
     })
-  }, [category, intention, phase, remainingMs, sessionType, startedAt, targetMs, todoistTaskId])
+  }, [category, intention, phase, remainingMs, sessionType, startedAt, targetMs, taskRefValue])
 
   useEffect(() => {
     if (phase !== 'running') {
@@ -806,6 +843,7 @@ export default function Timer({
     }
   }, [])
 
+  const openTaskCount = tasks.length
   const selectedCategory = categoryByName(categories, category)
   const sortedCategories = useMemo(() => {
     const order = new Map(recentCategories.map((name, index) => [name, index]))
@@ -841,25 +879,61 @@ export default function Timer({
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
     })
-  }, [category, intention, sessionType, syncToServer, todoistTaskId, updateSettings])
+  }, [category, intention, sessionType, syncToServer, taskRefValue, updateSettings])
 
-  /** The inline field edits on every keystroke; the server only needs the rest. */
-  const syncIdleIntention = useCallback((nextIntention: string) => {
+  /**
+   * Push the idle screen's topic to the server. Every field is passed in
+   * rather than read from state: picking a task changes the intention, the
+   * category and the links at once, and React has not applied any of them yet.
+   */
+  const syncIdleTopic = useCallback((next: { intention: string; category: Category; refs: string[] }) => {
     syncToServer({
       phase: 'idle',
       sessionType,
-      intention: nextIntention,
-      category,
+      intention: next.intention,
+      category: next.category,
       targetMs,
       remainingMs,
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
-      todoistTaskId,
+      todoistTaskId: encodeTaskRefs(next.refs),
     })
-  }, [category, remainingMs, sessionType, syncToServer, targetMs, todoistTaskId])
+  }, [remainingMs, sessionType, syncToServer, targetMs])
+
+  /** The inline field edits on every keystroke; the server only needs the rest. */
+  const syncIdleIntention = useCallback((nextIntention: string) => {
+    syncIdleTopic({ intention: nextIntention, category, refs: taskRefs })
+  }, [category, syncIdleTopic, taskRefs])
+
+  /**
+   * Change which tasks the next session is against. The topic is rewritten to
+   * name them — it is the one line that says what the session is for — and the
+   * first task, being the one that leads, decides the category.
+   */
+  const applyTaskRefs = useCallback((nextRefs: string[]) => {
+    const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
+    const picked = nextRefs.map(ref => byRef.get(ref)).filter((task): task is ExternalTask => !!task)
+    const nextIntention = picked.map(task => task.content).join(' · ')
+    const nextCategory = picked.length > 0 ? taskCategory(picked[0], categories, category) : category
+
+    setTaskRefs(nextRefs)
+    setIntention(nextIntention)
+    setCategory(nextCategory)
+    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+    syncIdleTopic({ intention: nextIntention, category: nextCategory, refs: nextRefs })
+  }, [categories, category, syncIdleTopic, tasks])
+
+  const toggleTaskRef = useCallback((task: ExternalTask) => {
+    const ref = encodeTaskRef(resolveProvider(task), task.id)
+    applyTaskRefs(taskRefs.includes(ref) ? taskRefs.filter(r => r !== ref) : [...taskRefs, ref])
+  }, [applyTaskRefs, taskRefs])
+
+  const removeTaskRef = useCallback((ref: string) => {
+    applyTaskRefs(taskRefs.filter(r => r !== ref))
+  }, [applyTaskRefs, taskRefs])
 
   const handleIdleDialPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (phase !== 'idle') return
@@ -967,11 +1041,11 @@ export default function Timer({
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
     })
   }
 
-  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskId = todoistTaskId, durationMinutes?: number) => {
+  const start = useCallback((type: SessionType = sessionType, startingIntention = intention, startingCategory = category, startingTaskRefs = taskRefs, durationMinutes?: number) => {
     const configuredTarget = (type === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
     const nextTarget = durationMinutes
       ? durationMinutes * 60000
@@ -988,7 +1062,7 @@ export default function Timer({
     setRemainingMs(nextTarget)
     setIntention(startingIntention)
     setCategory(startingCategory)
-    setTodoistTaskId(startingTaskId)
+    setTaskRefs(startingTaskRefs)
     if (startingCategory) setRecentCategories(markCategoryUsed(startingCategory))
     syncToServer({
       phase: 'running',
@@ -1000,10 +1074,10 @@ export default function Timer({
       overflowMs: 0,
       startedAt: now,
       pausedAt: null,
-      todoistTaskId: startingTaskId,
+      todoistTaskId: encodeTaskRefs(startingTaskRefs),
     })
     postSwMessage('TIMER_STARTED')
-  }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, targetMs, todoistTaskId, wakeLock])
+  }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, targetMs, taskRefs, wakeLock])
 
   const pause = () => {
     setPhase('paused')
@@ -1017,7 +1091,7 @@ export default function Timer({
       overflowMs: 0,
       startedAt,
       pausedAt: Date.now(),
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
     })
     postSwMessage('TIMER_STOPPED')
   }
@@ -1035,7 +1109,7 @@ export default function Timer({
       overflowMs: 0,
       startedAt,
       pausedAt: null,
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
     })
     postSwMessage('TIMER_STARTED')
   }
@@ -1044,14 +1118,14 @@ export default function Timer({
    * Switch the topic of the session in flight. The change applies to the whole
    * session — the reflection draft is built from this state when it ends — and
    * is pushed to the server so other clients and notifications stay in step.
-   * A rewritten intention drops the linked Todoist task so time is never logged
-   * against a task you moved off.
+   * A rewritten intention drops the linked tasks so time is never logged
+   * against work you moved off.
    */
   const changeRunningTopic = useCallback((nextCategory: Category, nextIntention: string) => {
-    const nextTaskId = nextIntention === intention ? todoistTaskId : null
+    const nextRefs = nextIntention === intention ? taskRefs : []
     setCategory(nextCategory)
     setIntention(nextIntention)
-    setTodoistTaskId(nextTaskId)
+    setTaskRefs(nextRefs)
     if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
     syncToServer({
       phase,
@@ -1063,9 +1137,9 @@ export default function Timer({
       overflowMs: Math.max(0, -remainingMs),
       startedAt: startedAt || null,
       pausedAt: phase === 'paused' ? Date.now() : null,
-      todoistTaskId: nextTaskId,
+      todoistTaskId: encodeTaskRefs(nextRefs),
     })
-  }, [intention, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs, todoistTaskId])
+  }, [intention, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs, taskRefs])
 
   const changeDraftTopic = useCallback((nextCategory: Category, nextIntention: string) => {
     setDraft(prev => prev ? {
@@ -1088,7 +1162,7 @@ export default function Timer({
         intention,
         category,
         sessionType,
-        todoistTaskId,
+        todoistTaskId: taskRefValue,
       })
     }
     const actualMs = Math.max(60000, endedAt - startedAt)
@@ -1102,9 +1176,9 @@ export default function Timer({
       overflowMs: Math.max(0, actualMs - targetMs),
       startedAt,
       endedAt,
-      todoistTaskId,
+      todoistTaskId: taskRefValue,
     }
-  }, [category, intention, sessionType, startedAt, targetMs, todoistTaskId])
+  }, [category, intention, sessionType, startedAt, targetMs, taskRefValue])
 
   const finish = useCallback((natural: boolean) => {
     if (finishingRef.current) return
@@ -1117,7 +1191,7 @@ export default function Timer({
         if (navigator.vibrate) navigator.vibrate(120)
         if (settings.autoStartFocus) {
           finishingRef.current = false
-          start('focus', '', category, null)
+          start('focus', '', category, [])
           return
         }
       }
@@ -1177,7 +1251,7 @@ export default function Timer({
 
       const isLongBreak = nextCount % settings.sessionsBeforeLongBreak === 0
       finishingRef.current = false
-      start('break', '', category, null, isLongBreak ? settings.longBreakDuration : settings.breakDuration)
+      start('break', '', category, [], isLongBreak ? settings.longBreakDuration : settings.breakDuration)
       return
     }
 
@@ -1225,30 +1299,32 @@ export default function Timer({
   }, [phase, remainingMs, sessionType, settings.autoStartFocus, settings.soundEnabled])
 
   /**
-   * Record time against the linked task and optionally tick it off. The stored
-   * reference carries its provider, so a Things task never gets sent to Todoist.
+   * Record time against every task the session was pointed at, and optionally
+   * tick them off. Each stored reference carries its provider, so a Things task
+   * never gets sent to Todoist — and a provider switched off since the session
+   * started is left alone rather than called behind the person's back.
+   *
+   * The session's minutes go to each task in full: sesh knows how long the
+   * sitting was, not how it was divided, and splitting it evenly would be a
+   * guess dressed up as a measurement.
    */
-  const syncTaskAfterSession = async (taskRef: string, actualMs: number) => {
-    const ref = decodeTaskRef(taskRef)
-    if (!ref) return
-    const label = PROVIDER_LABEL[ref.provider]
-    try {
-      await recordFocusTime(ref.provider, ref.id, actualMs / 60000)
+  const syncTasksAfterSession = async (taskRefValues: string | null, actualMs: number) => {
+    const refs = decodeTaskRefs(taskRefValues).filter(ref => providers.includes(ref.provider))
+    if (refs.length === 0) return
 
-      if (!settings.todoistAutoComplete) {
-        setTaskNotice(null)
-        return
+    const failures: string[] = []
+    await Promise.all(refs.map(async ref => {
+      const label = PROVIDER_LABEL[ref.provider]
+      try {
+        await recordFocusTime(ref.provider, ref.id, actualMs / 60000)
+        if (!settings.todoistAutoComplete) return
+        const closeRes = await fetch(`/api/${ref.provider}/tasks/${ref.id}/close`, { method: 'POST' })
+        if (!closeRes.ok) failures.push(await readApiError(closeRes, `Failed to close ${label} task`))
+      } catch (err) {
+        failures.push(err instanceof Error ? err.message : `Failed to sync ${label} task`)
       }
-
-      const closeRes = await fetch(`/api/${ref.provider}/tasks/${ref.id}/close`, { method: 'POST' })
-      if (!closeRes.ok) {
-        setTaskNotice(await readApiError(closeRes, `Failed to close ${label} task`))
-        return
-      }
-      setTaskNotice(null)
-    } catch (err) {
-      setTaskNotice(err instanceof Error ? err.message : `Failed to sync ${label} task`)
-    }
+    }))
+    setTaskNotice(failures.length > 0 ? failures.join(' · ') : null)
   }
 
   const saveReflection = async (rating: number, notes: string) => {
@@ -1261,9 +1337,7 @@ export default function Timer({
         body: JSON.stringify(session),
       })
       if (!res.ok) throw new Error('Failed to save session')
-      if (draft.todoistTaskId) {
-        void syncTaskAfterSession(draft.todoistTaskId, draft.actualMs)
-      }
+      void syncTasksAfterSession(draft.todoistTaskId, draft.actualMs)
     } catch {
       const offline: QueuedSession = {
         ...session,
@@ -1279,7 +1353,7 @@ export default function Timer({
     if (phase === 'running' || phase === 'paused') return
 
     setIntention('')
-    setTodoistTaskId(null)
+    setTaskRefs([])
     setStartedAt(0)
     setPhase('idle')
     setSessionType('focus')
@@ -1605,7 +1679,7 @@ export default function Timer({
                       overflowMs: 0,
                       startedAt: null,
                       pausedAt: null,
-                      todoistTaskId,
+                      todoistTaskId: taskRefValue,
                     })
                   }}>{cat.label}</Chip>
                 ))}
@@ -1616,7 +1690,7 @@ export default function Timer({
             )}
             {/* Edited in place — an intention is one line, not a screen. */}
             <div className="timer-intention-field">
-              <Icon name={todoistTaskId ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
+              <Icon name={taskRefs.length > 0 ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
               <input
                 type="text"
                 value={intention}
@@ -1625,8 +1699,8 @@ export default function Timer({
                 placeholder="Add an intention (optional)"
                 onChange={event => {
                   setIntention(event.target.value)
-                  // A rewritten intention is no longer the linked task.
-                  setTodoistTaskId(null)
+                  // A hand-written intention is no longer the picked tasks.
+                  setTaskRefs([])
                 }}
                 onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
                 onBlur={() => {
@@ -1641,7 +1715,7 @@ export default function Timer({
                   aria-label="Clear intention"
                   onClick={() => {
                     setIntention('')
-                    setTodoistTaskId(null)
+                    setTaskRefs([])
                     syncIdleIntention('')
                   }}
                   className="grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--surface-2)] p-0"
@@ -1650,10 +1724,39 @@ export default function Timer({
                 </button>
               )}
             </div>
+            {/* Named individually rather than counted: a session pointed at
+                four things should say which four, and let you drop one. */}
+            {selectedTasks.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-[6px]">
+                {selectedTasks.map(({ ref, task }) => (
+                  <span
+                    key={ref}
+                    className="anim-chip-pop flex max-w-full items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface-2)] py-[5px] pl-[10px] pr-[6px] text-[12.5px] font-medium"
+                  >
+                    <span
+                      aria-hidden
+                      className="h-[6px] w-[6px] flex-shrink-0 rounded-full"
+                      style={{ background: PROVIDER_COLOR[decodeTaskRefs(ref)[0]?.provider ?? 'todoist'] }}
+                    />
+                    <span className="min-w-0 max-w-[180px] truncate">
+                      {task?.content ?? `${PROVIDER_LABEL[decodeTaskRefs(ref)[0]?.provider ?? 'todoist']} task`}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${task?.content ?? 'task'} from the session`}
+                      onClick={() => removeTaskRef(ref)}
+                      className="press-sm grid h-[18px] w-[18px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--surface)] p-0"
+                    >
+                      <Icon name="x" size={11} color="var(--ink-3)" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             {openTaskCount > 0 && (
-              <button type="button" onClick={() => setSheet('tasks')} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
+              <button type="button" onClick={() => { setSheet('tasks'); void refreshTasks() }} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
                 <Icon name="list" size={15} color="var(--ink-3)" />
-                Choose a task
+                {selectedTasks.length > 0 ? 'Add another task' : 'Choose tasks'}
               </button>
             )}
             {taskNotice && (
@@ -1676,13 +1779,10 @@ export default function Timer({
         onClose={() => setSheet(null)}
         categories={categories}
         fallbackCategory={category}
-        activeId={todoistTaskId}
-        onPick={(task, categoryName) => {
-          setIntention(task.content)
-          setCategory(categoryName)
-          setTodoistTaskId(encodeTaskRef(resolveProvider(task), task.id))
-          setSheet(null)
-        }}
+        tasks={tasks}
+        loading={tasksLoading}
+        selectedRefs={taskRefs}
+        onToggle={toggleTaskRef}
       />
     </div>
   )

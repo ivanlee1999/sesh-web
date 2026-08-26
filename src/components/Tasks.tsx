@@ -33,8 +33,12 @@ import { Btn, CatBadge, Chip, Icon, ScreenHead, tint } from './sesh-ui'
 export interface PendingFocus {
   intention: string
   category?: string
-  /** Provider-qualified reference, so the session completes the right task. */
-  taskId: string
+  /**
+   * Provider-qualified references, so the session completes the right tasks.
+   * A session can be pointed at several at once — one sitting often clears a
+   * handful of small things rather than one big one.
+   */
+  taskIds: string[]
 }
 
 type Filter = 'today' | 'upcoming' | 'all'
@@ -100,21 +104,31 @@ function TaskRow({
   category,
   onComplete,
   onFocus,
+  onToggleSelect,
+  selected,
   completing,
 }: {
   task: ExternalTask
   category: CategoryRecord | null
   onComplete: () => void
   onFocus: () => void
+  onToggleSelect: () => void
+  selected: boolean
   completing: boolean
 }) {
   const pri = priorityColor[task.priority] ?? null
   const color = category?.color ?? 'var(--line-strong)'
+  const accent = category?.color ?? 'var(--accent)'
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-3 ${completing ? 'anim-row-leave' : ''}`}
-      style={{ transition: 'opacity var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out)' }}
+      className={`flex items-center gap-3 rounded-[var(--r-md)] border bg-[var(--surface)] px-[14px] py-3 ${completing ? 'anim-row-leave' : ''}`}
+      style={{
+        borderColor: selected ? accent : 'var(--line)',
+        borderWidth: selected ? 1.5 : 1,
+        background: selected ? tint(accent, 8) : 'var(--surface)',
+        transition: 'opacity var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out)',
+      }}
     >
       <button
         type="button"
@@ -129,17 +143,35 @@ function TaskRow({
       >
         {completing && <Icon name="check" size={12} color="#fff" stroke={3} />}
       </button>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</div>
-        <div className="mt-1 flex items-center gap-[9px]">
+      {/* The body is the multi-select target: tap to add the task to the next
+          session, tap again to drop it. The play button still starts a session
+          on this one task alone, which is the common case. */}
+      <button
+        type="button"
+        onClick={onToggleSelect}
+        aria-pressed={selected}
+        aria-label={selected ? `Remove ${task.content} from the session` : `Add ${task.content} to the session`}
+        className="min-w-0 flex-1 border-0 bg-transparent p-0 text-left"
+      >
+        <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
+        <span className="mt-1 flex items-center gap-[9px]">
           <CatBadge category={category} size="sm" />
           {task.dueLabel && (
             <span className="text-[12px] font-medium" style={{ color: task.due === 'today' ? 'var(--accent-ink)' : 'var(--ink-3)' }}>
               {task.dueLabel}
             </span>
           )}
-        </div>
-      </div>
+        </span>
+      </button>
+      {selected && (
+        <span
+          aria-hidden
+          className="anim-pop grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full"
+          style={{ background: accent }}
+        >
+          <Icon name="check" size={12} color="#fff" stroke={3} />
+        </span>
+      )}
       <button
         type="button"
         aria-label="Focus on task"
@@ -155,7 +187,7 @@ function TaskRow({
 
 export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingFocus) => void }) {
   const { categories } = useCategories()
-  const { settings } = useSettings()
+  const { settings, loaded: settingsLoaded } = useSettings()
   // Only this one setting changes which providers are asked; depending on the
   // whole object would re-fetch every task on an unrelated preference change.
   const providers = useMemo(() => enabledProviders(settings), [settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -168,8 +200,13 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const [completingKey, setCompletingKey] = useState<string | null>(null)
   const [allOptions, setAllOptions] = useState<AllOptions>(DEFAULT_ALL_OPTIONS)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** Keyed by `taskKey`, so a refreshed list keeps the same tasks selected. */
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
 
   const load = useCallback(async () => {
+    // Until the stored settings land, `providers` is only the default — asking
+    // now would query, and name, a provider that has been switched off.
+    if (!settingsLoaded) return
     setLoading(true)
     setError(null)
     try {
@@ -192,7 +229,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     } finally {
       setLoading(false)
     }
-  }, [providers])
+  }, [providers, settingsLoaded])
 
   useEffect(() => { load() }, [load])
 
@@ -238,12 +275,39 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const connected = statuses.filter(s => s.state === 'connected')
   const authRequired = statuses.some(s => s.state === 'auth_required')
 
+  // Resolved against the current list rather than stored as task objects, so a
+  // refresh (or a filter change) can never hand the timer a stale copy. Kept in
+  // the order they were picked — that is the order they will be worked through.
+  const selectedTasks = useMemo(() => {
+    const byKey = new Map(tasks.map(task => [taskKey(task), task]))
+    return selectedKeys.map(key => byKey.get(key)).filter((task): task is ExternalTask => !!task)
+  }, [selectedKeys, tasks])
+
+  const toggleSelected = (task: ExternalTask) => {
+    const key = taskKey(task)
+    setSelectedKeys(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]))
+  }
+
+  /** Hand a set of tasks to the timer as one session. */
+  const focusOn = (picked: ExternalTask[]) => {
+    if (picked.length === 0) return
+    onFocusTask({
+      // The topic names every task in the session; the timer keeps it editable.
+      intention: picked.map(task => task.content).join(' · '),
+      // One category for the session — the first task's, since it leads.
+      category: taskCategory(picked[0], categories)?.name,
+      taskIds: picked.map(task => encodeTaskRef(resolveProvider(task), task.id)),
+    })
+    setSelectedKeys([])
+  }
+
   const complete = async (task: ExternalTask) => {
     const key = taskKey(task)
     setCompletingKey(key)
     try {
       await completeProviderTask(task)
       setTasks(prev => prev.filter(t => taskKey(t) !== key))
+      setSelectedKeys(prev => prev.filter(k => k !== key))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to close task')
     } finally {
@@ -299,21 +363,34 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
       <ScreenHead
         title="Tasks"
         right={
-          <button type="button" onClick={load} className="press mt-[10px] flex items-center gap-[7px] border-0 bg-transparent p-0">
-            <span className="flex items-center gap-[3px]">
-              {connected.map(status => (
-                <span
-                  key={status.provider}
-                  aria-label={PROVIDER_LABEL[status.provider]}
-                  className="h-2 w-2 rounded-full"
-                  style={{ background: PROVIDER_COLOR[status.provider] }}
-                />
-              ))}
+          <div className="mt-[10px] flex items-center gap-[10px]">
+            <span className="flex items-center gap-[7px]">
+              <span className="flex items-center gap-[3px]">
+                {connected.map(status => (
+                  <span
+                    key={status.provider}
+                    aria-label={PROVIDER_LABEL[status.provider]}
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: PROVIDER_COLOR[status.provider] }}
+                  />
+                ))}
+              </span>
+              <span className="text-[12.5px] font-medium text-[var(--ink-3)]">
+                {loading ? 'Syncing' : connected.map(s => PROVIDER_LABEL[s.provider]).join(' + ')}
+              </span>
             </span>
-            <span className="text-[12.5px] font-medium text-[var(--ink-3)]">
-              {loading ? 'Syncing' : connected.map(s => PROVIDER_LABEL[s.provider]).join(' + ')}
-            </span>
-          </button>
+            {/* The status pill used to double as the refresh, which nothing said. */}
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              aria-label="Refresh tasks"
+              title="Refresh tasks"
+              className="press grid h-[32px] w-[32px] flex-shrink-0 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-0 disabled:opacity-60"
+            >
+              <Icon name="sync" size={15} color="var(--ink-2)" className={loading ? 'anim-spin' : undefined} />
+            </button>
+          </div>
         }
       />
 
@@ -394,12 +471,10 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
                         task={task}
                         category={category}
                         completing={completingKey === taskKey(task)}
+                        selected={selectedKeys.includes(taskKey(task))}
                         onComplete={() => complete(task)}
-                        onFocus={() => onFocusTask({
-                          intention: task.content,
-                          category: category?.name,
-                          taskId: encodeTaskRef(resolveProvider(task), task.id),
-                        })}
+                        onToggleSelect={() => toggleSelected(task)}
+                        onFocus={() => focusOn([task])}
                       />
                     )
                   })}
@@ -415,6 +490,31 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         )}
         </div>
       </div>
+
+      {/* Sticky rather than fixed: it rides inside the scroller, so it sits above
+          the list and below the tab bar without either having to know about it. */}
+      {selectedTasks.length > 0 && (
+        <div className="anim-fade-up sticky bottom-0 z-20 px-[var(--gutter)] pb-2 pt-3">
+          <div className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-[11px] shadow-[var(--shadow-md)]">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold tracking-[-0.01em]">
+                {selectedTasks.length} {selectedTasks.length === 1 ? 'task' : 'tasks'} selected
+              </div>
+              <div className="truncate text-[12.5px] text-[var(--ink-3)]">
+                {selectedTasks.map(task => task.content).join(' · ')}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedKeys([])}
+              className="press flex-shrink-0 border-0 bg-transparent p-0 text-[13px] font-medium text-[var(--ink-3)]"
+            >
+              Clear
+            </button>
+            <Btn size="sm" icon="play" onClick={() => focusOn(selectedTasks)}>Focus</Btn>
+          </div>
+        </div>
+      )}
 
       {drawerOpen && (
         <div className="fixed inset-0 z-50 min-[900px]:hidden" role="dialog" aria-modal="true" aria-label="Task lists">
