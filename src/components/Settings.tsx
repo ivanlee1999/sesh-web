@@ -665,8 +665,6 @@ export default function Settings() {
   const todoistConnected = todoistOn && todoist.kind === 'connected'
   const thingsBusy = things.kind === 'checking'
   const thingsConnected = things.kind === 'connected'
-  // The auto-complete toggle applies to whichever task source is connected.
-  const anyTaskSource = todoistConnected || thingsConnected
 
   return (
     <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
@@ -747,12 +745,6 @@ export default function Settings() {
                 {thingsBusy ? 'Checking...' : things.kind === 'auth_required' ? 'Sign in' : thingsConfig?.configured ? 'Edit' : 'Connect'}
               </Btn>
             }
-          />
-          <Row
-            icon="check"
-            title="Complete task on finish"
-            sub={anyTaskSource ? 'Tick off the task when a focus ends' : 'Available after a task source connects'}
-            right={<Toggle on={anyTaskSource && settings.todoistAutoComplete} disabled={!anyTaskSource} onChange={todoistAutoComplete => updateSettings({ todoistAutoComplete })} />}
           />
           <Row
             icon="calendar"

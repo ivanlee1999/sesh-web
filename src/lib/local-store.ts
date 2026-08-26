@@ -12,6 +12,7 @@ const SESSION_QUEUE_KEY = 'sesh:sessionQueue'
 const CATEGORIES_CACHE_KEY = 'sesh:categories'
 const CATEGORY_RECENCY_KEY = 'sesh:categoryRecency'
 const POMODORO_CYCLE_KEY = 'sesh:pomodoroCycle'
+const FOCUS_TIME_QUEUE_KEY = 'sesh:focusTimeQueue'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -123,6 +124,66 @@ export function removeQueuedSession(index: number): void {
     const queue = getSessionQueue()
     queue.splice(index, 1)
     localStorage.setItem(SESSION_QUEUE_KEY, JSON.stringify(queue))
+  } catch {}
+}
+
+// ── Focus-time queue ────────────────────────────────────────────────────
+/**
+ * Focused minutes that have not reached their task's provider yet.
+ *
+ * A session is saved locally when the network is against it, but the minutes
+ * logged against the task used to be fire-and-forget: one bad gateway and the
+ * time was gone with nothing to replay. This queue gives that write the same
+ * second chance the session itself has.
+ */
+export interface QueuedFocusTime {
+  /** Provider-qualified reference — see lib/task-ref. */
+  taskRef: string
+  minutes: number
+  queuedAt: number
+  /** Bounded, so an entry that can never succeed cannot block the queue head. */
+  attempts: number
+}
+
+/** After this many failures an entry is dropped rather than retried forever. */
+export const MAX_FOCUS_TIME_ATTEMPTS = 5
+
+export function enqueueFocusTime(entry: Omit<QueuedFocusTime, 'attempts'>): void {
+  try {
+    const queue = getFocusTimeQueue()
+    queue.push({ ...entry, attempts: 0 })
+    localStorage.setItem(FOCUS_TIME_QUEUE_KEY, JSON.stringify(queue))
+  } catch {}
+}
+
+export function getFocusTimeQueue(): QueuedFocusTime[] {
+  try {
+    const raw = localStorage.getItem(FOCUS_TIME_QUEUE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as QueuedFocusTime[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function removeQueuedFocusTime(index: number): void {
+  try {
+    const queue = getFocusTimeQueue()
+    queue.splice(index, 1)
+    localStorage.setItem(FOCUS_TIME_QUEUE_KEY, JSON.stringify(queue))
+  } catch {}
+}
+
+/** Record a failed attempt, dropping the entry once it has had enough. */
+export function markFocusTimeAttempt(index: number): void {
+  try {
+    const queue = getFocusTimeQueue()
+    const entry = queue[index]
+    if (!entry) return
+    entry.attempts = (entry.attempts ?? 0) + 1
+    if (entry.attempts >= MAX_FOCUS_TIME_ATTEMPTS) queue.splice(index, 1)
+    localStorage.setItem(FOCUS_TIME_QUEUE_KEY, JSON.stringify(queue))
   } catch {}
 }
 

@@ -76,7 +76,6 @@ export interface AppSettings {
   keepScreenAwake: boolean
   autoStartBreak: boolean
   autoStartFocus: boolean
-  todoistAutoComplete: boolean
   /**
    * Whether Todoist is used at all. Set on the server like the Things
    * connection, so switching it off applies to every device rather than the
@@ -98,7 +97,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keepScreenAwake: true,
   autoStartBreak: true,
   autoStartFocus: false,
-  todoistAutoComplete: true,
   todoistEnabled: true,
   accentColor: '#BE6E45',
 }

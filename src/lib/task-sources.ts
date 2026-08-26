@@ -13,6 +13,11 @@ import type { ExternalTask, TaskProvider } from '@/types'
 import { resolveProvider } from '@/types'
 import { isAuthResponse, readApiError } from '@/lib/api-client'
 import { decodeTaskRef, splitTaskRefs } from '@/lib/task-ref'
+import {
+  getFocusTimeQueue,
+  markFocusTimeAttempt,
+  removeQueuedFocusTime,
+} from '@/lib/local-store'
 
 export const TASK_PROVIDERS: readonly TaskProvider[] = ['todoist', 'things'] as const
 
@@ -191,7 +196,7 @@ export async function completeTask(task: ExternalTask): Promise<void> {
 
 /**
  * Record focused minutes against a task. Todoist gets a real duration; Things
- * gets a note. Best-effort — the caller has already saved the session.
+ * gets a note.
  */
 export async function recordFocusTime(
   provider: TaskProvider,
@@ -204,4 +209,46 @@ export async function recordFocusTime(
     body: JSON.stringify({ add_minutes: Math.max(1, Math.round(minutes)) }),
   })
   if (!res.ok) throw new Error(await readApiError(res, 'Failed to record focus time'))
+}
+
+/**
+ * Replay focused minutes that never reached their provider.
+ *
+ * Worked from the head, re-reading the queue each turn so a removal cannot
+ * leave a stale index behind — the same shape the offline session queue uses.
+ * A 4xx is the provider saying no for good (the task is gone, or the id is
+ * wrong), so the entry is dropped; anything else may be temporary, and the
+ * loop stops rather than burning the entry's remaining attempts on what is
+ * probably one outage.
+ */
+export async function flushFocusTimeQueue(): Promise<void> {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const queue = getFocusTimeQueue()
+    if (queue.length === 0) return
+
+    const entry = queue[0]
+    const ref = decodeTaskRef(entry.taskRef)
+    if (!ref) {
+      removeQueuedFocusTime(0)
+      continue
+    }
+
+    try {
+      const res = await fetch(`${base(ref.provider)}/tasks/${ref.id}/duration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ add_minutes: Math.max(1, Math.round(entry.minutes)) }),
+      })
+      if (res.ok || (res.status >= 400 && res.status < 500)) {
+        removeQueuedFocusTime(0)
+        continue
+      }
+      markFocusTimeAttempt(0)
+      return
+    } catch {
+      markFocusTimeAttempt(0)
+      return
+    }
+  }
 }
