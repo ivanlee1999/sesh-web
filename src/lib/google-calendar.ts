@@ -33,6 +33,26 @@ interface SyncResult {
   error?: string
 }
 
+/**
+ * A category's display label. The session only stores the category *name* —
+ * the slug — while the label people actually chose lives in the categories
+ * table, so `deep` reads as "Deep Work" rather than "Deep".
+ *
+ * A session outlives the category it was filed under, so a name with no row
+ * falls back to humanising the slug instead of losing the category entirely.
+ */
+function categoryLabel(db: ReturnType<typeof getDb>, name: string): string {
+  const trimmed = name?.trim() ?? ''
+  if (!trimmed) return ''
+
+  const row = db
+    .prepare('SELECT label FROM categories WHERE name = ?')
+    .get(trimmed) as { label?: string } | undefined
+  if (row?.label) return row.label
+
+  return trimmed.replace(/[-_]+/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
+}
+
 function formatDuration(ms: number): string {
   const totalMin = Math.round(ms / 60000)
   if (totalMin < 60) return `${totalMin}m`
@@ -185,14 +205,18 @@ export async function syncSessionToGoogleCalendar(session: SessionData): Promise
   const start = new Date(startMs)
   const end = new Date(derivedEndMs)
   const typeLabel = session.type === 'focus' ? 'Focus' : 'Break'
-  const categoryLabel = session.category.charAt(0).toUpperCase() + session.category.slice(1)
-  let description = `Category: ${categoryLabel}\nType: ${typeLabel}\nDuration: ${formatDuration(session.actualMs || (session.endedAt - session.startedAt))}`
+  const label = categoryLabel(db, session.category)
+  let description = `Category: ${label}\nType: ${typeLabel}\nDuration: ${formatDuration(session.actualMs || (session.endedAt - session.startedAt))}`
   if (session.targetMs) description += `\nTarget: ${formatDuration(session.targetMs)}`
   if (session.overflowMs && session.overflowMs > 0) description += `\nOverflow: +${formatDuration(session.overflowMs)}`
   if (session.notes?.trim()) description += `\n\nNotes:\n${session.notes.trim()}`
 
+  // Only focus sessions reach here — breaks return 'rest_session' above — so
+  // the category always names the work, and leads so a week of sesh entries
+  // groups by eye in the calendar grid rather than by reading each title out.
+  const title = session.intention?.trim() || 'Focus'
   const event = {
-    summary: session.intention || (session.type === 'focus' ? 'Focus Session' : 'Break'),
+    summary: label ? `${label} · ${title}` : title,
     description,
     start: { dateTime: start.toISOString() },
     end: { dateTime: end.toISOString() },
