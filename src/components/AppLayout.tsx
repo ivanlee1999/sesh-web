@@ -82,11 +82,23 @@ export default function AppLayout() {
   }, [isDesktop, settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * A running session inverts the whole shell, so the browser and PWA chrome
-   * has to follow it — otherwise a light status bar sits above a dark screen.
+   * A running session inverts the whole shell, so the document has to invert
+   * with it — not just the app element.
+   *
+   * `body` paints the area the app element does not cover, which on iOS with
+   * `viewport-fit=cover` includes the strip behind the status bar. With the
+   * flag only on the app div, `body { background: var(--bg) }` still resolved
+   * light from `:root`, so entering focus mode left a light bar above a dark
+   * screen. Setting it on the root element means one palette owns the whole
+   * document.
+   *
+   * The browser and PWA chrome follows the same rule.
    */
   useEffect(() => {
     const dark = focusMode || settings.darkMode
+    const root = document.documentElement
+    root.dataset.focusmode = focusMode ? 'true' : 'false'
+    root.style.colorScheme = dark ? 'dark' : 'light'
     const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
     if (meta) meta.content = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
   }, [focusMode, settings.darkMode])

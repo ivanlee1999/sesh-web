@@ -292,7 +292,9 @@ export default function Dial({
           style={{
             transform: `rotate(${p * 360}deg)`,
             transformOrigin: `${c}px ${c}px`,
-            transition: dragging ? 'none' : 'transform 260ms var(--ease-out)',
+            transition: dragging
+              ? 'none'
+              : live ? 'transform .95s linear' : 'transform 260ms var(--ease-out)',
           }}
         >
           <polygon points={handPoints} fill="var(--color-text)" />
@@ -303,7 +305,7 @@ export default function Dial({
               transform: `rotate(${secDeg}deg)`,
               transformOrigin: `${c}px ${c}px`,
               // Crossing zero must not sweep the long way round.
-              transition: secDeg === 0 ? 'none' : 'transform 300ms var(--ease-spring)',
+              transition: secDeg === 0 ? 'none' : 'transform .95s linear',
             }}
           >
             <polygon points={secPoints} fill={color} />
