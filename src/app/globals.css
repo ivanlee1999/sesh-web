@@ -36,30 +36,65 @@
     --tabbar-padding-top: 8px;
     --tabbar-padding-bottom: calc(10px + var(--safe-b));
 
-    /* ---- Color ---- */
-    --bg: #F4F1EA;
-    --surface: #FBFAF6;
-    --surface-2: #ECE7DC;
-    --nav-bg: rgba(251,250,246,0.82);
-    --ink: #211E18;
-    --ink-2: #5E574B;
-    --ink-3: #9C9282;
-    --line: rgba(33,30,24,0.085);
-    --line-strong: rgba(33,30,24,0.17);
-    --accent: #BE6E45;
-    --accent-soft: #e1ad90;
-    --accent-ink: #9a5a39;
-    --warn: #C2615A;
-    --good: #3F9142;
+    /* ---- Color — the Modernist system ----
+       `--color-*` are the canonical tokens. The `--bg` / `--ink` family below
+       are aliases kept so older component classes inherit the same palette
+       rather than carrying a second, drifting one. */
+    --color-bg: #f3f2f2;
+    --color-surface: #ffffff;
+    --color-text: #201e1d;
+    --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
 
-    --r-sm: 11px;
-    --r-md: 15px;
-    --r-lg: 19px;
-    --r-pill: 999px;
-    --shadow-sm: 0 1px 2px rgba(40,30,18,0.05);
-    --shadow-md: 0 1px 2px rgba(40,30,18,0.04);
-    --shadow-lift: 0 10px 30px rgba(30,22,12,0.10);
-    --font-display: 'Hanken Grotesk', system-ui, sans-serif;
+    --color-neutral-100: #f8f4f4;
+    --color-neutral-200: #eae7e7;
+    --color-neutral-300: #d7d3d3;
+    --color-neutral-400: #bab6b6;
+    --color-neutral-500: #9b9797;
+    --color-neutral-600: #7d7979;
+    --color-neutral-700: #605d5d;
+    --color-neutral-800: #444141;
+    --color-neutral-900: #2d2b2b;
+
+    --color-accent: #ec3013;
+    --color-accent-100: #fff2ef;
+    --color-accent-200: #ffe0d9;
+    --color-accent-300: #ffc4b8;
+    --color-accent-400: #ff9783;
+    --color-accent-500: #ff563c;
+    --color-accent-600: #dd2b0f;
+    --color-accent-700: #ae1800;
+    --color-accent-800: #7c1405;
+    --color-accent-900: #4d170e;
+
+    /* Legacy aliases — one palette, two sets of names. */
+    --bg: var(--color-bg);
+    --surface: var(--color-surface);
+    --surface-2: var(--color-neutral-200);
+    --nav-bg: var(--color-bg);
+    --ink: var(--color-text);
+    --ink-2: var(--color-neutral-600);
+    --ink-3: var(--color-neutral-500);
+    --line: var(--color-neutral-300);
+    --line-strong: var(--color-divider);
+    --accent: var(--color-accent);
+    --accent-soft: var(--color-accent-200);
+    --accent-ink: var(--color-accent-700);
+    --warn: var(--color-accent-700);
+    --good: #3f8f6f;
+
+    /* The system has no rounded corners. The tokens stay so the older
+       component classes resolve, but every one of them is square. */
+    --r-sm: 0px;
+    --r-md: 0px;
+    --r-lg: 0px;
+    --r-pill: 0px;
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
+    --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
+    --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+    --shadow-lift: var(--shadow-md);
+    --font-display: 'Archivo', system-ui, sans-serif;
+    --font-heading: 'Archivo', system-ui, sans-serif;
+    --font-body: 'Archivo', system-ui, sans-serif;
 
     /* ---- Motion ---- */
     --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -72,18 +107,30 @@
     --stagger: 42ms;
   }
 
+  /* The dark ground. `[data-focusmode]` is deliberately the same block rather
+     than a variant: a running session is dark even when the interface
+     preference is light, and both must land on exactly one palette. */
   :root[data-theme='dark'],
-  html.dark {
-    --bg: #15120D;
-    --surface: #1F1B15;
-    --surface-2: #2B261E;
-    --nav-bg: rgba(31,27,21,0.80);
-    --ink: #F1ECE2;
-    --ink-2: #ABA294;
-    --ink-3: #71685B;
-    --line: rgba(241,236,226,0.085);
-    --line-strong: rgba(241,236,226,0.17);
-    --shadow-lift: 0 10px 30px rgba(0,0,0,0.34);
+  html.dark,
+  [data-focusmode='true'] {
+    --color-bg: #1b1918;
+    --color-surface: #2d2b2b;
+    --color-text: #f3f2f2;
+    --color-divider: rgba(243,242,242,.42);
+    --color-neutral-200: rgba(243,242,242,.09);
+    --color-neutral-300: rgba(243,242,242,.20);
+    --color-neutral-400: rgba(243,242,242,.55);
+    --color-neutral-500: rgba(243,242,242,.45);
+    --color-neutral-600: rgba(243,242,242,.62);
+    --color-neutral-700: rgba(243,242,242,.78);
+    --color-neutral-900: #f3f2f2;
+    --color-accent: #ff563c;
+    --color-accent-100: rgba(255,86,60,.13);
+    --color-accent-200: rgba(255,86,60,.24);
+    --color-accent-700: #ff9783;
+
+    --shadow-lift: 0 12px 32px rgba(0,0,0,.5);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
   }
 
   /* Small phones (iPhone SE and friends) — tighten everything a notch. */
@@ -206,7 +253,7 @@
     margin: 0;
     background: var(--bg);
     color: var(--ink);
-    font-family: 'Hanken Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
@@ -1308,4 +1355,276 @@ button.sesh-row:active { background: var(--surface-2) }
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ============================================================
+   Modernist system — the redesign's own layer.
+
+   Flat, architectural, Archivo throughout, one red accent, zero corner
+   radius. Rules do the work that shadows used to: 2px `--color-divider`
+   between major sections, 1px `--color-neutral-300` between list rows.
+
+   Nothing scrolls. Every screen is a fixed pane sized to the viewport and
+   lists cap themselves and count the remainder, so these classes are built
+   to clip rather than to grow.
+   ============================================================ */
+
+/* ---- Shell ---- */
+.md-app {
+  display: flex;
+  width: 100%;
+  height: var(--app-viewport-height);
+  max-height: var(--app-viewport-height);
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
+  transition: background 420ms var(--ease-out), color 420ms var(--ease-out);
+}
+
+.md-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* The single slack absorber. Panes clip; they never grow the shell. */
+.md-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.md-screen {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  animation: mdScreenIn 320ms var(--ease-out) both;
+}
+
+.md-screen-col {
+  flex-direction: column;
+}
+
+@keyframes mdScreenIn {
+  from { opacity: 0; transform: translateY(10px) }
+  to { opacity: 1; transform: none }
+}
+
+/* ---- Rules ---- */
+.md-rule-b { border-bottom: 2px solid var(--color-divider) }
+.md-rule-t { border-top: 2px solid var(--color-divider) }
+.md-hair-b { border-bottom: 1px solid var(--color-neutral-300) }
+
+/* ---- Type ---- */
+.md-eyebrow {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+
+.md-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.06;
+}
+
+.md-num { font-variant-numeric: tabular-nums }
+
+/* ---- Press / hover ---- */
+.md-press {
+  transition: transform 120ms var(--ease-out), background 160ms, color 160ms, border-color 160ms, opacity 180ms;
+}
+.md-press:active { transform: scale(.965) }
+.md-press-sm:active { transform: scale(.92) }
+
+@media (hover: hover) {
+  .md-lift:hover { background: var(--color-neutral-200) }
+}
+
+/* ---- Buttons ---- */
+.md-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  text-transform: uppercase;
+  text-align: left;
+}
+.md-btn:disabled { opacity: .45; cursor: default }
+
+.md-btn-solid { background: var(--color-accent); color: #fff }
+.md-btn-outline { border: 2px solid var(--color-divider) }
+.md-btn-accent-outline { border: 2px solid var(--color-accent); color: var(--color-accent) }
+
+/* Filter / scope chips and the paged-settings tabs all share this shape. */
+.md-quiet {
+  border: 2px solid var(--color-divider);
+  background: transparent;
+  color: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.md-quiet[data-active='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* ---- Horizontal scrollers (category chips) ---- */
+.md-hscroll {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.md-hscroll::-webkit-scrollbar { display: none }
+.md-hscroll > * { flex: none }
+
+/* ---- Vertical scroller (phone picker sheet only) ---- */
+.md-scroll { overflow: auto; scrollbar-width: thin }
+.md-scroll::-webkit-scrollbar { width: 8px }
+.md-scroll::-webkit-scrollbar-thumb { background: var(--color-neutral-300) }
+
+/* ---- Nav ---- */
+.md-rail-item[data-active='true'] {
+  background: var(--color-neutral-200);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+@media (hover: hover) {
+  .md-rail-item:hover { background: var(--color-neutral-200) }
+}
+
+.md-tab[data-active='true'] { color: var(--color-accent) }
+
+/* ---- List rows ---- */
+.md-row[data-selected='true'] {
+  background: var(--color-accent-100);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+@media (hover: hover) {
+  .md-row:hover { background: var(--color-neutral-200) }
+  .md-row[data-selected='true']:hover { background: var(--color-accent-200) }
+  .md-row:hover .md-row-go { opacity: 1; transform: none }
+  .md-box:hover { border-color: var(--color-accent); background: var(--color-accent-100) }
+}
+.md-box:active { transform: scale(.88) }
+
+/* Completing a task draws the check, then takes the row's height with it. */
+.md-row[data-completing='true'] {
+  animation: mdRowOut 420ms var(--ease-in-out) forwards;
+  overflow: hidden;
+}
+@keyframes mdRowOut {
+  0% { opacity: 1 }
+  55% { opacity: .55; transform: translateX(6px) }
+  100% { opacity: 0; transform: translateX(28px); max-height: 0; padding-top: 0; padding-bottom: 0 }
+}
+
+/* Opacity only. A translate here leaves a residual transform that pushes the
+   last row past a clipped pane — the exact bug this design is built to avoid. */
+.md-stagger > * { animation: mdFade 300ms var(--ease-out) both }
+@keyframes mdFade { from { opacity: 0 } to { opacity: 1 } }
+.md-stagger > *:nth-child(1) { animation-delay: 0ms }
+.md-stagger > *:nth-child(2) { animation-delay: 45ms }
+.md-stagger > *:nth-child(3) { animation-delay: 90ms }
+.md-stagger > *:nth-child(4) { animation-delay: 135ms }
+.md-stagger > *:nth-child(5) { animation-delay: 180ms }
+.md-stagger > *:nth-child(n+6) { animation-delay: 225ms }
+
+/* ---- Dial ---- */
+.md-dial {
+  align-self: center;
+  flex: none;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.md-breathe { animation: mdBreathe 4.2s ease-in-out infinite }
+@keyframes mdBreathe {
+  0%, 100% { opacity: .28; transform: scale(.97) }
+  50% { opacity: .6; transform: scale(1.03) }
+}
+
+.md-pulse { animation: mdPulse 1.1s ease-in-out infinite }
+@keyframes mdPulse { 0%, 100% { opacity: 1 } 50% { opacity: .42 } }
+
+.md-numpop { animation: mdNumPop 260ms var(--ease-spring) both }
+@keyframes mdNumPop {
+  0% { transform: scale(.86) }
+  60% { transform: scale(1.06) }
+  100% { transform: none }
+}
+
+/* ---- Sheet ---- */
+.md-sheet-root { animation: mdFade 220ms ease both }
+.md-sheet-root[data-closing='true'] { animation: mdFadeOut 260ms ease both }
+@keyframes mdFadeOut { from { opacity: 1 } to { opacity: 0 } }
+
+.md-sheet { animation: mdSheetUp 340ms var(--ease-out) both }
+.md-sheet-root[data-closing='true'] .md-sheet { animation: mdSheetDown 260ms var(--ease-in-out) both }
+@keyframes mdSheetUp { from { transform: translateY(102%) } to { transform: none } }
+@keyframes mdSheetDown { from { transform: none } to { transform: translateY(102%) } }
+
+/* ---- Poster ---- */
+.md-poster { animation: mdPosterIn 420ms var(--ease-out) both }
+@keyframes mdPosterIn {
+  from { opacity: 0; transform: translateY(18px) scale(.98) }
+  to { opacity: 1; transform: none }
+}
+
+.md-draw {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: mdDraw 620ms var(--ease-in-out) 120ms forwards;
+}
+@keyframes mdDraw { to { stroke-dashoffset: 0 } }
+
+/* ---- Charts ---- */
+.md-bar {
+  animation: mdGrowY 620ms var(--ease-out) both;
+  transform-origin: bottom;
+}
+@keyframes mdGrowY { from { transform: scaleY(0) } to { transform: scaleY(1) } }
+
+.md-track-fill {
+  animation: mdGrowX 720ms var(--ease-out) both;
+  transform-origin: left;
+}
+@keyframes mdGrowX { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+
+.md-app input::placeholder { color: var(--color-neutral-500) }
+.md-app input:focus-visible,
+.md-app button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }

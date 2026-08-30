@@ -1,14 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { DEFAULT_SETTINGS, type Session } from '@/types'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { DEFAULT_SETTINGS } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { CATEGORY_PALETTE } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { clearPushSubscriptionConfirmed, ensurePushSubscription, isPushSupported } from '@/lib/push-client'
 import { PROVIDER_COLOR, isTodoistEnabled } from '@/lib/task-sources'
-import { ACCENT_OPTIONS, Btn, Group, Icon, Row, ScreenHead, Sheet, Stepper, Toggle, Wordmark, fmtHM } from './sesh-ui'
+import { SWATCHES } from '@/lib/modernist'
+import { Btn, Icon, Sheet } from './sesh-ui'
+import { useShellStatus } from './md/shell-status'
 
 type TodoistConnection =
   | { kind: 'checking'; message: string }
@@ -42,78 +44,6 @@ function calendarSkipMessage(reason: string) {
   if (reason === 'token_error') return 'Google token refresh failed. Reconnect Google Calendar.'
   if (reason === 'rest_session') return 'Only break sessions were skipped.'
   return `Skipped: ${reason}`
-}
-
-function PushNotificationToggle() {
-  const [pushSupported, setPushSupported] = useState<boolean | null>(null)
-  const [pushEnabled, setPushEnabled] = useState(false)
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    const init = async () => {
-      const supported = isPushSupported()
-      setPushSupported(supported)
-      if (!supported) return
-      setPushPermission(Notification.permission)
-      try {
-        const reg = await navigator.serviceWorker.ready
-        const sub = await reg.pushManager.getSubscription()
-        setPushEnabled(!!sub)
-        if (!sub) clearPushSubscriptionConfirmed()
-      } catch {
-        setPushEnabled(false)
-        clearPushSubscriptionConfirmed()
-      }
-    }
-    init()
-  }, [])
-
-  const enable = async () => {
-    setBusy(true)
-    try {
-      const enabled = await ensurePushSubscription({ requestPermission: true })
-      setPushPermission(Notification.permission)
-      setPushEnabled(enabled)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const disable = async () => {
-    setBusy(true)
-    try {
-      const reg = await navigator.serviceWorker.ready
-      const sub = await reg.pushManager.getSubscription()
-      if (sub) {
-        await fetch('/api/push/subscribe', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ endpoint: sub.endpoint }),
-        })
-        await sub.unsubscribe()
-      }
-      clearPushSubscriptionConfirmed()
-      setPushEnabled(false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const status = !pushSupported
-    ? 'Not supported in this browser'
-    : pushPermission === 'denied'
-      ? 'Permission denied'
-      : pushEnabled ? 'Enabled' : 'Disabled'
-
-  return (
-    <Row
-      icon="bell"
-      title="Session alerts"
-      sub={status}
-      right={<Toggle on={pushEnabled} disabled={!pushSupported || pushPermission === 'denied' || busy} onChange={() => { if (pushEnabled) disable(); else enable() }} />}
-    />
-  )
 }
 
 function CategorySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -430,6 +360,8 @@ function ThingsSheet({
   )
 }
 
+
+/** The swatch row inside the category sheet. `compact` shows only the current one. */
 function ColorDots({ value, onChange, compact }: { value: string; onChange: (value: string) => void; compact?: boolean }) {
   const colors = compact ? [value] : CATEGORY_PALETTE
   return (
@@ -438,13 +370,14 @@ function ColorDots({ value, onChange, compact }: { value: string; onChange: (val
         <button
           key={col}
           type="button"
+          aria-label={`Set colour ${col}`}
           onClick={() => onChange(col)}
-          className="rounded-full p-0"
+          className="p-0"
           style={{
             width: compact ? 22 : 30,
             height: compact ? 22 : 30,
             background: col,
-            border: value === col ? '2.5px solid var(--ink)' : '2.5px solid transparent',
+            border: value === col ? '2px solid var(--color-text)' : '2px solid transparent',
           }}
         />
       ))}
@@ -457,81 +390,249 @@ function displayNameOf(settings: { displayName?: string }) {
   return settings.displayName?.trim() || DEFAULT_SETTINGS.displayName
 }
 
-function initialOf(settings: { displayName?: string }) {
-  return displayNameOf(settings)[0].toUpperCase()
+type Pane = 'timer' | 'alerts' | 'colours' | 'sources'
+
+const PANES: { key: Pane; label: string }[] = [
+  { key: 'timer', label: 'Timer' },
+  { key: 'alerts', label: 'Alerts' },
+  { key: 'colours', label: 'Colours' },
+  { key: 'sources', label: 'Sources' },
+]
+
+const quietStyle = (active: boolean): CSSProperties => ({
+  border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
+  background: active ? 'var(--color-accent)' : 'transparent',
+  color: active ? '#fff' : 'inherit',
+  padding: '6px 10px',
+  cursor: 'pointer',
+  fontFamily: 'var(--font-heading)',
+  fontWeight: 800,
+  fontSize: 10.5,
+  letterSpacing: '.09em',
+  textTransform: 'uppercase',
+})
+
+const PANE_HEAD: CSSProperties = {
+  padding: '12px 18px 6px',
+  fontFamily: 'var(--font-heading)',
+  fontWeight: 800,
+  fontSize: 11,
+  letterSpacing: '.12em',
+  textTransform: 'uppercase',
+  color: 'var(--color-neutral-600)',
 }
 
-function ProfileScreen({ onBack }: { onBack: () => void }) {
-  const { settings, updateSettings } = useSettings()
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [stats, setStats] = useState<{ streak: number; todayMs: number } | null>(null)
-
-  useEffect(() => {
-    fetch('/api/sessions').then(res => res.ok ? res.json() : []).then(setSessions).catch(() => setSessions([]))
-    fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(setStats).catch(() => setStats(null))
-  }, [])
-
-  const totalMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
-
+/** A square 52×28 track whose 18px knob moves by flipping the justification. */
+function MdToggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (next: boolean) => void; label: string }) {
   return (
-    <div className="anim-fade h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
-      <div className="px-[var(--gutter)] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
-        <button type="button" aria-label="Back to settings" onClick={onBack} className="press grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
-          <Icon name="back" size={20} />
+    <button
+      type="button"
+      className="md-press"
+      aria-pressed={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!on)}
+      style={{
+        flex: 'none',
+        width: 52,
+        height: 28,
+        padding: 3,
+        cursor: disabled ? 'default' : 'pointer',
+        border: `2px solid ${on ? 'var(--color-accent)' : 'var(--color-divider)'}`,
+        background: on ? 'var(--color-accent)' : 'transparent',
+        display: 'flex',
+        justifyContent: on ? 'flex-end' : 'flex-start',
+        opacity: disabled ? 0.45 : 1,
+        transition: 'background 200ms, border-color 200ms',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          width: 18,
+          height: 18,
+          background: on ? '#fff' : 'var(--color-neutral-500)',
+          transition: 'background 200ms',
+        }}
+      />
+    </button>
+  )
+}
+
+function MdStepper({
+  label,
+  value,
+  onChange,
+  min = 1,
+  max = 90,
+  step = 5,
+  unit = 'min',
+}: {
+  label: string
+  value: number
+  onChange: (next: number) => void
+  min?: number
+  max?: number
+  step?: number
+  unit?: string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+      <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', border: '2px solid var(--color-divider)' }}>
+        <button
+          type="button"
+          className="md-press md-lift"
+          aria-label={`Decrease ${label}`}
+          onClick={() => onChange(Math.max(min, value - step))}
+          disabled={value <= min}
+          style={{ width: 34, height: 32, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 17, fontWeight: 700, lineHeight: 1 }}
+        >
+          −
+        </button>
+        {/* Keyed on the value so the pop replays on every change. */}
+        <span
+          key={value}
+          className="md-numpop md-num"
+          style={{
+            minWidth: 62,
+            textAlign: 'center',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 800,
+            fontSize: 13,
+            borderLeft: '2px solid var(--color-divider)',
+            borderRight: '2px solid var(--color-divider)',
+            padding: '8px 4px',
+          }}
+        >
+          {value} {unit}
+        </span>
+        <button
+          type="button"
+          className="md-press md-lift"
+          aria-label={`Increase ${label}`}
+          onClick={() => onChange(Math.min(max, value + step))}
+          disabled={value >= max}
+          style={{ width: 34, height: 32, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 17, fontWeight: 700, lineHeight: 1 }}
+        >
+          +
         </button>
       </div>
-
-      <div className="flex flex-col items-center px-[var(--gutter)] pb-[26px] pt-[22px] text-center">
-        <div className="anim-pop grid h-[86px] w-[86px] place-items-center rounded-full bg-[var(--accent)] text-[36px] font-bold text-white">{initialOf(settings)}</div>
-        <input
-          value={settings.displayName ?? ''}
-          onChange={event => updateSettings({ displayName: event.target.value })}
-          aria-label="Display name"
-          maxLength={32}
-          className="mb-[3px] mt-4 w-full border-0 bg-transparent text-center font-[var(--font-display)] text-[25px] font-bold tracking-[-0.03em] text-[var(--ink)] outline-none"
-        />
-        <div className="text-[14.5px] text-[var(--ink-3)]">Private sesh workspace</div>
-      </div>
-
-      <div className="px-[var(--gutter)]">
-        <div className="stagger mb-[22px] flex gap-3">
-          <MiniStat value={stats?.streak ?? 0} label="day streak" icon="flame" />
-          <MiniStat value={sessions.length} label="sessions" icon="check" />
-          <MiniStat value={fmtHM(totalMin)} label="focused" icon="timer" />
-        </div>
-        <Group label="Connected">
-          <Row icon="bell" title="Slack" sub="Auto-update status while focusing" right={<Toggle on onChange={() => {}} />} />
-          <Row icon="apple" title="Apple Health" sub="Mindful minutes" last right={<Toggle on={false} onChange={() => {}} />} />
-        </Group>
-        <div className="text-center text-[13px] text-[var(--ink-3)]">Member since 2024</div>
-      </div>
     </div>
   )
 }
 
-function MiniStat({ value, label, icon }: { value: string | number; label: string; icon: Parameters<typeof Icon>[0]['name'] }) {
+function ToggleRow({
+  title,
+  sub,
+  on,
+  disabled,
+  onChange,
+}: {
+  title: string
+  sub: string
+  on: boolean
+  disabled?: boolean
+  onChange: (next: boolean) => void
+}) {
   return (
-    <div className="flex-1 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-3 py-4">
-      <Icon name={icon} size={18} color="var(--accent)" />
-      <div className="mt-2 text-[20px] font-bold tracking-[-0.03em]">{value}</div>
-      <div className="mt-1 text-[11.5px] text-[var(--ink-3)]">{label}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
+        <span style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{sub}</span>
+      </span>
+      <MdToggle on={on} disabled={disabled} onChange={onChange} label={title} />
     </div>
   )
 }
 
-export default function Settings() {
+/** The push row keeps its own permission/subscription state. */
+function PushRow() {
+  const [supported, setSupported] = useState<boolean | null>(null)
+  const [enabled, setEnabled] = useState(false)
+  const [permission, setPermission] = useState<NotificationPermission>('default')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    const init = async () => {
+      const ok = isPushSupported()
+      setSupported(ok)
+      if (!ok) return
+      setPermission(Notification.permission)
+      try {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        setEnabled(!!sub)
+        if (!sub) clearPushSubscriptionConfirmed()
+      } catch {
+        setEnabled(false)
+        clearPushSubscriptionConfirmed()
+      }
+    }
+    init()
+  }, [])
+
+  const toggle = async (next: boolean) => {
+    setBusy(true)
+    try {
+      if (next) {
+        const ok = await ensurePushSubscription({ requestPermission: true })
+        setPermission(Notification.permission)
+        setEnabled(ok)
+      } else {
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        if (sub) {
+          await fetch('/api/push/subscribe', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          })
+          await sub.unsubscribe()
+        }
+        clearPushSubscriptionConfirmed()
+        setEnabled(false)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sub = !supported
+    ? 'Not supported in this browser'
+    : permission === 'denied'
+      ? 'Permission denied'
+      : enabled ? 'Enabled · works installed' : 'Disabled'
+
+  return (
+    <ToggleRow
+      title="Push alerts"
+      sub={sub}
+      on={enabled}
+      disabled={!supported || permission === 'denied' || busy}
+      onChange={toggle}
+    />
+  )
+}
+
+export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void }) {
   const { settings, updateSettings } = useSettings()
   const todoistOn = isTodoistEnabled(settings)
-  const { categories } = useCategories()
-  const [profile, setProfile] = useState(false)
-  const [catSheet, setCatSheet] = useState(false)
+  const { categories, updateCategory } = useCategories()
+  const { reportSub } = useShellStatus()
+  const [pane, setPane] = useState<Pane>('timer')
   const [calConnected, setCalConnected] = useState(false)
   const [todoist, setTodoist] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Todoist...' })
   const [things, setThings] = useState<TodoistConnection>({ kind: 'checking', message: 'Checking Things...' })
   const [thingsConfig, setThingsConfig] = useState<ThingsConfigView | null>(null)
   const [thingsSheet, setThingsSheet] = useState(false)
+  const [catSheet, setCatSheet] = useState(false)
   const [manualSyncBusy, setManualSyncBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  useEffect(() => {
+    reportSub('settings', 'Device + account')
+  }, [reportSub])
 
   useEffect(() => {
     fetch('/api/auth/google/status')
@@ -638,9 +739,7 @@ export default function Settings() {
 
       const results = (data.results ?? []) as ManualSyncResult[]
       const failed = results.find(result => !result.synced && !result.skipped)
-      if (failed) {
-        throw new Error(failed.error ?? 'Calendar sync failed')
-      }
+      if (failed) throw new Error(failed.error ?? 'Calendar sync failed')
 
       const skipped = results.find(result => !result.synced && result.skipped)
       if (data.syncedCount > 0) {
@@ -658,148 +757,395 @@ export default function Settings() {
     }
   }
 
-  if (profile) return <ProfileScreen onBack={() => setProfile(false)} />
+  /** Hand the session log back as a file, from the same endpoint the app reads. */
+  const exportSessions = async () => {
+    try {
+      const res = await fetch('/api/sessions')
+      if (!res.ok) throw new Error(await readApiError(res, 'Could not export sessions'))
+      const data = await res.json()
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `sesh-sessions-${new Date().toISOString().slice(0, 10)}.json`
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setSyncNotice({ type: 'error', message: err instanceof Error ? err.message : 'Could not export sessions' })
+    }
+  }
 
-  const todoistBusy = todoist.kind === 'checking'
-  // Switched off counts as no source, whatever the last check said.
   const todoistConnected = todoistOn && todoist.kind === 'connected'
-  const thingsBusy = things.kind === 'checking'
   const thingsConnected = things.kind === 'connected'
 
+  const sources = [
+    {
+      key: 'todoist',
+      label: 'Todoist',
+      dot: PROVIDER_COLOR.todoist,
+      sub: todoistOn ? todoist.message : 'Switched off — not queried',
+      // One action per row, so it offers whatever is actually useful next:
+      // sign in when the session lapsed, otherwise the on/off switch. The
+      // status re-probes on mount and whenever this flips, so a separate
+      // "check" button would only ever repeat what just happened.
+      cta: todoistOn && todoist.kind === 'auth_required' ? 'Sign in' : todoistOn ? 'On' : 'Off',
+      on: todoistConnected,
+      action: todoistOn && todoist.kind === 'auth_required'
+        ? () => redirectToLogin()
+        : () => updateSettings({ todoistEnabled: !todoistOn }),
+    },
+    {
+      key: 'things',
+      label: 'Things 3',
+      dot: PROVIDER_COLOR.things,
+      sub: things.message,
+      cta: 'Manage',
+      on: thingsConnected,
+      action: () => setThingsSheet(true),
+    },
+    {
+      key: 'calendar',
+      label: 'Google Calendar',
+      dot: '#4285F4',
+      sub: calConnected ? 'Connected · mirrors finished sessions' : 'Not connected',
+      cta: calConnected ? 'Disconnect' : 'Connect',
+      on: calConnected,
+      action: () => {
+        window.location.href = calConnected ? '/api/auth/google/disconnect' : '/api/auth/google'
+      },
+    },
+  ]
+
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
-      <ScreenHead title="Settings" />
-      <div className="px-[var(--gutter)] py-4">
-        <button type="button" onClick={() => setProfile(true)} className="press anim-fade-up mb-[22px] flex w-full items-center gap-[15px] rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[18px] py-4 text-left">
-          <div className="grid h-[52px] w-[52px] flex-shrink-0 place-items-center rounded-full bg-[var(--accent)] text-[21px] font-bold text-white">{initialOf(settings)}</div>
-          <div className="flex-1">
-            <div className="text-[17px] font-bold tracking-[-0.02em]">{displayNameOf(settings)}</div>
-            <div className="text-[13.5px] text-[var(--ink-3)]">Private sesh workspace</div>
-          </div>
-          <Icon name="chevron" size={18} color="var(--ink-3)" />
-        </button>
+    <div className="md-screen md-screen-col">
+      <h2 className="md-title" style={{ padding: '12px 18px 8px', fontSize: 24, flex: 'none' }}>Settings</h2>
 
-        <div className="card-grid stagger">
-        <Group label="Timer">
-          <Row icon="timer" title="Focus length" right={<Stepper value={settings.focusDuration} min={5} max={60} step={5} onChange={focusDuration => updateSettings({ focusDuration })} />} />
-          <Row icon="leaf" title="Break length" right={<Stepper value={settings.breakDuration} min={1} max={30} onChange={breakDuration => updateSettings({ breakDuration })} />} />
-          <Row icon="leaf" title="Long break length" right={<Stepper value={settings.longBreakDuration} min={5} max={45} step={5} onChange={longBreakDuration => updateSettings({ longBreakDuration })} />} />
-          <Row icon="sync" title="Long break after" sub="Focus sessions per cycle" right={<Stepper value={settings.sessionsBeforeLongBreak} min={2} max={8} unit={settings.sessionsBeforeLongBreak === 1 ? 'session' : 'sessions'} onChange={sessionsBeforeLongBreak => updateSettings({ sessionsBeforeLongBreak })} />} />
-          <Row icon="bell" title="Auto-start breaks" sub="Begin a break when focus ends" right={<Toggle on={settings.autoStartBreak} onChange={autoStartBreak => updateSettings({ autoStartBreak })} />} />
-          <Row icon="play" title="Auto-start focus" sub="Begin the next focus when a break ends" last right={<Toggle on={settings.autoStartFocus} onChange={autoStartFocus => updateSettings({ autoStartFocus })} />} />
-        </Group>
+      <div
+        style={{
+          display: 'flex',
+          gap: 6,
+          flexWrap: 'wrap',
+          padding: '9px 18px',
+          borderTop: '2px solid var(--color-divider)',
+          borderBottom: '2px solid var(--color-divider)',
+          flex: 'none',
+        }}
+      >
+        {PANES.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            className="md-press"
+            aria-pressed={pane === key}
+            onClick={() => setPane(key)}
+            style={quietStyle(pane === key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-        <div>
-        <Group label="Categories">
-          {categories.map((category, i) => (
-            <Row
-              key={category.id}
-              title={category.label}
-              onClick={() => setCatSheet(true)}
-              last={i === categories.length - 1}
-              right={<span className="h-[18px] w-[18px] rounded-full" style={{ background: category.color }} />}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {pane === 'timer' && (
+          <div>
+            <div style={PANE_HEAD}>Durations</div>
+            <MdStepper label="Focus length" value={settings.focusDuration} onChange={focusDuration => updateSettings({ focusDuration })} />
+            <MdStepper label="Short break" value={settings.breakDuration} onChange={breakDuration => updateSettings({ breakDuration })} />
+            <MdStepper label="Long break" value={settings.longBreakDuration} onChange={longBreakDuration => updateSettings({ longBreakDuration })} />
+            <MdStepper
+              label="Long break after"
+              value={settings.sessionsBeforeLongBreak}
+              min={2}
+              max={8}
+              step={1}
+              unit={settings.sessionsBeforeLongBreak === 1 ? 'session' : 'sessions'}
+              onChange={sessionsBeforeLongBreak => updateSettings({ sessionsBeforeLongBreak })}
             />
-          ))}
-        </Group>
-        <div className="mt-[10px]">
-          <Btn full variant="soft" icon="plus" size="sm" onClick={() => setCatSheet(true)}>Manage categories</Btn>
-        </div>
-        </div>
+          </div>
+        )}
 
-        <div className="card-span-2">
-        <Group label="Integrations">
-          <Row
-            icon="list"
-            title="Todoist"
-            sub={todoistOn ? todoist.message : 'Off — not used for tasks'}
-            right={
-              <div className="flex items-center gap-2">
-                {todoistOn && (
-                  <Btn
-                    size="sm"
-                    variant={todoistConnected ? 'soft' : 'outline'}
-                    disabled={todoistBusy}
-                    onClick={todoist.kind === 'auth_required' ? () => redirectToLogin() : checkTodoist}
-                  >
-                    {todoistBusy ? 'Checking...' : todoist.kind === 'auth_required' ? 'Sign in' : 'Check'}
-                  </Btn>
-                )}
-                <Toggle
-                  on={todoistOn}
-                  onChange={todoistEnabled => updateSettings({ todoistEnabled })}
-                />
-              </div>
-            }
-          />
-          <Row
-            icon="list"
-            title={<span className="flex items-center gap-2">Things 3<span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR.things }} /></span>}
-            sub={things.message}
-            right={
-              <Btn
-                size="sm"
-                variant={thingsConnected ? 'soft' : 'outline'}
-                disabled={thingsBusy}
-                onClick={things.kind === 'auth_required' ? () => redirectToLogin() : () => setThingsSheet(true)}
+        {pane === 'alerts' && (
+          <div>
+            <div style={PANE_HEAD}>Alerts &amp; appearance</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+              <span style={{ flex: 'none', fontSize: 14, fontWeight: 500 }}>Your name</span>
+              <input
+                value={settings.displayName ?? ''}
+                onChange={event => updateSettings({ displayName: event.target.value })}
+                aria-label="Display name"
+                maxLength={32}
+                placeholder={displayNameOf(settings)}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  textAlign: 'right',
+                  border: 0,
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontFamily: 'var(--font-heading)',
+                  fontWeight: 800,
+                  fontSize: 16,
+                  outline: 'none',
+                }}
+              />
+            </div>
+            <ToggleRow
+              title="Completion sound"
+              sub="Two-tone chime when a session lands"
+              on={settings.soundEnabled}
+              onChange={soundEnabled => updateSettings({ soundEnabled })}
+            />
+            <PushRow />
+            <ToggleRow
+              title="Mirror to Google Calendar"
+              sub={calConnected ? 'Sessions appear as busy blocks' : 'Connect Calendar in Sources first'}
+              on={settings.calendarSync}
+              disabled={!calConnected}
+              onChange={calendarSync => updateSettings({ calendarSync })}
+            />
+            <ToggleRow
+              title="Dark interface"
+              sub="Focus mode is always dark"
+              on={settings.darkMode}
+              onChange={darkMode => updateSettings({ darkMode })}
+            />
+            <ToggleRow
+              title="Auto-start breaks"
+              sub="Begin a break the moment focus ends"
+              on={settings.autoStartBreak}
+              onChange={autoStartBreak => updateSettings({ autoStartBreak })}
+            />
+            <ToggleRow
+              title="Auto-start focus"
+              sub="Begin the next focus when a break ends"
+              on={settings.autoStartFocus}
+              onChange={autoStartFocus => updateSettings({ autoStartFocus })}
+            />
+            <ToggleRow
+              title="Keep screen awake"
+              sub="Only while a session is running"
+              on={settings.keepScreenAwake}
+              onChange={keepScreenAwake => updateSettings({ keepScreenAwake })}
+            />
+          </div>
+        )}
+
+        {pane === 'colours' && (
+          <div>
+            <div style={PANE_HEAD}>Category colours</div>
+            {categories.map(category => (
+              <div
+                key={category.id}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}
               >
-                {thingsBusy ? 'Checking...' : things.kind === 'auth_required' ? 'Sign in' : thingsConfig?.configured ? 'Edit' : 'Connect'}
-              </Btn>
-            }
-          />
-          <Row
-            icon="calendar"
-            title="Google Calendar"
-            sub={calConnected ? 'Connected' : 'Not connected'}
-            right={calConnected ? <Btn size="sm" variant="soft" onClick={() => { window.location.href = '/api/auth/google/disconnect' }}>Disconnect</Btn> : <Btn size="sm" onClick={() => { window.location.href = '/api/auth/google' }}>Connect</Btn>}
-          />
-          {calConnected && <Row icon="sync" title="Auto-sync sessions" right={<Toggle on={settings.calendarSync} onChange={calendarSync => updateSettings({ calendarSync })} />} />}
-          {calConnected && <Row icon="cloud" title="Manual sync" sub="Sync recent unsynced sessions" last right={<Btn size="sm" variant="outline" disabled={manualSyncBusy} onClick={manualSync}>{manualSyncBusy ? 'Syncing...' : 'Sync'}</Btn>} />}
-        </Group>
-        {syncNotice && <p className={`anim-fade-up mt-3 px-1 text-[13px] ${syncNotice.type === 'success' ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>{syncNotice.message}</p>}
-        </div>
-
-        <Group label="Notifications">
-          <Row icon="sound" title="Sound" right={<Toggle on={settings.soundEnabled} onChange={soundEnabled => updateSettings({ soundEnabled })} />} />
-          <Row icon="shield" title="Keep screen awake" sub="Only while a session is running" right={<Toggle on={settings.keepScreenAwake} onChange={keepScreenAwake => updateSettings({ keepScreenAwake })} />} />
-          <PushNotificationToggle />
-        </Group>
-
-        <Group label="Appearance">
-          <Row icon={settings.darkMode ? 'moon' : 'sun'} title="Dark mode" right={<Toggle on={settings.darkMode} onChange={darkMode => updateSettings({ darkMode })} />} />
-          <Row
-            icon="circle"
-            title="Accent"
-            last
-            right={
-              <div className="flex gap-2">
-                {ACCENT_OPTIONS.map(color => (
-                  <button
-                    key={color}
-                    type="button"
-                    aria-label={`Accent ${color}`}
-                    onClick={() => updateSettings({ accentColor: color })}
-                    className="press-sm h-[24px] w-[24px] rounded-full p-0"
-                    style={{ background: color, border: settings.accentColor === color ? '2px solid var(--ink)' : '2px solid transparent' }}
-                  />
-                ))}
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {category.label}
+                </span>
+                <div style={{ display: 'flex', gap: 5, flex: 'none' }}>
+                  {SWATCHES.map(hex => {
+                    const chosen = category.color.toLowerCase() === hex.toLowerCase()
+                    return (
+                      <button
+                        key={hex}
+                        type="button"
+                        className="md-press"
+                        aria-label={`Set ${category.label} to ${hex}`}
+                        aria-pressed={chosen}
+                        onClick={() => updateCategory(category.id, { color: hex })}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          flex: 'none',
+                          cursor: 'pointer',
+                          background: hex,
+                          border: chosen ? '2px solid var(--color-text)' : '2px solid transparent',
+                          outline: chosen ? '2px solid var(--color-bg)' : 'none',
+                          outlineOffset: -4,
+                        }}
+                      />
+                    )
+                  })}
+                </div>
               </div>
-            }
-          />
-        </Group>
+            ))}
+            <button
+              type="button"
+              className="md-press md-lift"
+              onClick={() => setCatSheet(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '11px 18px',
+                border: 0,
+                borderBottom: '1px solid var(--color-neutral-300)',
+                background: 'transparent',
+                color: 'var(--color-neutral-600)',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 11,
+                letterSpacing: '.09em',
+                textTransform: 'uppercase',
+                textAlign: 'left',
+              }}
+            >
+              Add or rename categories
+            </button>
+          </div>
+        )}
 
-        <Group label="Account">
-          <Row icon="sync" title="Sync" sub="Last synced just now" last right={<span className="text-[13px] font-semibold text-[var(--accent-ink)]">On</span>} />
-        </Group>
+        {pane === 'sources' && (
+          <div>
+            <div style={PANE_HEAD}>Task sources</div>
+            {sources.map(source => (
+              <div
+                key={source.key}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}
+              >
+                <span style={{ width: 9, height: 9, background: source.dot, display: 'block', flex: 'none' }} />
+                <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{source.label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{source.sub}</span>
+                </span>
+                <button
+                  type="button"
+                  className="md-press"
+                  onClick={source.action}
+                  style={{
+                    flex: 'none',
+                    border: `2px solid ${source.on ? 'var(--color-accent)' : 'var(--color-divider)'}`,
+                    background: 'transparent',
+                    color: source.on ? 'var(--color-accent)' : 'var(--color-neutral-600)',
+                    padding: '7px 11px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    fontSize: 10.5,
+                    letterSpacing: '.09em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {source.cta}
+                </button>
+              </div>
+            ))}
+            {calConnected && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500 }}>Sync recent sessions now</span>
+                <button
+                  type="button"
+                  className="md-press"
+                  onClick={manualSync}
+                  disabled={manualSyncBusy}
+                  style={{
+                    flex: 'none',
+                    border: '2px solid var(--color-divider)',
+                    background: 'transparent',
+                    color: 'inherit',
+                    padding: '7px 11px',
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    fontSize: 10.5,
+                    letterSpacing: '.09em',
+                    textTransform: 'uppercase',
+                    opacity: manualSyncBusy ? 0.5 : 1,
+                  }}
+                >
+                  {manualSyncBusy ? 'Syncing…' : 'Sync'}
+                </button>
+              </div>
+            )}
+            {syncNotice && (
+              <p
+                style={{
+                  margin: 0,
+                  padding: '10px 18px',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  color: syncNotice.type === 'success' ? 'var(--good)' : 'var(--color-accent)',
+                }}
+              >
+                {syncNotice.message}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
-        </div>
-
-        <div className="mt-1 flex flex-col gap-[10px]">
-          <Btn full variant="soft" onClick={() => { window.location.href = '/api/logout' }}>Sign out</Btn>
-        </div>
-        <div className="mt-[14px] flex justify-center"><Wordmark size={18} /></div>
+      <div
+        style={{
+          marginTop: 'auto',
+          padding: '11px 18px calc(11px + var(--safe-b))',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 9,
+          borderTop: '2px solid var(--color-divider)',
+          flex: 'none',
+        }}
+      >
+        <button
+          type="button"
+          className="md-press"
+          onClick={() => onReplayIntro?.()}
+          style={{
+            border: '2px solid var(--color-divider)',
+            background: 'transparent',
+            color: 'inherit',
+            padding: '9px 13px',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 800,
+            fontSize: 11,
+            letterSpacing: '.09em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Replay intro
+        </button>
+        <button
+          type="button"
+          className="md-press"
+          onClick={exportSessions}
+          style={{
+            border: '2px solid var(--color-divider)',
+            background: 'transparent',
+            color: 'inherit',
+            padding: '9px 13px',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 800,
+            fontSize: 11,
+            letterSpacing: '.09em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Export sessions
+        </button>
+        <button
+          type="button"
+          className="md-press"
+          onClick={() => { window.location.href = '/api/logout' }}
+          style={{
+            border: '2px solid var(--color-accent)',
+            background: 'transparent',
+            color: 'var(--color-accent)',
+            padding: '9px 13px',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 800,
+            fontSize: 11,
+            letterSpacing: '.09em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Sign out
+        </button>
       </div>
 
       <CategorySheet open={catSheet} onClose={() => setCatSheet(false)} />
+
       <ThingsSheet
         open={thingsSheet}
         config={thingsConfig}

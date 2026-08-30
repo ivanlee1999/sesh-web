@@ -3,21 +3,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CategoryRecord, ExternalTask, TaskProvider } from '@/types'
 import { resolveProvider } from '@/types'
-import TaskSidebar from './TaskSidebar'
-import TaskListOptions from './TaskListOptions'
 import {
   ALL_SCOPE,
   DEFAULT_ALL_OPTIONS,
+  SORT_LABEL,
   applyAllOptions,
-  availableTags,
   buildSidebar,
   sectionize,
   type AllOptions,
+  type ScopeId,
+  type ScopeRow,
+  type SortKey,
 } from '@/lib/task-views'
 import { useCategories } from '@/context/CategoriesContext'
 import { useSettings } from '@/context/SettingsContext'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { redirectToLogin } from '@/lib/api-client'
 import { encodeTaskRef } from '@/lib/task-ref'
+import { capGroups, type CappedGroup } from '@/lib/modernist'
 import {
   PROVIDER_COLOR,
   PROVIDER_LABEL,
@@ -28,7 +31,9 @@ import {
   taskKey,
   type ProviderStatus,
 } from '@/lib/task-sources'
-import { Btn, CatBadge, Chip, Icon, ScreenHead, tint } from './sesh-ui'
+import TaskList, { type TaskRowModel } from './md/TaskList'
+import { MdIcon } from './md/icons'
+import { useShellStatus } from './md/shell-status'
 
 export interface PendingFocus {
   intention: string
@@ -43,12 +48,7 @@ export interface PendingFocus {
 
 type Filter = 'today' | 'upcoming' | 'all'
 
-const priorityColor: Record<number, string | null> = {
-  1: '#D1453B',
-  2: '#EB8909',
-  3: '#246FE0',
-  4: null,
-}
+const SORT_ORDER: SortKey[] = ['date', 'priority', 'project']
 
 function taskCategory(task: ExternalTask, categories: CategoryRecord[]): CategoryRecord | null {
   const raw = task.category?.toLowerCase()
@@ -64,130 +64,43 @@ function taskCategory(task: ExternalTask, categories: CategoryRecord[]): Categor
   return categories[0] ?? null
 }
 
-interface TaskGroup {
-  key: string
-  project: string
-  provider: TaskProvider
-  items: ExternalTask[]
-}
-
 /** Group by provider *and* project — both apps can have a project of the same name. */
-function groupTasks(tasks: ExternalTask[]): TaskGroup[] {
-  const groups = new Map<string, TaskGroup>()
+function groupByProject(tasks: ExternalTask[]) {
+  const groups = new Map<string, { key: string; title: string; provider: TaskProvider; items: ExternalTask[] }>()
   for (const task of tasks) {
     const provider = resolveProvider(task)
-    const project = task.projectName || PROVIDER_LABEL[provider]
-    const key = `${provider}:${project}`
+    const title = task.projectName || PROVIDER_LABEL[provider]
+    const key = `${provider}:${title}`
     const existing = groups.get(key)
     if (existing) existing.items.push(task)
-    else groups.set(key, { key, project, provider, items: [task] })
+    else groups.set(key, { key, title, provider, items: [task] })
   }
   return Array.from(groups.values())
 }
 
-function filterTasks(tasks: ExternalTask[], filter: Filter) {
+function baseFilter(tasks: ExternalTask[], filter: Filter): ExternalTask[] {
   const active = tasks.filter(task => !task.completed)
   if (filter === 'today') return active.filter(task => task.due === 'today')
   if (filter === 'upcoming') {
     // Upcoming answers "what lands, and when" — so it is only the dated work.
     // Anything undated is a someday pile, not a schedule; sweeping it in here
     // buried the handful of real dates under hundreds of them.
-    return active
-      .filter(task => task.due === 'tomorrow' || task.due === 'upcoming')
-      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+    return active.filter(task => task.due === 'tomorrow' || task.due === 'upcoming')
   }
   return active
 }
 
-function TaskRow({
-  task,
-  category,
-  onComplete,
-  onFocus,
-  onToggleSelect,
-  selected,
-  completing,
-}: {
-  task: ExternalTask
-  category: CategoryRecord | null
-  onComplete: () => void
-  onFocus: () => void
-  onToggleSelect: () => void
-  selected: boolean
-  completing: boolean
-}) {
-  const pri = priorityColor[task.priority] ?? null
-  const color = category?.color ?? 'var(--line-strong)'
-  const accent = category?.color ?? 'var(--accent)'
-
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-[var(--r-md)] border bg-[var(--surface)] px-[14px] py-3 ${completing ? 'anim-row-leave' : ''}`}
-      style={{
-        borderColor: selected ? accent : 'var(--line)',
-        borderWidth: selected ? 1.5 : 1,
-        background: selected ? tint(accent, 8) : 'var(--surface)',
-        transition: 'opacity var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out)',
-      }}
-    >
-      <button
-        type="button"
-        aria-label="Complete task"
-        onClick={onComplete}
-        className="press-sm grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full p-0"
-        style={{
-          border: `2px solid ${pri || color}`,
-          background: completing ? (pri || color) : 'transparent',
-          transition: 'background var(--dur-2) var(--ease-out)',
-        }}
-      >
-        {completing && <Icon name="check" size={12} color="#fff" stroke={3} />}
-      </button>
-      {/* The body is the multi-select target: tap to add the task to the next
-          session, tap again to drop it. The play button still starts a session
-          on this one task alone, which is the common case. */}
-      <button
-        type="button"
-        onClick={onToggleSelect}
-        aria-pressed={selected}
-        aria-label={selected ? `Remove ${task.content} from the session` : `Add ${task.content} to the session`}
-        className="min-w-0 flex-1 border-0 bg-transparent p-0 text-left"
-      >
-        <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
-        <span className="mt-1 flex items-center gap-[9px]">
-          <CatBadge category={category} size="sm" />
-          {task.dueLabel && (
-            <span className="text-[12px] font-medium" style={{ color: task.due === 'today' ? 'var(--accent-ink)' : 'var(--ink-3)' }}>
-              {task.dueLabel}
-            </span>
-          )}
-        </span>
-      </button>
-      {selected && (
-        <span
-          aria-hidden
-          className="anim-pop grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full"
-          style={{ background: accent }}
-        >
-          <Icon name="check" size={12} color="#fff" stroke={3} />
-        </span>
-      )}
-      <button
-        type="button"
-        aria-label="Focus on task"
-        onClick={onFocus}
-        className="press grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0"
-        style={{ background: category ? tint(category.color, 16) : 'var(--accent-soft)' }}
-      >
-        <Icon name="play" size={17} color={category?.color ?? 'var(--accent-ink)'} />
-      </button>
-    </div>
-  )
+function estimateLabel(task: ExternalTask): string {
+  const amount = task.duration?.amount
+  return typeof amount === 'number' && amount > 0 ? `${amount}m` : ''
 }
 
 export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingFocus) => void }) {
   const { categories } = useCategories()
   const { settings, loaded: settingsLoaded } = useSettings()
+  const { reportSub, reportOpenTasks } = useShellStatus()
+  const isDesktop = useIsDesktop()
+  const phone = !isDesktop
   // Only this one setting changes which providers are asked; depending on the
   // whole object would re-fetch every task on an unrelated preference change.
   const providers = useMemo(() => enabledProviders(settings), [settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -199,7 +112,6 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const [syncing, setSyncing] = useState(false)
   const [completingKey, setCompletingKey] = useState<string | null>(null)
   const [allOptions, setAllOptions] = useState<AllOptions>(DEFAULT_ALL_OPTIONS)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   /** Keyed by `taskKey`, so a refreshed list keeps the same tasks selected. */
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
 
@@ -244,33 +156,37 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     return () => clearTimeout(timer)
   }, [syncing, load])
 
+  const openCount = useMemo(() => tasks.filter(t => !t.completed).length, [tasks])
+
+  useEffect(() => {
+    reportOpenTasks(openCount)
+    reportSub('tasks', `${openCount} open across ${statuses.filter(s => s.state === 'connected').length || 'no'} source${openCount === 1 ? '' : 's'}`)
+  }, [openCount, reportOpenTasks, reportSub, statuses])
+
   const counts = useMemo(() => ({
-    today: filterTasks(tasks, 'today').length,
-    upcoming: filterTasks(tasks, 'upcoming').length,
-    all: filterTasks(tasks, 'all').length,
+    today: baseFilter(tasks, 'today').length,
+    upcoming: baseFilter(tasks, 'upcoming').length,
+    all: baseFilter(tasks, 'all').length,
   }), [tasks])
 
   const sidebar = useMemo(() => buildSidebar(tasks), [tasks])
-  const tags = useMemo(() => availableTags(tasks), [tasks])
 
-  // All is the only filter with controls; Today and Upcoming each answer a
-  // single question and stay grouped by project.
-  const shown = useMemo(
-    () => (filter === 'all' ? applyAllOptions(tasks, allOptions) : filterTasks(tasks, filter)),
-    [tasks, filter, allOptions],
-  )
+  /**
+   * The scope chips pick which pile; the sidebar, the dated filter and the
+   * sort then cut it down. `applyAllOptions` does the cutting for every pile,
+   * with the sidebar scope neutralised unless we are actually in All.
+   */
+  const shown = useMemo(() => {
+    const base = baseFilter(tasks, filter)
+    return applyAllOptions(base, filter === 'all' ? allOptions : { ...allOptions, scope: ALL_SCOPE })
+  }, [allOptions, filter, tasks])
+
   const sections = useMemo(
     () => (filter === 'all'
       ? sectionize(shown, allOptions.group)
-      : groupTasks(shown).map(g => ({ key: g.key, title: g.project, provider: g.provider, items: g.items }))),
-    [filter, shown, allOptions.group],
+      : groupByProject(shown)),
+    [allOptions.group, filter, shown],
   )
-
-  const scopeLabel = useMemo(() => {
-    if (allOptions.scope === ALL_SCOPE) return 'All'
-    const rows = [...sidebar.views, ...sidebar.areas, ...sidebar.projects]
-    return rows.find(row => row.id === allOptions.scope)?.label ?? 'All'
-  }, [allOptions.scope, sidebar])
 
   const connected = statuses.filter(s => s.state === 'connected')
   const authRequired = statuses.some(s => s.state === 'auth_required')
@@ -306,236 +222,353 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     setCompletingKey(key)
     try {
       await completeProviderTask(task)
-      setTasks(prev => prev.filter(t => taskKey(t) !== key))
-      setSelectedKeys(prev => prev.filter(k => k !== key))
+      // Let the row's leave animation play before it is actually removed.
+      window.setTimeout(() => {
+        setTasks(prev => prev.filter(t => taskKey(t) !== key))
+        setSelectedKeys(prev => prev.filter(k => k !== key))
+        setCompletingKey(null)
+      }, 420)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to close task')
-    } finally {
       setCompletingKey(null)
+      setError(err instanceof Error ? err.message : 'Failed to close task')
     }
   }
+
+  const rowFor = useCallback((task: ExternalTask): TaskRowModel => {
+    const provider = resolveProvider(task)
+    const key = taskKey(task)
+    const selected = selectedKeys.includes(key)
+    return {
+      key,
+      title: task.content,
+      project: task.projectName ?? PROVIDER_LABEL[provider],
+      due: task.dueLabel ?? '',
+      est: estimateLabel(task),
+      dot: PROVIDER_COLOR[provider],
+      selected,
+      completing: completingKey === key,
+      ariaLabel: selected
+        ? `Remove ${task.content} from the session`
+        : `Add ${task.content} to the session`,
+      onPick: () => toggleSelected(task),
+      onFocus: () => focusOn([task]),
+      onComplete: () => { void complete(task) },
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, completingKey, selectedKeys, tasks])
+
+  // Nothing scrolls: the pane renders what fits and counts the remainder.
+  const groups: CappedGroup<TaskRowModel>[] = useMemo(() => capGroups(
+    sections
+      .filter(section => section.items.length > 0)
+      .map(section => ({ label: section.title || 'All open', rows: section.items.map(rowFor) })),
+    phone ? 9 : 15,
+  ), [phone, rowFor, sections])
+
+  const quiet = (active: boolean) => ({
+    border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
+    background: active ? 'var(--color-accent)' : 'transparent',
+    color: active ? '#fff' : 'inherit',
+    padding: '6px 10px',
+    cursor: 'pointer',
+    fontFamily: 'var(--font-heading)',
+    fontWeight: 800,
+    fontSize: 10.5,
+    letterSpacing: '.09em',
+    textTransform: 'uppercase' as const,
+  })
 
   // Nothing connected: explain each provider rather than assuming Todoist.
   if (connected.length === 0 && !loading) {
     return (
-      <div className="flex h-full w-full min-w-0 flex-col px-[var(--gutter)] pb-[var(--screen-bottom-space)] pt-[calc(var(--screen-top)+34px+var(--safe-t))]">
-        <ScreenHead title="Tasks" />
-        <div className="flex flex-1 flex-col items-center justify-center gap-[22px] text-center">
-          <div className="anim-pop grid h-[72px] w-[72px] place-items-center rounded-[20px] bg-[var(--surface-2)]">
-            <Icon name="list" size={34} color="var(--ink-3)" stroke={2} />
-          </div>
-          <div>
-            <h2 className="m-0 font-[var(--font-display)] text-[22px] font-bold tracking-[-0.03em]">
-              {authRequired ? 'Task sync needs sign-in' : 'No task source connected'}
-            </h2>
-            <div className="mx-auto mt-[14px] flex max-w-[320px] flex-col gap-2">
-              {statuses.map(status => (
-                <div
-                  key={status.provider}
-                  className="flex items-start gap-[9px] rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-[11px] text-left"
-                >
-                  <span
-                    className="mt-[6px] h-2 w-2 flex-shrink-0 rounded-full"
-                    style={{ background: PROVIDER_COLOR[status.provider] }}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-semibold">{PROVIDER_LABEL[status.provider]}</span>
-                    <span className="block text-[12.5px] leading-snug text-[var(--ink-3)]">{status.message}</span>
-                  </span>
-                </div>
-              ))}
+      <div className="md-screen md-screen-col" style={{ padding: '18px' }}>
+        <h2 className="md-title" style={{ fontSize: phone ? 24 : 30, marginBottom: 14 }}>Tasks</h2>
+        <div style={{ height: 2, background: 'var(--color-divider)', marginBottom: 18 }} />
+        <span className="md-eyebrow" style={{ marginBottom: 10 }}>
+          {authRequired ? 'Task sync needs sign-in' : 'No task source connected'}
+        </span>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {statuses.map(status => (
+            <div
+              key={status.provider}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                padding: '10px 0',
+                borderBottom: '1px solid var(--color-neutral-300)',
+              }}
+            >
+              <span style={{ width: 8, height: 8, marginTop: 5, flex: 'none', background: PROVIDER_COLOR[status.provider] }} />
+              <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{PROVIDER_LABEL[status.provider]}</span>
+                <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--color-neutral-600)' }}>{status.message}</span>
+              </span>
             </div>
-          </div>
-          <Btn
-            size="lg"
-            icon={authRequired ? 'logout' : 'sync'}
+          ))}
+        </div>
+        <div style={{ marginTop: 18 }}>
+          <button
+            type="button"
+            className="md-press"
             onClick={authRequired ? () => redirectToLogin() : load}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              border: 0,
+              background: 'var(--color-accent)',
+              color: '#fff',
+              padding: '14px 16px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-heading)',
+              fontWeight: 800,
+              fontSize: 13,
+              letterSpacing: '.08em',
+              textTransform: 'uppercase',
+            }}
           >
             {authRequired ? 'Sign in' : 'Check connections'}
-          </Btn>
+            <MdIcon name="arrow" size={18} strokeWidth={2.4} color="#fff" />
+          </button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]">
-      <ScreenHead
-        title="Tasks"
-        right={
-          <div className="mt-[10px] flex items-center gap-[10px]">
-            <span className="flex items-center gap-[7px]">
-              <span className="flex items-center gap-[3px]">
-                {connected.map(status => (
-                  <span
-                    key={status.provider}
-                    aria-label={PROVIDER_LABEL[status.provider]}
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: PROVIDER_COLOR[status.provider] }}
-                  />
-                ))}
-              </span>
-              <span className="text-[12.5px] font-medium text-[var(--ink-3)]">
-                {loading ? 'Syncing' : connected.map(s => PROVIDER_LABEL[s.provider]).join(' + ')}
-              </span>
-            </span>
-            {/* The status pill used to double as the refresh, which nothing said. */}
-            <button
-              type="button"
-              onClick={load}
-              disabled={loading}
-              aria-label="Refresh tasks"
-              title="Refresh tasks"
-              className="press grid h-[32px] w-[32px] flex-shrink-0 place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-0 disabled:opacity-60"
-            >
-              <Icon name="sync" size={15} color="var(--ink-2)" className={loading ? 'anim-spin' : undefined} />
-            </button>
-          </div>
-        }
-      />
-
-      <div className="flex gap-2 px-[var(--gutter)] pb-2 pt-[14px]">
-        {([
-          ['today', 'Today', counts.today],
-          ['upcoming', 'Upcoming', counts.upcoming],
-          ['all', 'All', counts.all],
-        ] as const).map(([value, label, count]) => (
-          <Chip key={value} active={filter === value} onClick={() => setFilter(value)}>
-            {label} · {count}
-          </Chip>
-        ))}
-      </div>
-
-      {error && <div className="anim-fade-up mx-[var(--gutter)] my-3 rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-[13px] text-[var(--warn)]">{error}</div>}
-
-      {syncing && !error && (
-        <div className="anim-fade-up mx-[var(--gutter)] my-3 rounded-[var(--r-md)] border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-[13px] text-[var(--ink-3)]">
-          Still catching up with Things — more tasks will appear shortly.
-        </div>
-      )}
-
-      {filter === 'all' && (
-        <div className="flex items-center gap-[9px] px-[var(--gutter)] pb-1 pt-1">
-          {/* Below 900px the sidebar lives in a drawer, so it needs a way in. */}
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="press flex flex-shrink-0 items-center gap-[6px] rounded-[var(--r-sm)] border border-[var(--line)] bg-[var(--surface)] px-[10px] py-[5px] text-[12.5px] font-medium text-[var(--ink-2)] min-[900px]:hidden"
-          >
-            <Icon name="list" size={14} color="var(--ink-2)" />
-            {scopeLabel}
-          </button>
-          <div className="min-w-0 flex-1 overflow-x-auto">
-            <TaskListOptions options={allOptions} tags={tags} onChange={setAllOptions} />
-          </div>
-        </div>
-      )}
-
-      <div className={`px-[var(--gutter)] py-2 ${filter === 'all' ? 'task-pane' : ''}`}>
-        {filter === 'all' && (
-          <div className="hidden min-[900px]:block">
-            <TaskSidebar
-              sidebar={sidebar}
-              scope={allOptions.scope}
+    <div className="md-screen">
+      {!phone && filter === 'all' && (
+        <nav
+          aria-label="Task lists"
+          style={{
+            flex: 'none',
+            width: 196,
+            borderRight: '2px solid var(--color-divider)',
+            padding: '14px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            overflow: 'hidden',
+          }}
+        >
+          <SidebarRow
+            row={{ id: ALL_SCOPE, label: 'All', count: sidebar.total }}
+            active={allOptions.scope === ALL_SCOPE}
+            onSelect={scope => setAllOptions({ ...allOptions, scope })}
+          />
+          {[...sidebar.views, ...sidebar.areas, ...sidebar.projects].slice(0, 14).map(row => (
+            <SidebarRow
+              key={row.id}
+              row={row}
+              active={allOptions.scope === row.id}
               onSelect={scope => setAllOptions({ ...allOptions, scope })}
             />
-          </div>
-        )}
-        <div>
-        {loading && tasks.length === 0 ? (
-          <div className="flex flex-col gap-[9px]" aria-label="Loading tasks">
-            {[0, 1, 2, 3].map(i => <div key={i} className="skeleton h-[66px] rounded-[var(--r-md)]" />)}
-          </div>
-        ) : sections.length > 0 ? (
-          <div key={filter} className="anim-fade">
-            {sections.map(group => (
-              <div key={group.key} className="mb-6">
-                {group.title && (
-                <div className="mb-[11px] flex items-center gap-2 text-[13px] font-bold tracking-[-0.01em] text-[var(--ink-2)]">
-                  {group.provider && (
-                    <span className="h-2 w-2 rounded-full" style={{ background: PROVIDER_COLOR[group.provider] }} />
-                  )}
-                  {group.title}
-                  {/* Only name the source when both are connected, to avoid noise. */}
-                  {group.provider && connected.length > 1 && (
-                    <span className="text-[11.5px] font-medium text-[var(--ink-3)]">{PROVIDER_LABEL[group.provider]}</span>
-                  )}
-                </div>
-                )}
-                <div className="stagger flex flex-col gap-[9px]">
-                  {group.items.map(task => {
-                    const category = taskCategory(task, categories)
-                    return (
-                      <TaskRow
-                        key={taskKey(task)}
-                        task={task}
-                        category={category}
-                        completing={completingKey === taskKey(task)}
-                        selected={selectedKeys.includes(taskKey(task))}
-                        onComplete={() => complete(task)}
-                        onToggleSelect={() => toggleSelected(task)}
-                        onFocus={() => focusOn([task])}
-                      />
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
-            <Icon name="check" size={30} color="var(--ink-3)" />
-            <div className="mt-3 text-[15px]">Nothing here. Enjoy the calm.</div>
-          </div>
-        )}
-        </div>
-      </div>
+          ))}
+        </nav>
+      )}
 
-      {/* Sticky rather than fixed: it rides inside the scroller, so it sits above
-          the list and below the tab bar without either having to know about it. */}
-      {selectedTasks.length > 0 && (
-        <div className="anim-fade-up sticky bottom-0 z-20 px-[var(--gutter)] pb-2 pt-3">
-          <div className="flex items-center gap-3 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[14px] py-[11px] shadow-[var(--shadow-md)]">
-            <div className="min-w-0 flex-1">
-              <div className="text-[14px] font-semibold tracking-[-0.01em]">
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div
+          style={{
+            padding: '12px 16px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 8,
+            borderBottom: '2px solid var(--color-divider)',
+            flex: 'none',
+          }}
+        >
+          {phone && <h2 className="md-title" style={{ fontSize: 24, width: '100%' }}>Tasks</h2>}
+
+          {([['today', 'Today'], ['upcoming', 'Upcoming'], ['all', 'All']] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className="md-press"
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+              style={quiet(filter === value)}
+            >
+              {label} · {counts[value]}
+            </button>
+          ))}
+
+          <button
+            type="button"
+            className="md-press"
+            aria-pressed={allOptions.hideUndated}
+            onClick={() => setAllOptions({ ...allOptions, hideUndated: !allOptions.hideUndated })}
+            style={quiet(allOptions.hideUndated)}
+          >
+            Dated only
+          </button>
+
+          <button
+            type="button"
+            className="md-press"
+            onClick={() => setAllOptions({
+              ...allOptions,
+              sort: SORT_ORDER[(SORT_ORDER.indexOf(allOptions.sort) + 1) % SORT_ORDER.length],
+            })}
+            style={quiet(false)}
+          >
+            Sort · {SORT_LABEL[allOptions.sort]}
+          </button>
+
+          <button
+            type="button"
+            className="md-press md-lift"
+            onClick={load}
+            disabled={loading}
+            aria-label="Refresh tasks"
+            style={{
+              marginLeft: 'auto',
+              flex: 'none',
+              width: 30,
+              height: 30,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '2px solid var(--color-divider)',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+              padding: 0,
+              opacity: loading ? 0.5 : 1,
+            }}
+          >
+            <MdIcon name="next" size={14} strokeWidth={2.4} />
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ padding: '8px 16px', color: 'var(--color-accent)', fontSize: 11.5, fontWeight: 600, flex: 'none' }}>
+            {error}
+          </div>
+        )}
+        {syncing && !error && (
+          <div style={{ padding: '8px 16px', color: 'var(--color-neutral-600)', fontSize: 11.5, fontWeight: 600, flex: 'none' }}>
+            Still catching up with Things — more tasks will appear shortly.
+          </div>
+        )}
+
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <TaskList groups={groups} emptyLabel="Nothing here. Enjoy the calm." />
+        </div>
+
+        {selectedTasks.length > 0 && (
+          <div
+            style={{
+              flex: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 16px',
+              borderTop: '2px solid var(--color-divider)',
+              background: 'var(--color-bg)',
+            }}
+          >
+            <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase' }}>
                 {selectedTasks.length} {selectedTasks.length === 1 ? 'task' : 'tasks'} selected
-              </div>
-              <div className="truncate text-[12.5px] text-[var(--ink-3)]">
+              </span>
+              <span style={{ fontSize: 11.5, color: 'var(--color-neutral-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {selectedTasks.map(task => task.content).join(' · ')}
-              </div>
-            </div>
+              </span>
+            </span>
             <button
               type="button"
+              className="md-press"
               onClick={() => setSelectedKeys([])}
-              className="press flex-shrink-0 border-0 bg-transparent p-0 text-[13px] font-medium text-[var(--ink-3)]"
+              style={{
+                flex: 'none',
+                background: 'transparent',
+                border: 0,
+                padding: '4px 0',
+                cursor: 'pointer',
+                color: 'var(--color-neutral-600)',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 10.5,
+                letterSpacing: '.09em',
+                textTransform: 'uppercase',
+              }}
             >
               Clear
             </button>
-            <Btn size="sm" icon="play" onClick={() => focusOn(selectedTasks)}>Focus</Btn>
-          </div>
-        </div>
-      )}
-
-      {drawerOpen && (
-        <div className="fixed inset-0 z-50 min-[900px]:hidden" role="dialog" aria-modal="true" aria-label="Task lists">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 border-0 bg-black/35 p-0"
-          />
-          <div className="anim-slide-in absolute inset-y-0 left-0 w-[78%] max-w-[300px] overflow-y-auto bg-[var(--surface)] px-[10px] pb-[var(--screen-bottom-space)] pt-[calc(var(--screen-top)+var(--safe-t))] shadow-xl">
-            <TaskSidebar
-              sidebar={sidebar}
-              scope={allOptions.scope}
-              onSelect={scope => {
-                setAllOptions({ ...allOptions, scope })
-                setDrawerOpen(false)
+            <button
+              type="button"
+              className="md-press"
+              onClick={() => focusOn(selectedTasks)}
+              style={{
+                flex: 'none',
+                border: 0,
+                background: 'var(--color-accent)',
+                color: '#fff',
+                padding: '9px 14px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 11,
+                letterSpacing: '.09em',
+                textTransform: 'uppercase',
               }}
-            />
+            >
+              Focus
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
+  )
+}
+
+function SidebarRow({
+  row,
+  active,
+  onSelect,
+}: {
+  row: ScopeRow
+  active: boolean
+  onSelect: (id: ScopeId) => void
+}) {
+  return (
+    <button
+      type="button"
+      className="md-rail-item md-press"
+      data-active={active ? 'true' : 'false'}
+      aria-current={active ? 'true' : undefined}
+      onClick={() => onSelect(row.id)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 14px',
+        background: 'transparent',
+        border: 0,
+        cursor: 'pointer',
+        color: 'inherit',
+        fontFamily: 'inherit',
+        fontSize: 13,
+        fontWeight: 500,
+        textAlign: 'left',
+      }}
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          flex: 'none',
+          display: 'block',
+          background: row.provider ? PROVIDER_COLOR[row.provider] : 'var(--color-neutral-500)',
+        }}
+      />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {row.label}
+      </span>
+      <span className="md-num" style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{row.count}</span>
+    </button>
   )
 }

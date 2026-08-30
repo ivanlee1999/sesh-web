@@ -1,48 +1,40 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
-import { CatBadge, Icon, ScreenHead, fmtHM, tint, ymd } from './sesh-ui'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
+import { hoursMinutes } from '@/lib/modernist'
+import { MdIcon } from './md/icons'
+import { useShellStatus } from './md/shell-status'
 
-function startOfMonth(y: number, m: number) {
-  return new Date(y, m, 1)
+const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+function dayKey(input: Date | number): string {
+  const d = input instanceof Date ? input : new Date(input)
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
 }
 
-function daysInMonth(y: number, m: number) {
-  return new Date(y, m + 1, 0).getDate()
-}
-
-function sessionMinutes(session: Session) {
+function sessionMinutes(session: Session): number {
   return Math.max(1, Math.round((session.actualMs || session.targetMs || 0) / 60000))
-}
-
-function Dots({ n }: { n?: number }) {
-  if (!n) return null
-  return (
-    <div className="flex gap-[3px]">
-      {[1, 2, 3, 4, 5].map(i => (
-        <span key={i} className="h-[5px] w-[5px] rounded-full" style={{ background: i <= n ? 'var(--accent)' : 'var(--line-strong)' }} />
-      ))}
-    </div>
-  )
 }
 
 export default function Calendar() {
   const { categories } = useCategories()
+  const { reportSub } = useShellStatus()
+  const isDesktop = useIsDesktop()
+  const phone = !isDesktop
   const [sessions, setSessions] = useState<Session[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const now = new Date()
+  const now = useMemo(() => new Date(), [])
   const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() })
-  const [selectedKey, setSelectedKey] = useState(ymd(now))
+  const [selectedKey, setSelectedKey] = useState(dayKey(now))
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      setLoading(true)
       setError(null)
       try {
         const res = await fetch('/api/sessions')
@@ -55,8 +47,6 @@ export default function Calendar() {
         if (!cancelled) setSessions(data)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load session history.')
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     }
     load()
@@ -66,43 +56,48 @@ export default function Calendar() {
   const byDay = useMemo(() => {
     const map = new Map<string, Session[]>()
     for (const session of sessions) {
-      const key = ymd(session.startedAt)
+      const key = dayKey(session.startedAt)
       map.set(key, [...(map.get(key) ?? []), session])
     }
     return map
   }, [sessions])
 
-  const monthSessions = sessions.filter(session => {
-    const d = new Date(session.startedAt)
-    return d.getFullYear() === cursor.y && d.getMonth() === cursor.m
+  const first = new Date(cursor.y, cursor.m, 1)
+  const monthLabel = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+
+  const monthMinutes = useMemo(() => sessions
+    .filter(s => {
+      const d = new Date(s.startedAt)
+      return d.getFullYear() === cursor.y && d.getMonth() === cursor.m
+    })
+    .reduce((sum, s) => sum + sessionMinutes(s), 0), [cursor.m, cursor.y, sessions])
+
+  useEffect(() => {
+    reportSub('calendar', `${monthLabel} · ${hoursMinutes(monthMinutes)}`)
+  }, [monthLabel, monthMinutes, reportSub])
+
+  // Six rows of seven, always — the grid absorbs the slack rather than
+  // changing height as you page between months.
+  const lead = (first.getDay() + 6) % 7
+  const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate()
+  const cells = Array.from({ length: 42 }, (_, i) => {
+    const dayNumber = i - lead + 1
+    const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth
+    const date = inMonth ? new Date(cursor.y, cursor.m, dayNumber) : null
+    return { dayNumber, inMonth, date, key: date ? dayKey(date) : `blank-${i}` }
   })
-  const monthMin = monthSessions.reduce((sum, session) => sum + sessionMinutes(session), 0)
-  const monthDays = new Set(monthSessions.map(session => ymd(session.startedAt))).size
-  const maxMonthMin = Math.max(60, ...Array.from(byDay.entries()).map(([, list]) => list.reduce((sum, session) => sum + sessionMinutes(session), 0)))
 
-  const first = startOfMonth(cursor.y, cursor.m)
-  const lead = first.getDay()
-  const total = daysInMonth(cursor.y, cursor.m)
-  const cells: Array<Date | null> = []
-  for (let i = 0; i < lead; i += 1) cells.push(null)
-  for (let d = 1; d <= total; d += 1) cells.push(new Date(cursor.y, cursor.m, d))
-
-  const dayColor = (key: string) => {
-    const list = byDay.get(key)
-    if (!list?.length) return null
-    const tally = new Map<string, number>()
-    for (const session of list) tally.set(session.category, (tally.get(session.category) ?? 0) + sessionMinutes(session))
-    const top = Array.from(tally.entries()).sort((a, b) => b[1] - a[1])[0]?.[0]
-    return top ? getCategoryMeta(top, categories).color : 'var(--accent)'
-  }
-
-  const selectedSessions = [...(byDay.get(selectedKey) ?? [])].sort((a, b) => b.startedAt - a.startedAt)
+  const selectedSessions = [...(byDay.get(selectedKey) ?? [])].sort((a, b) => a.startedAt - b.startedAt)
+  const selectedTotal = selectedSessions.reduce((sum, s) => sum + sessionMinutes(s), 0)
   const selectedDate = (() => {
     const [y, m, d] = selectedKey.split('-').map(Number)
     return new Date(y, m, d)
   })()
-  const selectedTotal = selectedSessions.reduce((sum, session) => sum + sessionMinutes(session), 0)
-  const isFuture = (d: Date) => d > new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  // Nothing scrolls: the day list shows what fits and counts the rest.
+  const listBudget = phone ? 4 : 7
+  const shown = selectedSessions.slice(0, listBudget)
+  const hidden = selectedSessions.length - shown.length
 
   const shift = (dir: number) => {
     setCursor(current => {
@@ -114,117 +109,220 @@ export default function Calendar() {
     })
   }
 
+  const navButton = (label: string, dir: number, icon: 'prev' | 'next') => (
+    <button
+      type="button"
+      className="md-press md-lift"
+      aria-label={label}
+      onClick={() => shift(dir)}
+      style={{
+        flex: 'none',
+        width: 26,
+        height: 26,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '2px solid var(--color-divider)',
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+        padding: 0,
+      }}
+    >
+      <MdIcon name={icon} size={13} strokeWidth={2.4} />
+    </button>
+  )
+
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]" data-testid="calendar-screen">
-      <ScreenHead title="Calendar" />
+    <div className="md-screen md-screen-col" data-testid="calendar-screen">
+      {phone && (
+        <h2 className="md-title" style={{ padding: '14px 18px 10px', fontSize: 24, flex: 'none' }}>Calendar</h2>
+      )}
 
-      <div className="split-pane px-[var(--gutter)] pt-[14px]">
-        <div>
-        <div className="mb-4 flex items-center justify-between">
-          <button type="button" aria-label="Previous month" onClick={() => shift(-1)} className="press grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
-            <Icon name="back" size={19} />
-          </button>
-          {/* Keyed on the month so the header cross-fades when you page. */}
-          <div key={`${cursor.y}-${cursor.m}`} className="anim-fade text-center">
-            <div className="text-[17px] font-bold tracking-[-0.02em]">{first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</div>
-            <div className="mt-px text-[12.5px] text-[var(--ink-3)]">{fmtHM(monthMin)} · {monthDays} days</div>
-          </div>
-          <button type="button" aria-label="Next month" onClick={() => shift(1)} className="press grid h-[38px] w-[38px] place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
-            <Icon name="chevron" size={19} />
-          </button>
-        </div>
+      <div
+        style={{
+          padding: '11px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          borderBottom: '2px solid var(--color-divider)',
+          flex: 'none',
+        }}
+      >
+        {navButton('Previous month', -1, 'prev')}
+        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+          {monthLabel}
+        </span>
+        {navButton('Next month', 1, 'next')}
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            letterSpacing: '.1em',
+            textTransform: 'uppercase',
+            color: 'var(--color-neutral-600)',
+            fontWeight: 700,
+          }}
+        >
+          {hoursMinutes(monthMinutes)} focused
+        </span>
+      </div>
 
-        <div className="mb-2 grid grid-cols-7 gap-1.5">
-          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-            <div key={`${day}-${i}`} className="text-center text-[11.5px] font-semibold text-[var(--ink-3)]">{day}</div>
-          ))}
+      {error && (
+        <div style={{ padding: '10px 18px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
+          {error}
         </div>
+      )}
 
-        <div key={`grid-${cursor.y}-${cursor.m}`} className="grid grid-cols-7 gap-1.5">
-          {cells.map((date, i) => {
-            if (!date) return <div key={i} />
-            const key = ymd(date)
-            const list = byDay.get(key) ?? []
-            const mins = list.reduce((sum, session) => sum + sessionMinutes(session), 0)
-            const color = dayColor(key)
-            const intensity = mins ? 0.28 + 0.72 * Math.min(1, mins / maxMonthMin) : 0
-            const today = key === ymd(now)
-            const selected = key === selectedKey
-            const future = isFuture(date)
-            return (
-              <button
-                key={key}
-                type="button"
-                disabled={future}
-                aria-pressed={selected}
-                onClick={() => setSelectedKey(key)}
-                className="stagger-item press-sm relative flex aspect-square items-center justify-center rounded-[var(--r-sm)] p-0"
-                style={{
-                  // Ripples in row by row rather than all at once.
-                  '--i': Math.floor(i / 7),
-                  '--stagger': '26ms',
-                  cursor: future ? 'default' : 'pointer',
-                  border: selected ? '2px solid var(--ink)' : today ? '1.5px solid var(--line-strong)' : '1px solid var(--line)',
-                  background: mins && color ? tint(color, Math.round(intensity * 100)) : 'var(--surface)',
-                  opacity: future ? 0.4 : 1,
-                  transition: 'border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out)',
-                } as CSSProperties}
-              >
-                <span
-                  className="text-[13px]"
-                  style={{
-                    fontWeight: selected || today ? 700 : 500,
-                    color: intensity > 0.55 ? '#fff' : mins && color ? color : 'var(--ink-3)',
-                  }}
-                >
-                  {date.getDate()}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-        </div>
-
-      <div className="pt-6 md:pt-0">
-        <div className="mb-[13px] flex items-baseline justify-between">
-          <span className="text-[15px] font-bold tracking-[-0.01em]">
-            {selectedKey === ymd(now) ? 'Today' : selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: '2px solid var(--color-divider)', flex: 'none' }}>
+        {DOW.map(label => (
+          <span
+            key={label}
+            style={{
+              padding: '5px 0',
+              textAlign: 'center',
+              fontSize: 10,
+              letterSpacing: '.1em',
+              textTransform: 'uppercase',
+              color: 'var(--color-neutral-600)',
+              fontWeight: 700,
+            }}
+          >
+            {label}
           </span>
-          {selectedSessions.length > 0 && <span className="text-[12.5px] text-[var(--ink-3)] [font-variant-numeric:tabular-nums]">{fmtHM(selectedTotal)} · {selectedSessions.length}</span>}
-        </div>
-
-        {error && <div className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 p-4 text-[14px] text-[var(--warn)]">{error}</div>}
-        {loading && !error && selectedSessions.length === 0 && <div className="skeleton h-[104px] rounded-[var(--r-lg)]" aria-label="Loading sessions" />}
-        {!error && (!loading && selectedSessions.length === 0 ? (
-          <div key={selectedKey} className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 py-[34px] text-center text-[var(--ink-3)]">
-            <Icon name="calendar" size={26} color="var(--ink-3)" />
-            <div className="mt-[10px] text-[14.5px]">No sessions this day.</div>
-          </div>
-        ) : (
-          <div key={selectedKey} className="stagger flex flex-col gap-[10px]">
-            {selectedSessions.map(session => {
-              const meta = getCategoryMeta(session.category, categories)
-              const time = new Date(session.startedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-              return (
-                <div key={session.id} className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-4 py-[15px]" style={{ borderLeft: `3px solid ${meta.color}` }}>
-                  <div className={`flex items-center gap-[10px] ${session.notes ? 'mb-[9px]' : ''}`}>
-                    <CatBadge category={meta} size="sm" />
-                    {session.intention && <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.02em]">{session.intention}</span>}
-                  </div>
-                  {session.notes && <p className="mb-[10px] mt-0 text-[14px] leading-normal text-[var(--ink-2)]">{session.notes}</p>}
-                  <div className="flex items-center gap-3 text-[12.5px] text-[var(--ink-3)]">
-                    <span className="[font-variant-numeric:tabular-nums]">{time}</span>
-                    <span>·</span>
-                    <span className="[font-variant-numeric:tabular-nums]">{fmtHM(sessionMinutes(session))}</span>
-                    <div className="flex-1" />
-                    <Dots n={session.rating} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
         ))}
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr', flex: 1, minHeight: 0 }}>
+        {cells.map(cell => {
+          const list = cell.date ? byDay.get(cell.key) ?? [] : []
+          const active = cell.key === selectedKey
+          const bars = list.slice(0, 4)
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              className="md-press"
+              disabled={!cell.inMonth}
+              aria-label={cell.date ? cell.date.toDateString() : undefined}
+              aria-pressed={active}
+              onClick={() => cell.inMonth && setSelectedKey(cell.key)}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
+                padding: '8px 0 7px',
+                cursor: cell.inMonth ? 'pointer' : 'default',
+                border: 0,
+                borderRight: '1px solid var(--color-neutral-300)',
+                borderBottom: '1px solid var(--color-neutral-300)',
+                background: active ? 'var(--color-accent)' : 'transparent',
+                color: active ? '#fff' : cell.inMonth ? 'inherit' : 'var(--color-neutral-500)',
+                fontFamily: 'inherit',
+                opacity: cell.inMonth ? 1 : 0.35,
+              }}
+            >
+              <span className="md-num" style={{ fontSize: 12, fontWeight: 600 }}>
+                {cell.inMonth ? cell.dayNumber : ''}
+              </span>
+              <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 14 }}>
+                {bars.map((session, k) => (
+                  <span
+                    key={session.id}
+                    style={{
+                      display: 'block',
+                      width: 3,
+                      height: 4 + k * 3,
+                      background: active ? '#fff' : getCategoryMeta(session.category, categories).color,
+                    }}
+                  />
+                ))}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div
+        style={{
+          padding: '10px 18px 4px',
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 10,
+          borderTop: '2px solid var(--color-divider)',
+          flex: 'none',
+        }}
+      >
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+          {selectedDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
+        </h3>
+        <span style={{ fontSize: 11, color: 'var(--color-neutral-600)', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+          {selectedSessions.length === 0
+            ? 'No sessions'
+            : `${selectedSessions.length} session${selectedSessions.length === 1 ? '' : 's'} · ${hoursMinutes(selectedTotal)}`}
+        </span>
+      </div>
+
+      <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', flex: 'none', overflow: 'hidden' }}>
+        {shown.map(session => {
+          const meta = getCategoryMeta(session.category, categories)
+          const time = new Date(session.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+          return (
+            <div
+              key={session.id}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                padding: '7px 18px',
+                borderBottom: '1px solid var(--color-neutral-300)',
+              }}
+            >
+              <span
+                className="md-num"
+                style={{ fontSize: 11.5, color: 'var(--color-neutral-600)', paddingTop: 2, minWidth: 44, fontWeight: 600 }}
+              >
+                {time}
+              </span>
+              <span style={{ width: 3, alignSelf: 'stretch', background: meta.color, display: 'block' }} />
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                  {session.intention || meta.label}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10.5,
+                    letterSpacing: '.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-neutral-600)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {meta.label}{session.type === 'break' ? ' · Break' : ''}
+                </span>
+              </span>
+              <span className="md-num" style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14 }}>
+                {hoursMinutes(sessionMinutes(session))}
+              </span>
+            </div>
+          )
+        })}
+        {hidden > 0 && (
+          <div
+            style={{
+              padding: '7px 18px 8px',
+              borderBottom: '1px solid var(--color-neutral-300)',
+              fontSize: 10.5,
+              letterSpacing: '.1em',
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              color: 'var(--color-neutral-600)',
+            }}
+          >
+            +{hidden} more that day
+          </div>
+        )}
       </div>
     </div>
   )

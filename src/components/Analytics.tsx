@@ -5,7 +5,9 @@ import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
-import { Icon, ScreenHead, fmtHM, msToHM, tint } from './sesh-ui'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
+import { hoursMinutes } from '@/lib/modernist'
+import { useShellStatus } from './md/shell-status'
 
 interface ServerAnalytics {
   todayMs: number
@@ -14,39 +16,22 @@ interface ServerAnalytics {
   days: { label: string; ms: number }[]
 }
 
-function StatCard({ value, label, icon, accent }: { value: string | number; label: string; icon: Parameters<typeof Icon>[0]['name']; accent?: boolean }) {
-  return (
-    <div className="flex-1 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-[17px] py-4">
-      <Icon name={icon} size={19} color={accent ? 'var(--accent)' : 'var(--ink-3)'} />
-      {/* Keyed on value so the number pops whenever the stat refreshes. */}
-      <div key={String(value)} className="anim-number-pop mt-3 text-[27px] font-bold leading-none tracking-[-0.035em] [font-variant-numeric:tabular-nums]">{value}</div>
-      <div className="mt-[5px] text-[12.5px] text-[var(--ink-3)]">{label}</div>
-    </div>
-  )
-}
-
-function InsightsSkeleton() {
-  return (
-    <div className="card-grid" aria-hidden="true">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="skeleton rounded-[var(--r-lg)]" style={{ height: i === 1 ? 210 : 108 }} />
-      ))}
-    </div>
-  )
-}
+/** The strip runs 08:00–20:59, so the four labels land on real hour edges. */
+const TIMELINE_FROM = 8
+const TIMELINE_TO = 20
 
 export default function Analytics() {
   const { categories } = useCategories()
+  const { reportSub } = useShellStatus()
+  const isDesktop = useIsDesktop()
+  const phone = !isDesktop
   const [stats, setStats] = useState<ServerAnalytics | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
-  const [selected, setSelected] = useState(6)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      setLoading(true)
       setError(null)
       try {
         const [analyticsRes, sessionsRes] = await Promise.all([
@@ -69,121 +54,264 @@ export default function Analytics() {
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load insights.')
-      } finally {
-        if (!cancelled) setLoading(false)
       }
     }
     load()
     return () => { cancelled = true }
   }, [])
 
-  const days = stats?.days ?? []
-  const maxMs = Math.max(60 * 60000, ...days.map(day => day.ms))
+  const days = useMemo(() => stats?.days ?? [], [stats])
   const weekTotalMs = days.reduce((sum, day) => sum + day.ms, 0)
+  const maxDayMs = Math.max(1, ...days.map(day => day.ms))
 
-  const categoryRows = useMemo(() => {
-    const weekStart = Date.now() - 6 * 24 * 60 * 60 * 1000
-    const focus = sessions.filter(session => session.type === 'focus' && session.startedAt >= weekStart)
+  useEffect(() => {
+    reportSub('insights', `${hoursMinutes(weekTotalMs / 60000)} over 7 days`)
+  }, [reportSub, weekTotalMs])
+
+  const weekStart = useMemo(() => Date.now() - 6 * 24 * 60 * 60 * 1000, [])
+
+  const focusWeek = useMemo(
+    () => sessions.filter(s => s.type === 'focus' && s.startedAt >= weekStart),
+    [sessions, weekStart],
+  )
+
+  /** How close the week's sittings landed to what they were set to run for. */
+  const plannedVsActual = useMemo(() => {
+    const planned = focusWeek.reduce((sum, s) => sum + (s.targetMs || 0), 0)
+    if (planned <= 0) return '—'
+    const actual = focusWeek.reduce((sum, s) => sum + (s.actualMs || 0), 0)
+    return `${Math.round((actual / planned) * 100)}%`
+  }, [focusWeek])
+
+  const breakdown = useMemo(() => {
     const grouped = new Map<string, number>()
-    for (const session of focus) {
+    for (const session of focusWeek) {
       grouped.set(session.category, (grouped.get(session.category) ?? 0) + session.actualMs)
     }
-    const rows = Array.from(grouped.entries()).map(([name, ms]) => ({
-      name,
-      ms,
-      ...getCategoryMeta(name, categories),
-    }))
-    return rows.sort((a, b) => b.ms - a.ms)
+    const total = Array.from(grouped.values()).reduce((sum, ms) => sum + ms, 0)
+    return Array.from(grouped.entries())
+      .map(([name, ms]) => ({
+        name,
+        ms,
+        pct: total > 0 ? Math.round((ms / total) * 100) : 0,
+        ...getCategoryMeta(name, categories),
+      }))
+      .sort((a, b) => b.ms - a.ms)
+      .slice(0, 4)
+  }, [categories, focusWeek])
+
+  /** Today's sittings laid out hour by hour, so the shape of the day shows. */
+  const timeline = useMemo(() => {
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    const todaySessions = sessions.filter(s => s.type === 'focus' && s.startedAt >= startOfDay.getTime())
+
+    const hours: { minutes: number; color: string }[] = []
+    for (let hour = TIMELINE_FROM; hour <= TIMELINE_TO; hour += 1) {
+      const from = startOfDay.getTime() + hour * 3600000
+      const to = from + 3600000
+      let minutes = 0
+      let color = 'var(--color-accent)'
+      let best = 0
+      for (const session of todaySessions) {
+        const overlap = Math.min(to, session.startedAt + session.actualMs) - Math.max(from, session.startedAt)
+        if (overlap <= 0) continue
+        minutes += overlap / 60000
+        if (overlap > best) {
+          best = overlap
+          color = getCategoryMeta(session.category, categories).color
+        }
+      }
+      hours.push({ minutes, color })
+    }
+    return hours
   }, [categories, sessions])
 
-  const catMax = Math.max(1, ...categoryRows.map(row => row.ms))
-  const topColor = categoryRows[0]?.color ?? 'var(--accent)'
-  const totalFocusMin = Math.round(sessions.filter(s => s.type === 'focus').reduce((sum, s) => sum + s.actualMs, 0) / 60000)
+  const statCells = [
+    { value: hoursMinutes((stats?.todayMs ?? 0) / 60000), label: 'Focused today', accent: true },
+    { value: String(stats?.todayCount ?? 0), label: 'Sessions today', accent: false },
+    { value: String(stats?.streak ?? 0), label: 'Day streak', accent: false },
+    { value: plannedVsActual, label: 'Planned vs actual', accent: false },
+  ]
+
+  const sectionHead: CSSProperties = {
+    margin: 0,
+    fontFamily: 'var(--font-heading)',
+    fontWeight: 800,
+    fontSize: 13,
+    letterSpacing: '.1em',
+    textTransform: 'uppercase',
+  }
 
   return (
-    <div className="h-full w-full min-w-0 overflow-y-auto pb-[var(--screen-bottom-space)]" data-testid="insights-screen">
-      <ScreenHead title="Insights" sub="Last 7 days" />
+    <div className="md-screen md-screen-col" data-testid="insights-screen">
+      {phone && (
+        <h2 className="md-title" style={{ padding: '14px 18px 10px', fontSize: 24, flex: 'none' }}>Insights</h2>
+      )}
 
-      <div className="flex flex-col gap-[14px] px-[var(--gutter)] py-[14px]">
-        {error && <div className="anim-fade-up rounded-[var(--r-lg)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 p-4 text-[14px] text-[var(--warn)]">{error}</div>}
-        {loading ? (
-          <InsightsSkeleton />
-        ) : !error ? (
-          <div className="card-grid stagger">
-            <div className="card-span-2 flex gap-3">
-              <StatCard value={stats?.streak ?? 0} label="day streak" icon="flame" accent />
-              <StatCard value={msToHM(stats?.todayMs ?? 0)} label="focused today" icon="timer" />
-            </div>
+      {error && (
+        <div style={{ padding: '10px 18px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
+          {error}
+        </div>
+      )}
 
-            <div className="card-span-2 rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 pb-4 pt-5">
-              <div className="mb-[18px] flex items-baseline justify-between">
-                <div>
-                  <div className="text-[22px] font-bold tracking-[-0.03em]">{msToHM(weekTotalMs)}</div>
-                  <div className="mt-0.5 text-[12.5px] text-[var(--ink-3)]">this week</div>
-                </div>
-                {days[selected] && (
-                  <div key={selected} className="anim-fade text-right">
-                    <div className="text-[13.5px] font-semibold text-[var(--ink-2)] [font-variant-numeric:tabular-nums]">{msToHM(days[selected].ms)}</div>
-                    <div className="text-[12px] text-[var(--ink-3)]">{days[selected].label}</div>
-                  </div>
-                )}
-              </div>
-              <div className="flex h-[132px] items-end gap-2">
-                {days.map((day, i) => (
-                  <button
-                    key={`${day.label}-${i}`}
-                    type="button"
-                    aria-label={`${day.label}: ${msToHM(day.ms)}`}
-                    aria-pressed={i === selected}
-                    onClick={() => setSelected(i)}
-                    className="press-sm flex h-full flex-1 cursor-pointer flex-col items-center justify-end gap-2 border-0 bg-transparent p-0"
-                  >
-                    <span
-                      className="grow-bar w-full max-w-[30px] rounded-[7px]"
-                      style={{
-                        '--i': i,
-                        height: Math.max(5, (day.ms / maxMs) * 104),
-                        background: i === selected ? topColor : day.ms ? tint(topColor, 38) : 'var(--surface-2)',
-                        transition: 'background var(--dur-2) var(--ease-out), height var(--dur-3) var(--ease-out)',
-                      } as CSSProperties}
-                    />
-                    <span className="text-[11.5px] transition-colors" style={{ fontWeight: i === selected ? 700 : 500, color: i === selected ? 'var(--ink)' : 'var(--ink-3)' }}>
-                      {day.label.slice(0, 1)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface)] px-5 pb-1.5 pt-[18px]">
-              <div className="mb-4 text-[13px] uppercase tracking-[0.07em] text-[var(--ink-3)]">By category</div>
-              {categoryRows.length > 0 ? categoryRows.map((row, i) => (
-                <div key={row.name} className="mb-4">
-                  <div className="mb-[7px] flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-[14.5px] font-semibold">
-                      <span className="h-[9px] w-[9px] rounded-full" style={{ background: row.color }} />
-                      {row.label}
-                    </span>
-                    <span className="text-[13.5px] text-[var(--ink-2)] [font-variant-numeric:tabular-nums]">{msToHM(row.ms)}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
-                    <div
-                      className="grow-track h-full rounded-full"
-                      style={{ '--i': i, width: `${(row.ms / catMax) * 100}%`, background: row.color } as CSSProperties}
-                    />
-                  </div>
-                </div>
-              )) : (
-                <div className="pb-[14px] text-[14px] text-[var(--ink-3)]">No sessions yet this week.</div>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <StatCard value={sessions.length} label="total sessions" icon="check" />
-              <StatCard value={fmtHM(totalFocusMin)} label="lifetime focus" icon="chart" />
-            </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: phone ? 'repeat(2,1fr)' : 'repeat(4,1fr)',
+          borderTop: '2px solid var(--color-divider)',
+          flex: 'none',
+        }}
+      >
+        {statCells.map(cell => (
+          <div
+            key={cell.label}
+            style={{
+              padding: '11px 16px 12px',
+              borderRight: '1px solid var(--color-neutral-300)',
+              borderBottom: '1px solid var(--color-neutral-300)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            <span
+              className="md-num"
+              style={{
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 30,
+                letterSpacing: '-.03em',
+                lineHeight: 1,
+                color: cell.accent ? 'var(--color-accent)' : 'inherit',
+              }}
+            >
+              {cell.value}
+            </span>
+            <span
+              style={{
+                fontSize: 10.5,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
+              }}
+            >
+              {cell.label}
+            </span>
           </div>
-        ) : null}
+        ))}
+      </div>
+
+      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'baseline', gap: 10, flex: 'none' }}>
+        <h3 style={sectionHead}>Last 7 days</h3>
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-neutral-600)', fontWeight: 700 }}>
+          {hoursMinutes(weekTotalMs / 60000)} this week
+        </span>
+      </div>
+
+      <div
+        style={{
+          padding: '0 18px',
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: 8,
+          height: phone ? 104 : 150,
+          flex: 'none',
+          borderBottom: '2px solid var(--color-divider)',
+        }}
+      >
+        {days.map((day, i) => {
+          const today = i === days.length - 1
+          return (
+            <div
+              key={`${day.label}-${i}`}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'stretch', height: '100%', gap: 6 }}
+            >
+              <span
+                className="md-bar"
+                aria-label={`${day.label}: ${hoursMinutes(day.ms / 60000)}`}
+                style={{
+                  display: 'block',
+                  background: today ? 'var(--color-accent)' : 'var(--color-neutral-900)',
+                  height: `${Math.max(2, (day.ms / maxDayMs) * 100)}%`,
+                  opacity: day.ms === 0 ? 0.18 : 1,
+                  animationDelay: `${i * 55}ms`,
+                }}
+              />
+              <span
+                style={{
+                  textAlign: 'center',
+                  fontSize: 10,
+                  letterSpacing: '.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--color-neutral-600)',
+                  fontWeight: 700,
+                  paddingBottom: 8,
+                }}
+              >
+                {day.label.slice(0, 1)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ padding: '12px 18px 4px', flex: 'none' }}>
+        <h3 style={sectionHead}>Where it went</h3>
+      </div>
+      <div style={{ padding: '0 18px 10px', display: 'flex', flexDirection: 'column', gap: 8, flex: 'none' }}>
+        {breakdown.length === 0 && (
+          <span style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>No sessions yet this week.</span>
+        )}
+        {breakdown.map((row, i) => (
+          <div key={row.name} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12.5, fontWeight: 600 }}>
+              <span style={{ width: 8, height: 8, background: row.color, display: 'block' }} />
+              {row.label}
+              <span className="md-num" style={{ marginLeft: 'auto', color: 'var(--color-neutral-600)', fontSize: 11.5 }}>
+                {hoursMinutes(row.ms / 60000)} · {row.pct}%
+              </span>
+            </span>
+            <span style={{ height: 8, background: 'var(--color-neutral-200)', display: 'block' }}>
+              <span
+                className="md-track-fill"
+                style={{ display: 'block', height: '100%', width: `${row.pct}%`, background: row.color, animationDelay: `${i * 70}ms` }}
+              />
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 'auto', padding: '0 18px 16px', display: 'flex', flexDirection: 'column', gap: 7, flex: 'none' }}>
+        <h3 style={sectionHead}>Today, hour by hour</h3>
+        <span style={{ display: 'flex', height: 26, border: '2px solid var(--color-divider)' }}>
+          {timeline.map((hour, i) => (
+            <span
+              key={i}
+              style={{
+                display: 'block',
+                flex: 1,
+                background: hour.minutes > 0 ? hour.color : 'transparent',
+                // A ten-minute sitting should still register, so the floor is
+                // well above zero once anything happened at all.
+                opacity: hour.minutes > 0 ? Math.min(0.9, 0.25 + (hour.minutes / 60) * 0.65) : 0,
+              }}
+            />
+          ))}
+        </span>
+        <span
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: 10,
+            letterSpacing: '.08em',
+            color: 'var(--color-neutral-600)',
+            fontWeight: 700,
+          }}
+        >
+          <span>08</span><span>12</span><span>16</span><span>20</span>
+        </span>
       </div>
     </div>
   )
