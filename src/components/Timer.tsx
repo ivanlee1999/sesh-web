@@ -618,8 +618,18 @@ export default function Timer({
   const dialCol = dialColor(selectedCategory?.color ?? '#ec3013', onDarkGround)
   const sessionNo = cycleCount + 1
 
-  const dialCap = phone ? 250 : 226
+  /**
+   * The handoff's 226px desktop dial was drawn for a 1180×760 frame; on a real
+   * monitor it reads small next to the rails. The cap is raised so the dial
+   * takes the room the desktop actually has, and `useFitSquare` still shrinks
+   * it to whatever the fixed rows leave — so a short window is unaffected.
+   */
+  const dialCap = phone ? 250 : 360
   const [dialFitRef, dialSize] = useFitSquare(dialCap, 132)
+  // Every readout is quoted against the 250px phone dial, matching Dial's own
+  // scale, so the centre stays in proportion at whatever size it lands on.
+  const dialScale = dialSize / 250
+  const clockSize = Math.round(42 * dialScale)
 
   const typeLabel = typeKey === 'focus' ? 'Focus' : typeKey === 'short' ? 'Short break' : 'Long break'
 
@@ -1056,7 +1066,7 @@ export default function Timer({
         style={{
           fontFamily: 'var(--font-heading)',
           fontWeight: 500,
-          fontSize: phone ? 42 : 38,
+          fontSize: clockSize,
           letterSpacing: '-.05em',
           fontVariantNumeric: 'tabular-nums',
           lineHeight: 1,
@@ -1066,7 +1076,7 @@ export default function Timer({
       </span>
       <span
         style={{
-          fontSize: 9.5,
+          fontSize: Math.max(9, 9.5 * dialScale),
           letterSpacing: '.18em',
           textTransform: 'uppercase',
           color: 'var(--color-neutral-600)',
@@ -1083,7 +1093,7 @@ export default function Timer({
             marginTop: 6,
             fontFamily: 'var(--font-heading)',
             fontWeight: 600,
-            fontSize: 13,
+            fontSize: Math.max(12, 13 * dialScale),
             letterSpacing: '.06em',
             color: 'var(--color-accent)',
           }}
@@ -1277,7 +1287,6 @@ export default function Timer({
           >
             <Dial
               size={dialSize}
-              phone={phone}
               progress={progress}
               color={dialCol}
               live={live}

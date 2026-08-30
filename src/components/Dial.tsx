@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useId, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 
 /**
  * The dial, as a real clock.
@@ -25,8 +25,6 @@ export interface DialProps {
   /** Category colour, already resolved for the ground it is drawn on. */
   color: string
   size: number
-  /** Phone and desktop differ in a few weights, not in the geometry. */
-  phone?: boolean
   /** A session is running or paused: the second hand and glow appear. */
   live?: boolean
   /** Drives the second hand. Ignored when not live. */
@@ -65,7 +63,6 @@ export default function Dial({
   progress,
   color,
   size,
-  phone = true,
   live = false,
   elapsedSec = 0,
   darkGround = false,
@@ -81,7 +78,16 @@ export default function Dial({
   const r = c - 26
   const rNum = r + 15
   const circ = 2 * Math.PI * r
-  const arcW = phone ? 4.5 : 4
+  /**
+   * Every weight on the face is quoted against the 250px phone dial and scaled
+   * from there. The handoff's desktop numbers are exactly the phone ones times
+   * 226/250, so this reproduces both reference sizes and keeps the face
+   * balanced at any other one. The radial insets below stay fixed, as the
+   * handoff specifies — a bigger dial gets a proportionally thinner margin,
+   * not a bigger one.
+   */
+  const scale = size / 250
+  const arcW = 4.5 * scale
   const tickOuter = r - 7
   const interactive = Boolean(onMinutesChange) && !live
 
@@ -103,7 +109,7 @@ export default function Dial({
         x2={c + tickOuter * cos}
         y2={c + tickOuter * sin}
         stroke={passed ? color : 'var(--color-text)'}
-        strokeWidth={major ? 1.5 : 0.9}
+        strokeWidth={(major ? 1.5 : 0.9) * scale}
         opacity={passed ? (major ? 0.95 : 0.6) : major ? 0.38 : 0.14}
         style={{ transition: 'stroke 400ms var(--ease-out), opacity 400ms' }}
       />,
@@ -118,7 +124,7 @@ export default function Dial({
     ? `M ${c} ${c - rw} A ${rw} ${rw} 0 1 1 ${c - 0.01} ${c - rw} Z`
     : `M ${c} ${c} L ${c + rw} ${c} A ${rw} ${rw} 0 ${p > 0.5 ? 1 : 0} 1 ${c + rw * Math.cos(th)} ${c + rw * Math.sin(th)} Z`
 
-  const wedgeId = `sesh-wedge-${phone ? 'p' : 'd'}`
+  const wedgeId = `sesh-wedge${useId().replace(/:/g, '')}`
 
   const numerals = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].map(minute => {
     const a = (minute / 60) * 2 * Math.PI
@@ -131,7 +137,7 @@ export default function Dial({
       lineHeight: 1,
       fontFamily: 'var(--font-heading)',
       fontWeight: minute % 15 === 0 ? 700 : 600,
-      fontSize: phone ? 9.5 : 9,
+      fontSize: 9.5 * scale,
       fontVariantNumeric: 'tabular-nums',
       letterSpacing: '.04em',
       color: passed ? color : 'var(--color-neutral-500)',
@@ -143,8 +149,8 @@ export default function Dial({
 
   const handPoints = (() => {
     const tip = r - 16
-    const tail = phone ? 13 : 11
-    const hw = 1.25
+    const tail = 13 * scale
+    const hw = 1.25 * scale
     return [
       [c - hw, c - tip], [c + hw, c - tip], [c + hw, c + tail], [c - hw, c + tail],
     ].map(pt => pt.map(n => n.toFixed(2)).join(',')).join(' ')
@@ -152,9 +158,10 @@ export default function Dial({
 
   const secPoints = (() => {
     const tip = r - 8
-    const tail = phone ? 16 : 14
+    const tail = 16 * scale
+    const hw = 0.5 * scale
     return [
-      [c - 0.5, c - tip], [c + 0.5, c - tip], [c + 0.5, c + tail], [c - 0.5, c + tail],
+      [c - hw, c - tip], [c + hw, c - tip], [c + hw, c + tail], [c - hw, c + tail],
     ].map(pt => pt.map(n => n.toFixed(2)).join(',')).join(' ')
   })()
 
@@ -325,10 +332,10 @@ export default function Dial({
           position: 'absolute',
           left: '50%',
           top: '50%',
-          width: phone ? 8 : 7,
-          height: phone ? 8 : 7,
-          marginLeft: phone ? -4 : -3.5,
-          marginTop: phone ? -4 : -3.5,
+          width: 8 * scale,
+          height: 8 * scale,
+          marginLeft: -4 * scale,
+          marginTop: -4 * scale,
           borderRadius: '50%',
           background: 'var(--color-text)',
           pointerEvents: 'none',
