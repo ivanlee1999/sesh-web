@@ -64,7 +64,7 @@ describe('mobile tab layout shells', () => {
 
     render(<Calendar />)
 
-    expect(screen.getByTestId('calendar-screen')).toHaveClass('w-full', 'min-w-0')
+    expect(screen.getByTestId('calendar-screen')).toHaveClass('md-screen', 'md-screen-col')
     expect(await screen.findByText(/Failed to load sessions \(500: DB error\)/)).toBeTruthy()
   })
 
@@ -79,14 +79,19 @@ describe('mobile tab layout shells', () => {
 
     render(<Analytics />)
 
-    expect(screen.getByTestId('insights-screen')).toHaveClass('w-full', 'min-w-0')
+    expect(screen.getByTestId('insights-screen')).toHaveClass('md-screen', 'md-screen-col')
   })
 })
 
 describe('Settings task-source status', () => {
+  /** Settings is paged; the provider rows are behind the Sources tab. */
+  async function openSources() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Sources' }))
+  }
+
   /** Both providers render a row, so assertions must be scoped to one of them. */
   function rowFor(title: string): HTMLElement {
-    const row = screen.getByText(title).closest('.sesh-row')
+    const row = screen.getByText(title).parentElement?.parentElement
     if (!row) throw new Error(`No settings row found for "${title}"`)
     return row as HTMLElement
   }
@@ -107,21 +112,23 @@ describe('Settings task-source status', () => {
     mockSettingsFetch(json({ configured: true }))
 
     render(<Settings />)
+    await openSources()
 
     await screen.findByText('Connected')
-    expect(within(rowFor('Todoist')).getByRole('button', { name: 'Check' })).toBeTruthy()
+    expect(within(rowFor('Todoist')).getByRole('button', { name: 'On' })).toBeTruthy()
   })
 
   it('offers to connect Things when nothing is configured', async () => {
     mockSettingsFetch(json({ configured: false }))
 
     render(<Settings />)
+    await openSources()
 
     await screen.findByText('Things 3')
     // Google Calendar shows the same words, so scope to the Things row.
     const row = within(rowFor('Things 3'))
     expect(await row.findByText('Not connected')).toBeTruthy()
-    expect(row.getByRole('button', { name: 'Connect' })).toBeTruthy()
+    expect(row.getByRole('button', { name: 'Manage' })).toBeTruthy()
   })
 
   it('flags Things as unreachable when configured but the service is down', async () => {
@@ -131,6 +138,7 @@ describe('Settings task-source status', () => {
     )
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText(/Service unreachable/)).toBeTruthy()
   })
@@ -142,6 +150,7 @@ describe('Settings task-source status', () => {
     )
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText('Connected as me@example.com')).toBeTruthy()
   })
@@ -153,9 +162,10 @@ describe('Settings task-source status', () => {
     )
 
     render(<Settings />)
+    await openSources()
 
     await screen.findByText('Things 3')
-    expect(within(rowFor('Things 3')).getByRole('button', { name: 'Edit' })).toBeTruthy()
+    expect(within(rowFor('Things 3')).getByRole('button', { name: 'Manage' })).toBeTruthy()
   })
 
   it('says so when Things is connected through the server environment', async () => {
@@ -165,6 +175,7 @@ describe('Settings task-source status', () => {
     )
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText('Connected via server config')).toBeTruthy()
   })
@@ -190,8 +201,9 @@ describe('Settings task-source status', () => {
     })
 
     render(<Settings />)
+    await openSources()
 
-    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Connect' }))
+    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Manage' }))
     fireEvent.change(await screen.findByPlaceholderText('you@example.com'), { target: { value: 'me@example.com' } })
     fireEvent.change(screen.getByPlaceholderText('Your Things Cloud password'), { target: { value: 'hunter2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
@@ -207,8 +219,9 @@ describe('Settings task-source status', () => {
     })
 
     render(<Settings />)
+    await openSources()
 
-    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Connect' }))
+    fireEvent.click(await within(rowFor('Things 3')).findByRole('button', { name: 'Manage' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Use a companion service instead' }))
     const address = await screen.findByPlaceholderText('http://sesh-things-cloud:8080')
     fireEvent.change(address, { target: { value: 'things:8080' } })
@@ -226,6 +239,7 @@ describe('Settings task-source status', () => {
     )
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText(/rejected the saved password/)).toBeTruthy()
   })
@@ -234,6 +248,7 @@ describe('Settings task-source status', () => {
     mockSettingsFetch(json({ configured: false }))
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText('Set TODOIST_API_TOKEN on the server to enable task sync.')).toBeTruthy()
   })
@@ -242,6 +257,7 @@ describe('Settings task-source status', () => {
     mockSettingsFetch(json({ error: 'Missing or invalid session' }, 401))
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText('Auth required. Sign in again to use Todoist.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
@@ -251,6 +267,7 @@ describe('Settings task-source status', () => {
     mockSettingsFetch(json({ error: 'upstream unavailable' }, 503))
 
     render(<Settings />)
+    await openSources()
 
     expect(await screen.findByText(/Todoist status check failed \(503: upstream unavailable\)/)).toBeTruthy()
   })

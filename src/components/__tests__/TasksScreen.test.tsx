@@ -114,14 +114,14 @@ describe('Tasks screen multi-select', () => {
     await waitFor(() => expect(screen.queryByText(/task[s]? selected/)).toBeNull())
   })
 
-  it('still starts a one-task session straight from the play button', async () => {
+  it('still starts a one-task session straight from the row\'s focus button', async () => {
     mockProviders()
     const onFocusTask = vi.fn()
 
     render(<Tasks onFocusTask={onFocusTask} />)
     await screen.findByText('Draft the memo')
 
-    fireEvent.click(screen.getAllByLabelText('Focus on task')[0])
+    fireEvent.click(screen.getByLabelText('Focus on Draft the memo'))
 
     expect(onFocusTask).toHaveBeenCalledWith({
       intention: 'Draft the memo',

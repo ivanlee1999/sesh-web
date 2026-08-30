@@ -1,26 +1,50 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { App } from 'konsta/react'
-import { useSettings } from '@/context/SettingsContext'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSettings, THEME_COLOR_DARK, THEME_COLOR_LIGHT } from '@/context/SettingsContext'
 import { useNativeGestureLock } from '@/hooks/useNativeGestureLock'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription } from '@/lib/push-client'
+import { enabledProviders, loadProviderStatuses, type ProviderStatus } from '@/lib/task-sources'
 import Timer from './Timer'
 import Tasks, { type PendingFocus } from './Tasks'
 import Calendar from './Calendar'
 import Analytics from './Analytics'
 import Settings from './Settings'
 import Onboarding from './Onboarding'
-import TabBar, { type AppTab } from './TabBar'
+import TabBar, { APP_TABS, type AppTab } from './TabBar'
+import NavRail from './md/NavRail'
+import { ShellStatusContext } from './md/shell-status'
 
 const ONBOARDED_KEY = 'sesh:onboarded'
+
+const TAB_TITLE: Record<AppTab, string> = {
+  timer: 'Focus',
+  tasks: 'Tasks',
+  calendar: 'Calendar',
+  insights: 'Insights',
+  settings: 'Settings',
+}
+
+const TAB_SUB: Record<AppTab, string> = {
+  timer: 'Ready when you are',
+  tasks: 'Todoist and Things, merged',
+  calendar: 'Session log by day',
+  insights: 'Last 7 days',
+  settings: 'Device + account',
+}
 
 export default function AppLayout() {
   const [mounted, setMounted] = useState(false)
   const [activeTab, setActiveTab] = useState<AppTab>('timer')
-  const [immersive, setImmersive] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
   const [onboarded, setOnboarded] = useState(true)
+  const [subs, setSubs] = useState<Partial<Record<AppTab, string>>>({})
+  const [openTasks, setOpenTasks] = useState<number | null>(null)
+  const [statuses, setStatuses] = useState<ProviderStatus[]>([])
   const { settings } = useSettings()
+  const isDesktop = useIsDesktop()
 
   useNativeGestureLock()
 
@@ -46,6 +70,37 @@ export default function AppLayout() {
       })
   }, [])
 
+  // Only the rail footer needs these, so they are fetched once here rather
+  // than by every screen that happens to mention a provider.
+  useEffect(() => {
+    if (!isDesktop) return
+    let cancelled = false
+    loadProviderStatuses(enabledProviders(settings))
+      .then(next => { if (!cancelled) setStatuses(next) })
+      .catch(() => { if (!cancelled) setStatuses([]) })
+    return () => { cancelled = true }
+  }, [isDesktop, settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * A running session inverts the whole shell, so the browser and PWA chrome
+   * has to follow it — otherwise a light status bar sits above a dark screen.
+   */
+  useEffect(() => {
+    const dark = focusMode || settings.darkMode
+    const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+    if (meta) meta.content = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
+  }, [focusMode, settings.darkMode])
+
+  const reportSub = useCallback((tab: AppTab, sub: string | null) => {
+    setSubs(prev => (prev[tab] === (sub ?? undefined) ? prev : { ...prev, [tab]: sub ?? undefined }))
+  }, [])
+
+  const reportOpenTasks = useCallback((count: number | null) => {
+    setOpenTasks(prev => (prev === count ? prev : count))
+  }, [])
+
+  const shellStatus = useMemo(() => ({ reportSub, reportOpenTasks }), [reportSub, reportOpenTasks])
+
   const finishOnboarding = () => {
     localStorage.setItem(ONBOARDED_KEY, '1')
     setOnboarded(true)
@@ -53,7 +108,7 @@ export default function AppLayout() {
 
   const focusTask = (payload: PendingFocus) => {
     setPendingFocus(payload)
-    setImmersive(false)
+    setFocusMode(false)
     setActiveTab('timer')
   }
 
@@ -61,41 +116,153 @@ export default function AppLayout() {
 
   const renderTab = (id: AppTab) => {
     if (id === 'timer') {
-      return <Timer onImmersive={setImmersive} pendingFocus={pendingFocus} clearPendingFocus={clearPendingFocus} />
+      return (
+        <Timer
+          onImmersive={setFocusMode}
+          pendingFocus={pendingFocus}
+          clearPendingFocus={clearPendingFocus}
+        />
+      )
     }
     if (id === 'tasks') return <Tasks onFocusTask={focusTask} />
     if (id === 'calendar') return <Calendar />
     if (id === 'insights') return <Analytics />
-    return <Settings />
+    return <Settings onReplayIntro={() => setOnboarded(false)} />
   }
 
-  return (
-    <App theme="ios" dark={settings.darkMode} safeAreas>
-      <div className="app-shell">
-        {!mounted ? (
-          <div className="app-content" />
-        ) : !onboarded ? (
-          <Onboarding onDone={finishOnboarding} />
-        ) : (
-          <>
-            <div className="app-content">
-              {(['timer', 'tasks', 'calendar', 'insights', 'settings'] as AppTab[]).map(id => (
-                <section
-                  key={id}
-                  data-active={activeTab === id}
-                  data-scroll={id !== 'timer'}
-                  className="app-tabpanel"
-                >
-                  {/* Caps and centres content so wide screens don't stretch a phone layout. */}
-                  <div className="app-tabpanel-inner">{renderTab(id)}</div>
-                </section>
-              ))}
-            </div>
+  const showRail = isDesktop && !focusMode
+  const showTabBar = !isDesktop && !focusMode
+  const headStatus = focusMode ? 'Running' : 'Synced'
 
-            {!immersive && <TabBar activeTab={activeTab} onChange={setActiveTab} />}
-          </>
+  const shell = (
+    <div
+      className="md-app"
+      data-mode={isDesktop ? 'desktop' : 'phone'}
+      data-dark={settings.darkMode ? 'true' : 'false'}
+      data-focusmode={focusMode ? 'true' : 'false'}
+    >
+      {showRail && (
+        <NavRail
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          openTasks={openTasks}
+          sources={statuses.map(s => ({
+            provider: s.provider,
+            state: s.state === 'connected' ? 'synced' : s.state === 'checking' ? '…' : 'off',
+          }))}
+        />
+      )}
+
+      <div className="md-main" id="sesh-main">
+        {!focusMode && !isDesktop && (
+          <header
+            style={{
+              flex: 'none',
+              padding: 'calc(var(--safe-t) + 12px) 18px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 9,
+              borderBottom: '2px solid var(--color-divider)',
+            }}
+          >
+            <span style={{ width: 15, height: 15, background: 'var(--color-accent)', display: 'block' }} />
+            <strong style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '-.01em' }}>
+              sesh
+            </strong>
+            <span
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 10,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
+              }}
+            >
+              <span style={{ width: 6, height: 6, background: 'var(--color-accent)' }} />
+              {headStatus}
+            </span>
+          </header>
         )}
+
+        {!focusMode && isDesktop && (
+          <header
+            style={{
+              flex: 'none',
+              padding: '20px 26px 14px',
+              display: 'flex',
+              alignItems: 'flex-end',
+              gap: 14,
+              borderBottom: '2px solid var(--color-divider)',
+            }}
+          >
+            <h1 className="md-title" style={{ fontSize: 30 }}>{TAB_TITLE[activeTab]}</h1>
+            <span
+              style={{
+                fontSize: 11,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
+                paddingBottom: 6,
+              }}
+            >
+              {subs[activeTab] ?? TAB_SUB[activeTab]}
+            </span>
+            <span
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                fontSize: 11,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
+                paddingBottom: 6,
+              }}
+            >
+              <span style={{ width: 7, height: 7, background: 'var(--color-accent)' }} />
+              {headStatus}
+            </span>
+          </header>
+        )}
+
+        <div className="md-pane">
+          {APP_TABS.map(({ id }) => (
+            <div
+              key={id}
+              role="tabpanel"
+              hidden={activeTab !== id}
+              style={activeTab === id
+                ? { position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }
+                : undefined}
+            >
+              {renderTab(id)}
+            </div>
+          ))}
+        </div>
+
+        {showTabBar && <TabBar activeTab={activeTab} onChange={setActiveTab} />}
       </div>
-    </App>
+    </div>
   )
+
+  if (!mounted) return <div className="md-app" />
+
+  if (!onboarded) {
+    return (
+      <div className="md-app" data-mode={isDesktop ? 'desktop' : 'phone'} data-dark={settings.darkMode ? 'true' : 'false'}>
+        <div className="md-main">
+          <Onboarding onDone={finishOnboarding} phone={!isDesktop} />
+        </div>
+      </div>
+    )
+  }
+
+  return <ShellStatusContext.Provider value={shellStatus}>{shell}</ShellStatusContext.Provider>
 }

@@ -1,20 +1,30 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_SETTINGS, resolveProvider, type Category, type CategoryRecord, type ExternalTask, type SessionType } from '@/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { resolveProvider, type Category, type CategoryRecord, type ExternalTask, type SessionType } from '@/types'
 import { useSettings } from '@/context/SettingsContext'
 import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
-import { useCssSize } from '@/hooks/useCssSize'
 import { useFitSquare } from '@/hooks/useFitSquare'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs } from '@/lib/task-ref'
-import { PROVIDER_COLOR, PROVIDER_LABEL, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders, taskKey } from '@/lib/task-sources'
-import { Btn, Chip, Icon, Ring, Seg, Sheet, fmtClock, fmtHM, tint } from './sesh-ui'
+import { PROVIDER_COLOR, PROVIDER_LABEL, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
+import { capGroups, clockOf, dialColor, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
+import Dial from './Dial'
+import CategoryChips from './md/CategoryChips'
+import TaskList, { type TaskRowModel } from './md/TaskList'
+import { MdIcon } from './md/icons'
+import { useShellStatus } from './md/shell-status'
 import type { PendingFocus } from './Tasks'
 
 type TimerRunPhase = 'idle' | 'running' | 'paused' | 'reflect'
+
+/** The three cells of the segmented control, over the repo's two real types. */
+type TypeKey = 'focus' | 'short' | 'long'
+type Scope = 'today' | 'upcoming' | 'all'
 
 interface ServerTimerState {
   phase: string
@@ -66,10 +76,6 @@ function normalizeTimerState(data: ServerTimerState): ServerTimerState {
   }
 }
 
-function ratingWord(rating: number) {
-  return ['', 'Tough', 'Slow', 'Okay', 'Good', 'Flow'][rating] || ''
-}
-
 function playChime(frequency = 880) {
   try {
     const ctx = new AudioContext()
@@ -83,75 +89,6 @@ function playChime(frequency = 880) {
     osc.start()
     osc.stop(ctx.currentTime + 0.7)
   } catch {}
-}
-
-function cycleDotsFilled(count: number, total: number) {
-  if (count <= 0) return 0
-  return ((count - 1) % total) + 1
-}
-
-function CycleDots({ count, total, accent, size = 8 }: { count: number; total: number; accent: string; size?: number }) {
-  const filled = cycleDotsFilled(count, total)
-  return (
-    <div data-testid="pomodoro-cycle-dots" className="flex items-center gap-[6px]" aria-label={`${filled} of ${total} focus sessions this cycle`}>
-      {Array.from({ length: total }, (_, i) => (
-        <span
-          key={i}
-          className="rounded-full transition-colors"
-          style={{
-            width: size,
-            height: size,
-            background: i < filled ? accent : 'transparent',
-            border: i < filled ? `1.5px solid ${accent}` : '1.5px solid var(--line-strong)',
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-const DURATION_LIMITS = {
-  focus: { min: 5, max: 60, step: 5 },
-  break: { min: 1, max: 30, step: 1 },
-} as const
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
-}
-
-function formatEndTime(epochMs: number) {
-  return new Intl.DateTimeFormat([], {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(epochMs))
-}
-
-function durationBounds(sessionType: SessionType) {
-  return DURATION_LIMITS[sessionType]
-}
-
-function snapDurationMinutes(minutes: number, sessionType: SessionType) {
-  const bounds = durationBounds(sessionType)
-  const snapped = Math.round((minutes - bounds.min) / bounds.step) * bounds.step + bounds.min
-  return clamp(snapped, bounds.min, bounds.max)
-}
-
-function dialProgressToMinutes(progress: number, sessionType: SessionType) {
-  const bounds = durationBounds(sessionType)
-  const raw = clamp(progress, 0, 1) * bounds.max
-  return snapDurationMinutes(raw, sessionType)
-}
-
-function minutesToDialProgress(minutes: number, sessionType: SessionType) {
-  const bounds = durationBounds(sessionType)
-  return clamp(minutes / bounds.max, 0, 1)
-}
-
-function pointerToDialProgress(clientX: number, clientY: number, rect: DOMRect | { left: number; top: number; width: number; height: number }) {
-  const cx = rect.left + rect.width / 2
-  const cy = rect.top + rect.height / 2
-  const angle = ((Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI + 90 + 360) % 360
-  return angle / 360
 }
 
 function makeCompletedDraft({
@@ -199,371 +136,44 @@ function taskCategory(task: ExternalTask, categories: CategoryRecord[], fallback
   return fallback
 }
 
-/**
- * Pick the tasks for the next session. Tapping toggles rather than picks and
- * closes: a sitting often covers several small things, and having to reopen
- * the sheet for each one made that not worth doing.
- */
-function TaskPickerSheet({
-  open,
-  onClose,
-  onToggle,
-  selectedRefs,
-  tasks,
-  loading,
-  categories,
-  fallbackCategory,
-}: {
-  open: boolean
-  onClose: () => void
-  onToggle: (task: ExternalTask) => void
-  selectedRefs: string[]
-  tasks: ExternalTask[]
-  loading: boolean
-  categories: CategoryRecord[]
-  fallbackCategory: string
-}) {
-  const today = tasks.filter(task => task.due === 'today')
-  const tomorrow = tasks.filter(task => task.due === 'tomorrow')
-  const upcoming = tasks.filter(task => task.due === 'upcoming')
-  const someday = tasks.filter(task => !task.due)
-  const boardColumns = [
-    { key: 'tomorrow', label: 'Tomorrow', items: tomorrow },
-    { key: 'upcoming', label: 'Upcoming', items: upcoming },
-    { key: 'someday', label: 'No date', items: someday },
-  ].filter(column => column.items.length > 0)
-
-  return (
-    <Sheet open={open} onClose={onClose} title="Focus on tasks">
-      <div className="flex max-h-[420px] flex-col gap-[14px] overflow-y-auto">
-        {loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">Loading tasks...</div>}
-        <TaskGroup label="Today" items={today} categories={categories} selectedRefs={selectedRefs} fallbackCategory={fallbackCategory} onToggle={onToggle} />
-        {boardColumns.length > 0 && (
-          <TaskBoard columns={boardColumns} categories={categories} selectedRefs={selectedRefs} fallbackCategory={fallbackCategory} onToggle={onToggle} />
-        )}
-        {!loading && tasks.length === 0 && <div className="px-0.5 py-4 text-[14px] text-[var(--ink-3)]">All caught up. Nothing left to do.</div>}
-      </div>
-      <div className="mt-[14px] flex items-center gap-3">
-        <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--ink-3)]">
-          {selectedRefs.length > 0
-            ? `${selectedRefs.length} ${selectedRefs.length === 1 ? 'task' : 'tasks'} in this session`
-            : 'Tap a task to add it'}
-        </span>
-        <Btn size="sm" onClick={onClose}>Done</Btn>
-      </div>
-    </Sheet>
-  )
+/** A task's own estimate, in minutes, or null when it carries none. */
+function estimateMinutes(task: ExternalTask): number | null {
+  const amount = task.duration?.amount
+  return typeof amount === 'number' && Number.isFinite(amount) && amount > 0 ? amount : null
 }
 
-function TaskBoard({
-  columns,
-  categories,
-  selectedRefs,
-  fallbackCategory,
-  onToggle,
-}: {
-  columns: { key: string; label: string; items: ExternalTask[] }[]
-  categories: CategoryRecord[]
-  selectedRefs: string[]
-  fallbackCategory: string
-  onToggle: (task: ExternalTask) => void
-}) {
-  return (
-    <div>
-      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">Upcoming board</div>
-      <div className="hide-scrollbar -mx-1 overflow-x-auto px-1 pb-1">
-        <div className="flex min-w-max gap-3">
-          {columns.map(column => (
-            <div key={column.key} className="flex w-[220px] flex-col rounded-[var(--r-lg)] border border-[var(--line)] bg-[var(--surface-2)] p-3">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="text-[13px] font-semibold uppercase tracking-[0.05em] text-[var(--ink-2)]">{column.label}</span>
-                <span className="rounded-full bg-[var(--surface)] px-2 py-1 text-[11px] font-semibold text-[var(--ink-3)]">{column.items.length}</span>
-              </div>
-              <div className="flex flex-col gap-2">
-                {column.items.map(task => (
-                  <TaskCard
-                    key={taskKey(task)}
-                    task={task}
-                    categories={categories}
-                    selectedRefs={selectedRefs}
-                    fallbackCategory={fallbackCategory}
-                    onToggle={onToggle}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+function estimateLabel(task: ExternalTask): string {
+  const minutes = estimateMinutes(task)
+  return minutes === null ? '' : `${minutes}m`
 }
 
-function TaskCard({
-  task,
-  categories,
-  selectedRefs,
-  fallbackCategory,
-  onToggle,
-}: {
-  task: ExternalTask
-  categories: CategoryRecord[]
-  selectedRefs: string[]
-  fallbackCategory: string
-  onToggle: (task: ExternalTask) => void
-}) {
-  const categoryName = taskCategory(task, categories, fallbackCategory)
-  const category = categoryByName(categories, categoryName)
-  // Selection is by provider-qualified ref; ids alone collide across providers.
-  const active = selectedRefs.includes(encodeTaskRef(resolveProvider(task), task.id))
-  const priorityLabel = task.priority > 1 ? `P${task.priority}` : null
-
-  return (
-    <button
-      type="button"
-      onClick={() => onToggle(task)}
-      aria-pressed={active}
-      className="flex items-center gap-3 rounded-[var(--r-md)] border px-[14px] py-3 text-left"
-      style={{
-        borderColor: active ? 'var(--accent)' : 'var(--line)',
-        borderWidth: active ? 1.5 : 1,
-        background: active ? 'var(--accent-soft)' : 'var(--surface)',
-      }}
-    >
-      <span
-        className="grid h-4 w-4 flex-shrink-0 place-items-center rounded-full border-2"
-        style={{
-          borderColor: category?.color ?? 'var(--line-strong)',
-          background: active ? (category?.color ?? 'var(--accent)') : 'transparent',
-        }}
-      >
-        {active && <Icon name="check" size={9} color="#fff" stroke={3.5} />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{task.content}</span>
-        <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[var(--ink-3)]">
-          <span className="truncate">{task.projectName ?? PROVIDER_LABEL[resolveProvider(task)]}</span>
-          {priorityLabel && <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--ink-2)]">{priorityLabel}</span>}
-        </span>
-      </span>
-      <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: PROVIDER_COLOR[resolveProvider(task)] }} />
-      {category && <span className="h-2 w-2 rounded-full" style={{ background: category.color }} />}
-    </button>
-  )
+function inScope(task: ExternalTask, scope: Scope): boolean {
+  if (scope === 'all') return true
+  if (scope === 'today') return task.due === 'today'
+  return task.due === 'tomorrow' || task.due === 'upcoming'
 }
 
-function TaskGroup({
-  label,
-  items,
-  categories,
-  selectedRefs,
-  fallbackCategory,
-  onToggle,
-}: {
-  label: string
-  items: ExternalTask[]
-  categories: CategoryRecord[]
-  selectedRefs: string[]
-  fallbackCategory: string
-  onToggle: (task: ExternalTask) => void
-}) {
-  if (!items.length) return null
+const SCOPES: { key: Scope; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'all', label: 'All' },
+]
+
+function ScopeChips({ scope, onChange }: { scope: Scope; onChange: (next: Scope) => void }) {
   return (
-    <div>
-      <div className="mb-[9px] text-[12px] uppercase tracking-[0.07em] text-[var(--ink-3)]">{label}</div>
-      <div className="flex flex-col gap-2">
-        {items.map(task => (
-          <TaskCard
-            key={taskKey(task)}
-            task={task}
-            categories={categories}
-            selectedRefs={selectedRefs}
-            fallbackCategory={fallbackCategory}
-            onToggle={onToggle}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/**
- * In-place topic editor. Renders inline on whichever screen hosts it — no
- * overlay — so switching topic never covers the running timer. Category taps
- * apply immediately; the intention commits on Enter or the done button.
- */
-function TopicEditor({
-  categories,
-  category,
-  intention,
-  placeholder,
-  testId,
-  onApply,
-  onDone,
-}: {
-  categories: CategoryRecord[]
-  category: Category
-  intention: string
-  placeholder: string
-  testId: string
-  onApply: (nextCategory: Category, nextIntention: string) => void
-  onDone: () => void
-}) {
-  const [draft, setDraft] = useState(intention)
-  useEffect(() => { setDraft(intention) }, [intention])
-
-  const commit = (nextCategory: Category = category) => onApply(nextCategory, draft.trim())
-  const commitAndClose = () => {
-    commit()
-    onDone()
-  }
-
-  return (
-    <div className="w-full max-w-[340px]">
-      <div className="hide-scrollbar -mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
-        <div data-testid={testId} className="flex min-w-max flex-nowrap gap-2">
-          {categories.map(cat => (
-            <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => commit(cat.name)}>{cat.label}</Chip>
-          ))}
-        </div>
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <input
-          autoFocus
-          value={draft}
-          onChange={event => setDraft(event.target.value)}
-          onKeyDown={event => { if (event.key === 'Enter') commitAndClose() }}
-          placeholder={placeholder}
-          className="min-w-0 flex-1 rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-[13px] py-[9px] text-[16px] font-semibold tracking-[-0.01em] text-[var(--ink)] outline-none"
-        />
+    <div style={{ display: 'flex', gap: 6 }}>
+      {SCOPES.map(({ key, label }) => (
         <button
+          key={key}
           type="button"
-          aria-label="Done editing focus"
-          onClick={commitAndClose}
-          className="grid h-[38px] w-[38px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--accent)] text-white"
+          className="md-quiet md-press"
+          data-active={scope === key ? 'true' : 'false'}
+          aria-pressed={scope === key}
+          onClick={() => onChange(key)}
         >
-          <Icon name="check" size={18} color="#fff" />
+          {label}
         </button>
-      </div>
-    </div>
-  )
-}
-
-function Reflection({
-  draft,
-  category,
-  categories,
-  nextBreak,
-  restStarted,
-  onChangeTopic,
-  onSave,
-  onSkip,
-}: {
-  draft: ReflectionDraft
-  category: CategoryRecord | null
-  categories: CategoryRecord[]
-  nextBreak: 'short' | 'long' | null
-  /** The break is already counting behind this screen. */
-  restStarted?: boolean
-  onChangeTopic: (nextCategory: Category, nextIntention: string) => void
-  onSave: (rating: number, notes: string) => void
-  onSkip: () => void
-}) {
-  const [rating, setRating] = useState(4)
-  const [notes, setNotes] = useState('')
-  const [editingTopic, setEditingTopic] = useState(false)
-  const accent = category?.color ?? 'var(--accent)'
-
-  return (
-    <div className="anim-fade flex h-full min-h-0 w-full min-w-0 flex-col overflow-y-auto px-[var(--gutter)] pb-[calc(22px+var(--safe-b))] pt-[calc(var(--screen-top)+18px+var(--safe-t))]">
-      <div className="stagger flex min-h-0 flex-1 flex-col justify-center gap-[22px]">
-        <div className="text-center">
-          <div className="anim-pop mx-auto mb-4 grid h-[58px] w-[58px] place-items-center rounded-full" style={{ background: tint(accent, 16) }}>
-            <Icon name="check" size={32} color={accent} stroke={2} className="reflect-check" />
-          </div>
-          <h1 className="m-0 font-[var(--font-display)] text-[clamp(24px,6vw,30px)] font-bold tracking-[-0.035em]">Session complete</h1>
-          <p className="mb-0 mt-[10px] text-[16px] text-[var(--ink-2)]">
-            {fmtHM(draft.actualMs / 60000)} on <strong className="font-semibold text-[var(--ink)]">{category?.label ?? 'Focus'}</strong>
-            {draft.intention ? <><br />&ldquo;{draft.intention}&rdquo;</> : null}
-          </p>
-          {restStarted && (
-            <p className="mb-0 mt-[10px] text-[13.5px] font-semibold text-[var(--good)]">Your break is already running.</p>
-          )}
-          {editingTopic ? (
-            <div className="mt-[14px] flex justify-center">
-              <TopicEditor
-                categories={categories}
-                category={draft.category}
-                intention={draft.intention}
-                placeholder="What did you focus on?"
-                testId="reflection-topic-categories"
-                onApply={onChangeTopic}
-                onDone={() => setEditingTopic(false)}
-              />
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setEditingTopic(true)}
-              className="mx-auto mt-[10px] flex items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-[7px] text-[13px] font-semibold text-[var(--ink-2)]"
-            >
-              <Icon name="edit" size={14} color="var(--ink-3)" />
-              Change topic
-            </button>
-          )}
-        </div>
-
-        <div>
-          <div className="mb-[14px] text-center text-[13px] tracking-[0.02em] text-[var(--ink-3)]">How did it feel?</div>
-          <div className="flex justify-center gap-[10px]">
-            {[1, 2, 3, 4, 5].map(n => (
-              <button
-                key={n}
-                type="button"
-                aria-label={`Rate ${n} of 5`}
-                aria-pressed={n === rating}
-                onClick={() => setRating(n)}
-                className="h-[46px] w-[46px] rounded-full border-0 text-[15px] font-bold"
-                style={{
-                  background: n <= rating ? accent : 'var(--surface-2)',
-                  color: n <= rating ? '#fff' : 'var(--ink-3)',
-                  transform: n === rating ? 'scale(1.12)' : 'scale(1)',
-                  transition: 'transform var(--dur-3) var(--ease-spring), background var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out)',
-                }}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <div key={rating} className="anim-fade mt-3 h-[18px] text-center text-[14px] font-semibold" style={{ color: accent }}>{ratingWord(rating)}</div>
-        </div>
-
-        <div>
-          <div className="mb-[9px] text-[13px] tracking-[0.02em] text-[var(--ink-3)]">What did you get done?</div>
-          <textarea
-            value={notes}
-            onChange={event => setNotes(event.target.value)}
-            rows={3}
-            placeholder="A line for your future self..."
-            className="w-full resize-none rounded-[var(--r-md)] border-[1.5px] border-[var(--line-strong)] bg-[var(--surface)] px-4 py-[14px] text-[16px] leading-normal text-[var(--ink)] outline-none transition-colors focus:border-[var(--accent)]"
-          />
-        </div>
-      </div>
-
-      <div className="anim-fade-up mt-5 grid flex-shrink-0 grid-cols-[1fr_auto] gap-3">
-        <Btn full size="lg" onClick={() => onSave(rating, notes)}>
-          {restStarted
-            ? 'Save'
-            : nextBreak === 'long' ? 'Save & start long break' : nextBreak === 'short' ? 'Save & start break' : 'Save to journal'}
-        </Btn>
-        <button
-          type="button"
-          onClick={onSkip}
-          className="press rounded-[var(--r-pill)] border-0 bg-[var(--surface-2)] px-5 text-[16px] font-semibold text-[var(--ink-2)]"
-        >
-          Skip
-        </button>
-      </div>
+      ))}
     </div>
   )
 }
@@ -579,11 +189,15 @@ export default function Timer({
 }) {
   const { settings, loaded: settingsLoaded, updateSettings } = useSettings()
   const { categories, byName } = useCategories()
+  const { reportSub } = useShellStatus()
+  const isDesktop = useIsDesktop()
+  const phone = !isDesktop
   // Only this one setting decides which providers are asked; depending on the
   // whole object would re-fetch every task on an unrelated preference change.
   const providers = useMemo(() => enabledProviders(settings), [settings.todoistEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
   const [phase, setPhase] = useState<TimerRunPhase>('idle')
   const [sessionType, setSessionType] = useState<SessionType>('focus')
+  const [typeKey, setTypeKey] = useState<TypeKey>('focus')
   const [intention, setIntention] = useState('')
   const [category, setCategory] = useState<Category>('')
   const [remainingMs, setRemainingMs] = useState(settings.focusDuration * 60000)
@@ -594,31 +208,39 @@ export default function Timer({
   // lib/task-ref). A session can carry several; the API field and DB column
   // still take the one string they always did.
   const [taskRefs, setTaskRefs] = useState<string[]>([])
-  const [sheet, setSheet] = useState<'tasks' | null>(null)
-  const [editingTopic, setEditingTopic] = useState(false)
+  const [sheet, setSheet] = useState(false)
+  const [sheetClosing, setSheetClosing] = useState(false)
+  const [scope, setScope] = useState<Scope>('today')
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [tasks, setTasks] = useState<ExternalTask[]>([])
-  const [tasksLoading, setTasksLoading] = useState(false)
+  const [completingKey, setCompletingKey] = useState<string | null>(null)
   const [taskNotice, setTaskNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
-  const [streak, setStreak] = useState(0)
+  const [rating, setRating] = useState<number | null>(null)
   const [cycleCount, setCycleCount] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const finishingRef = useRef(false)
-  const dragFrameRef = useRef<number | null>(null)
-  const dragMinutesRef = useRef<number | null>(null)
   const prevRemainingRef = useRef<number | null>(null)
+  /**
+   * The topic as the server last saw it. The live title is a controlled field,
+   * so by the time it blurs `intention` already holds the new text — comparing
+   * against state would make every commit look like a no-op, and comparing
+   * against nothing would drop the linked tasks on a blur that changed nothing.
+   */
+  const syncedIntentionRef = useRef('')
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
+  const live = phase === 'running' || phase === 'paused'
+  const idle = !live
+
   useEffect(() => {
-    onImmersive?.(phase === 'running' || phase === 'paused' || phase === 'reflect')
-  }, [onImmersive, phase])
+    onImmersive?.(live)
+  }, [live, onImmersive])
 
   useEffect(() => {
     setRecentCategories(getRecentCategoryNames())
     setCycleCount(getPomodoroCycleCount())
-    fetch('/api/analytics').then(res => res.ok ? res.json() : null).then(data => setStreak(data?.streak ?? 0)).catch(() => setStreak(0))
   }, [])
 
   /**
@@ -627,7 +249,6 @@ export default function Timer({
    * looking at the same list.
    */
   const refreshTasks = useCallback(async () => {
-    setTasksLoading(true)
     try {
       const statuses = await loadProviderStatuses(providers)
       if (statuses.some(s => s.state === 'auth_required')) {
@@ -649,8 +270,6 @@ export default function Timer({
         : null)
     } catch {
       setTasks([])
-    } finally {
-      setTasksLoading(false)
     }
   }, [providers])
 
@@ -675,8 +294,8 @@ export default function Timer({
    * The picked tasks themselves, resolved against the live list so a refresh
    * cannot leave a stale title on screen. A ref with no match — the task was
    * closed elsewhere, or its provider has since been switched off — is still
-   * shown, named by its source, rather than silently vanishing from a session
-   * that is going to log time against it.
+   * counted, rather than silently vanishing from a session that is going to
+   * log time against it.
    */
   const selectedTasks = useMemo(() => {
     const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
@@ -689,6 +308,7 @@ export default function Timer({
     if (pendingFocus.category && byName[pendingFocus.category]) setCategory(pendingFocus.category)
     setTaskRefs(pendingFocus.taskIds)
     setSessionType('focus')
+    setTypeKey('focus')
     setRemainingMs(settings.focusDuration * 60000)
     setTargetMs(settings.focusDuration * 60000)
     clearPendingFocus?.()
@@ -718,7 +338,11 @@ export default function Timer({
       const elapsed = Date.now() - data.updatedAt
       const nextRemaining = data.remainingMs - elapsed
       setSessionType(data.sessionType as SessionType)
+      setTypeKey(data.sessionType === 'focus'
+        ? 'focus'
+        : data.targetMs === settings.longBreakDuration * 60000 ? 'long' : 'short')
       setIntention(data.intention)
+      syncedIntentionRef.current = data.intention
       setCategory(data.category as Category)
       setTargetMs(data.targetMs)
       setStartedAt(data.startedAt)
@@ -733,6 +357,7 @@ export default function Timer({
       setPhase('paused')
       setSessionType(data.sessionType as SessionType)
       setIntention(data.intention)
+      syncedIntentionRef.current = data.intention
       setCategory(data.category as Category)
       setRemainingMs(data.remainingMs)
       setTargetMs(data.targetMs)
@@ -743,17 +368,19 @@ export default function Timer({
       if (data.category) setCategory(data.category as Category)
       if (data.intention) setIntention(data.intention)
       setSessionType('focus')
+      setTypeKey('focus')
       setTargetMs(settings.focusDuration * 60000)
       setRemainingMs(settings.focusDuration * 60000)
       setStartedAt(0)
     }
-  }, [providers, settings.focusDuration])
+  }, [providers, settings.focusDuration, settings.longBreakDuration])
 
   const restoreLocal = useCallback(() => {
     const local = loadTimerState()
     if (!local) return
     setSessionType(local.sessionType as SessionType)
     setIntention(local.intention)
+    syncedIntentionRef.current = local.intention
     setCategory(local.category)
     setTargetMs(local.targetMs)
     setTaskRefs(refsForProviders(local.todoistTaskId, providers))
@@ -852,17 +479,6 @@ export default function Timer({
     // the hand-off even if both sessions land on the same millisecond.
   }, [phase, sessionType, startedAt])
 
-  useEffect(() => {
-    return () => {
-      if (dragFrameRef.current != null) {
-        window.cancelAnimationFrame(dragFrameRef.current)
-        dragFrameRef.current = null
-      }
-      dragMinutesRef.current = null
-    }
-  }, [])
-
-  const openTaskCount = tasks.length
   const selectedCategory = categoryByName(categories, category)
   const sortedCategories = useMemo(() => {
     const order = new Map(recentCategories.map((name, index) => [name, index]))
@@ -879,18 +495,21 @@ export default function Timer({
     })
   }, [categories, recentCategories])
 
-  const commitIdleDuration = useCallback((minutes: number, type: SessionType = sessionType) => {
-    const nextMinutes = snapDurationMinutes(minutes, type)
+  /** Which stored duration the segmented control's current cell writes to. */
+  const durationKeyFor = (key: TypeKey) =>
+    key === 'focus' ? 'focusDuration' : key === 'short' ? 'breakDuration' : 'longBreakDuration'
+
+  const commitIdleDuration = useCallback((minutes: number) => {
+    const nextMinutes = Math.min(60, Math.max(1, Math.round(minutes)))
     const nextTarget = nextMinutes * 60000
 
-    if (type === 'focus') updateSettings({ focusDuration: nextMinutes })
-    else updateSettings({ breakDuration: nextMinutes })
+    updateSettings({ [durationKeyFor(typeKey)]: nextMinutes })
 
     setTargetMs(nextTarget)
     setRemainingMs(nextTarget)
     syncToServer({
       phase: 'idle',
-      sessionType: type,
+      sessionType,
       intention,
       category,
       targetMs: nextTarget,
@@ -900,37 +519,33 @@ export default function Timer({
       pausedAt: null,
       todoistTaskId: taskRefValue,
     })
-  }, [category, intention, sessionType, syncToServer, taskRefValue, updateSettings])
+  }, [category, intention, sessionType, syncToServer, taskRefValue, typeKey, updateSettings])
 
   /**
    * Push the idle screen's topic to the server. Every field is passed in
    * rather than read from state: picking a task changes the intention, the
    * category and the links at once, and React has not applied any of them yet.
    */
-  const syncIdleTopic = useCallback((next: { intention: string; category: Category; refs: string[] }) => {
+  const syncIdleTopic = useCallback((next: { intention: string; category: Category; refs: string[]; targetMs?: number }) => {
+    const nextTarget = next.targetMs ?? targetMs
     syncToServer({
       phase: 'idle',
       sessionType,
       intention: next.intention,
       category: next.category,
-      targetMs,
-      remainingMs,
+      targetMs: nextTarget,
+      remainingMs: nextTarget,
       overflowMs: 0,
       startedAt: null,
       pausedAt: null,
       todoistTaskId: encodeTaskRefs(next.refs),
     })
-  }, [remainingMs, sessionType, syncToServer, targetMs])
-
-  /** The inline field edits on every keystroke; the server only needs the rest. */
-  const syncIdleIntention = useCallback((nextIntention: string) => {
-    syncIdleTopic({ intention: nextIntention, category, refs: taskRefs })
-  }, [category, syncIdleTopic, taskRefs])
+  }, [sessionType, syncToServer, targetMs])
 
   /**
    * Change which tasks the next session is against. The topic is rewritten to
    * name them — it is the one line that says what the session is for — and the
-   * first task, being the one that leads, decides the category.
+   * first task, being the one that leads, decides the category and the length.
    */
   const applyTaskRefs = useCallback((nextRefs: string[]) => {
     const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
@@ -938,121 +553,88 @@ export default function Timer({
     const nextIntention = picked.map(task => task.content).join(' · ')
     const nextCategory = picked.length > 0 ? taskCategory(picked[0], categories, category) : category
 
+    // A task that carries its own estimate sets the length, clamped to
+    // something a single sitting can actually be.
+    const lead = picked[0] ? estimateMinutes(picked[0]) : null
+    const nextTarget = lead === null ? targetMs : Math.min(60, Math.max(5, lead)) * 60000
+
     setTaskRefs(nextRefs)
     setIntention(nextIntention)
     setCategory(nextCategory)
+    if (lead !== null) {
+      setTargetMs(nextTarget)
+      setRemainingMs(nextTarget)
+    }
     if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
-    syncIdleTopic({ intention: nextIntention, category: nextCategory, refs: nextRefs })
-  }, [categories, category, syncIdleTopic, tasks])
+    syncIdleTopic({ intention: nextIntention, category: nextCategory, refs: nextRefs, targetMs: nextTarget })
+  }, [categories, category, syncIdleTopic, targetMs, tasks])
 
   const toggleTaskRef = useCallback((task: ExternalTask) => {
     const ref = encodeTaskRef(resolveProvider(task), task.id)
     applyTaskRefs(taskRefs.includes(ref) ? taskRefs.filter(r => r !== ref) : [...taskRefs, ref])
   }, [applyTaskRefs, taskRefs])
 
-  const removeTaskRef = useCallback((ref: string) => {
-    applyTaskRefs(taskRefs.filter(r => r !== ref))
-  }, [applyTaskRefs, taskRefs])
+  const closeSheet = useCallback(() => {
+    setSheetClosing(true)
+    window.setTimeout(() => {
+      setSheet(false)
+      setSheetClosing(false)
+    }, 260)
+  }, [])
 
-  const handleIdleDialPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (phase !== 'idle') return
+  const focusOneTask = useCallback((task: ExternalTask) => {
+    applyTaskRefs([encodeTaskRef(resolveProvider(task), task.id)])
+    if (sheet) closeSheet()
+  }, [applyTaskRefs, closeSheet, sheet])
 
-    const dial = event.currentTarget
-    const rect = dial.getBoundingClientRect()
-    const toMinutes = (clientX: number, clientY: number) => dialProgressToMinutes(pointerToDialProgress(clientX, clientY, rect), sessionType)
-    const queueMinutes = (nextMinutes: number) => {
-      dragMinutesRef.current = nextMinutes
-      if (dragFrameRef.current != null) return
-      dragFrameRef.current = window.requestAnimationFrame(() => {
-        dragFrameRef.current = null
-        setDragMinutes(prev => (prev === dragMinutesRef.current ? prev : dragMinutesRef.current))
-      })
+  const completeOne = useCallback(async (task: ExternalTask) => {
+    const key = encodeTaskRef(resolveProvider(task), task.id)
+    setCompletingKey(key)
+    try {
+      await completeProviderTask(task)
+      // Let the leave animation play before the row is actually removed.
+      window.setTimeout(() => {
+        setTasks(prev => prev.filter(t => encodeTaskRef(resolveProvider(t), t.id) !== key))
+        setCompletingKey(null)
+      }, 420)
+    } catch (err) {
+      setCompletingKey(null)
+      setTaskNotice(err instanceof Error ? err.message : 'Failed to complete task')
     }
-
-    event.preventDefault()
-    if (typeof dial.setPointerCapture === 'function') {
-      try { dial.setPointerCapture(event.pointerId) } catch {}
-    }
-
-    queueMinutes(toMinutes(event.clientX, event.clientY))
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      queueMinutes(toMinutes(moveEvent.clientX, moveEvent.clientY))
-    }
-
-    const cleanup = () => {
-      if (dragFrameRef.current != null) {
-        window.cancelAnimationFrame(dragFrameRef.current)
-        dragFrameRef.current = null
-      }
-      dragMinutesRef.current = null
-      window.removeEventListener('pointermove', handleMove)
-      window.removeEventListener('pointerup', finishDrag)
-      window.removeEventListener('pointercancel', cancelDrag)
-    }
-
-    const finishDrag = (endEvent: PointerEvent) => {
-      const finalMinutes = toMinutes(endEvent.clientX, endEvent.clientY)
-      setDragMinutes(null)
-      cleanup()
-      commitIdleDuration(finalMinutes, sessionType)
-    }
-
-    const cancelDrag = () => {
-      setDragMinutes(null)
-      cleanup()
-    }
-
-    window.addEventListener('pointermove', handleMove, { passive: true })
-    window.addEventListener('pointerup', finishDrag)
-    window.addEventListener('pointercancel', cancelDrag)
-  }, [commitIdleDuration, phase, sessionType])
+  }, [])
 
   const isFocus = sessionType === 'focus'
-  const idleBaseMinutes = Math.max(1, Math.round(targetMs / 60000)) || (isFocus ? settings.focusDuration : settings.breakDuration)
+  const idleBaseMinutes = Math.max(1, Math.round(targetMs / 60000)) || settings.focusDuration
   const idleDurationMinutes = dragMinutes ?? idleBaseMinutes
-  const idleDialProgress = minutesToDialProgress(idleDurationMinutes, sessionType)
-  const isIdleDialDragging = dragMinutes !== null
-  const totalMs = phase === 'idle' ? idleDurationMinutes * 60000 : targetMs || (sessionType === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
-  const progress = phase === 'idle' ? 0 : Math.min(1, Math.max(0, 1 - (remainingMs / Math.max(totalMs, 1))))
-  const idleDialTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)'
-  const ringTint = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
-  const remainingSec = phase === 'idle' ? idleDurationMinutes * 60 : Math.ceil(remainingMs / 1000)
-  const compactCategoryLayout = sortedCategories.length > 5
-  // Base sizes come from the responsive scale in globals.css; a long category
-  // list then shaves the idle dial down so the screen never overflows.
-  const idleRingBase = useCssSize('--ring-idle', 236)
-  const runningRingBase = useCssSize('--ring-run', 280)
-  const idleRingCap = Math.round(idleRingBase * (sortedCategories.length > 8 ? 0.88 : sortedCategories.length > 5 ? 0.94 : 1))
-  // The CSS scale is only a ceiling — the dial then shrinks to whatever space
-  // the fixed rows leave, so the screen fits without scrolling on any phone.
-  const [idleRingFitRef, idleRingSize] = useFitSquare(idleRingCap)
-  // Give the inline topic editor room without pushing the controls off-screen.
-  const runningRingSize = editingTopic ? Math.round(runningRingBase * 0.8) : runningRingBase
+  const totalMs = idle ? idleDurationMinutes * 60000 : targetMs || settings.focusDuration * 60000
+  // Idle shows the length being set; live shows how much of it has gone.
+  const progress = idle
+    ? Math.min(1, idleDurationMinutes / 60)
+    : Math.min(1, Math.max(0, 1 - (remainingMs / Math.max(totalMs, 1))))
   const isOvertime = remainingMs < 0
-  const idleClockLabel = isFocus ? 'Focus length' : 'Break length'
-  const runningClockLabel = phase === 'paused'
-    ? 'Paused'
-    : remainingMs < 0
-      ? (isFocus ? 'Overtime' : 'Extra rest')
-      : isFocus
-        ? 'Remaining'
-        : 'Break remaining'
-  const runningClockDetail = startedAt ? `Ends ${formatEndTime(startedAt + totalMs)}` : `${Math.round(totalMs / 60000)} min target`
-  const isLongBreakRunning = !isFocus
-    && settings.longBreakDuration !== settings.breakDuration
-    && targetMs === settings.longBreakDuration * 60000
-  const cycleAccent = isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink-3)'
+  const overflowSec = Math.max(0, Math.ceil(-remainingMs / 1000))
+  const elapsedSec = live ? Math.max(0, Math.floor((totalMs - remainingMs) / 1000)) : 0
+  const onDarkGround = live || settings.darkMode
+  const dialCol = dialColor(selectedCategory?.color ?? '#ec3013', onDarkGround)
+  const sessionNo = cycleCount + 1
 
-  const selectSessionType = (next: SessionType) => {
-    const nextTarget = (next === 'focus' ? settings.focusDuration : settings.breakDuration) * 60000
+  const dialCap = phone ? 250 : 226
+  const [dialFitRef, dialSize] = useFitSquare(dialCap, 132)
+
+  const typeLabel = typeKey === 'focus' ? 'Focus' : typeKey === 'short' ? 'Short break' : 'Long break'
+
+  const selectType = (key: TypeKey) => {
+    const minutes = settings[durationKeyFor(key)]
+    const nextType: SessionType = key === 'focus' ? 'focus' : 'break'
+    const nextTarget = minutes * 60000
     setDragMinutes(null)
-    setSessionType(next)
+    setTypeKey(key)
+    setSessionType(nextType)
     setTargetMs(nextTarget)
     setRemainingMs(nextTarget)
     syncToServer({
       phase: 'idle',
-      sessionType: next,
+      sessionType: nextType,
       intention,
       category,
       targetMs: nextTarget,
@@ -1071,15 +653,20 @@ export default function Timer({
       : phase === 'idle' && type === sessionType && targetMs > 0 ? targetMs : configuredTarget
     const now = Date.now()
     prevRemainingRef.current = null
-    setEditingTopic(false)
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     if (type === 'focus') void ensurePushSubscription({ requestPermission: isInstalledPwa() }).catch(() => {})
     setPhase('running')
     setSessionType(type)
+    // Keep the segmented cell in step with what actually started: an
+    // auto-started long break must not sit under a heading that says "Focus".
+    setTypeKey(type === 'focus'
+      ? 'focus'
+      : nextTarget === settings.longBreakDuration * 60000 ? 'long' : 'short')
     setStartedAt(now)
     setTargetMs(nextTarget)
     setRemainingMs(nextTarget)
     setIntention(startingIntention)
+    syncedIntentionRef.current = startingIntention
     setCategory(startingCategory)
     setTaskRefs(startingTaskRefs)
     if (startingCategory) setRecentCategories(markCategoryUsed(startingCategory))
@@ -1096,7 +683,7 @@ export default function Timer({
       todoistTaskId: encodeTaskRefs(startingTaskRefs),
     })
     postSwMessage('TIMER_STARTED')
-  }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, syncToServer, targetMs, taskRefs, wakeLock])
+  }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, settings.longBreakDuration, syncToServer, targetMs, taskRefs, wakeLock])
 
   const pause = () => {
     setPhase('paused')
@@ -1134,41 +721,52 @@ export default function Timer({
   }
 
   /**
-   * Switch the topic of the session in flight. The change applies to the whole
-   * session — the reflection draft is built from this state when it ends — and
-   * is pushed to the server so other clients and notifications stay in step.
-   * A rewritten intention drops the linked tasks so time is never logged
-   * against work you moved off.
+   * Rewrite the topic of the session in flight. The change applies to the
+   * whole session — the draft is built from this state when it ends — and is
+   * pushed so other clients and notifications stay in step. A rewritten
+   * intention drops the linked tasks, so time is never logged against work you
+   * moved off.
    */
-  const changeRunningTopic = useCallback((nextCategory: Category, nextIntention: string) => {
-    const nextRefs = nextIntention === intention ? taskRefs : []
-    setCategory(nextCategory)
+  const changeRunningTopic = useCallback((nextIntention: string) => {
+    if (nextIntention === syncedIntentionRef.current) return
+    syncedIntentionRef.current = nextIntention
     setIntention(nextIntention)
-    setTaskRefs(nextRefs)
-    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
+    setTaskRefs([])
     syncToServer({
       phase,
       sessionType,
       intention: nextIntention,
-      category: nextCategory,
+      category,
       targetMs,
       remainingMs,
       overflowMs: Math.max(0, -remainingMs),
       startedAt: startedAt || null,
       pausedAt: phase === 'paused' ? Date.now() : null,
-      todoistTaskId: encodeTaskRefs(nextRefs),
+      todoistTaskId: null,
     })
-  }, [intention, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs, taskRefs])
+  }, [category, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs])
 
-  const changeDraftTopic = useCallback((nextCategory: Category, nextIntention: string) => {
-    setDraft(prev => prev ? {
-      ...prev,
-      category: nextCategory,
-      intention: nextIntention,
-      todoistTaskId: nextIntention === prev.intention ? prev.todoistTaskId : null,
-    } : prev)
-    if (nextCategory) setRecentCategories(markCategoryUsed(nextCategory))
-  }, [])
+  const idleServerState = useCallback(() => ({
+    phase: 'idle',
+    sessionType: 'focus',
+    intention: '',
+    category,
+    targetMs: settings.focusDuration * 60000,
+    remainingMs: settings.focusDuration * 60000,
+    overflowMs: 0,
+    startedAt: null,
+    pausedAt: null,
+    todoistTaskId: null,
+  }), [category, settings.focusDuration])
+
+  const returnToIdle = useCallback(() => {
+    setPhase('idle')
+    setSessionType('focus')
+    setTypeKey('focus')
+    setTargetMs(settings.focusDuration * 60000)
+    setRemainingMs(settings.focusDuration * 60000)
+    setStartedAt(0)
+  }, [settings.focusDuration])
 
   const makeDraft = useCallback((natural: boolean): ReflectionDraft | null => {
     if (!startedAt) return null
@@ -1214,23 +812,8 @@ export default function Timer({
           return
         }
       }
-      setPhase('idle')
-      setSessionType('focus')
-      setTargetMs(settings.focusDuration * 60000)
-      setRemainingMs(settings.focusDuration * 60000)
-      setStartedAt(0)
-      syncToServer({
-        phase: 'idle',
-        sessionType: 'focus',
-        intention: '',
-        category,
-        targetMs: settings.focusDuration * 60000,
-        remainingMs: settings.focusDuration * 60000,
-        overflowMs: 0,
-        startedAt: null,
-        pausedAt: null,
-        todoistTaskId: null,
-      })
+      returnToIdle()
+      syncToServer(idleServerState())
       postSwMessage('TIMER_STOPPED')
       finishingRef.current = false
       return
@@ -1241,9 +824,10 @@ export default function Timer({
       return
     }
     setDraft(nextDraft)
+    setRating(null)
 
-    // The cycle advances when the focus session ends, not when its reflection
-    // is saved — the break that follows needs to know whether it is a long one.
+    // The cycle advances when the focus session ends, not when its rating is
+    // saved — the break that follows needs to know whether it is a long one.
     const nextCount = incrementPomodoroCycle()
     setCycleCount(nextCount)
 
@@ -1251,17 +835,17 @@ export default function Timer({
     if (navigator.vibrate) navigator.vibrate([160, 80, 160])
 
     /*
-     * Rest starts the moment focus ends. Waiting for the reflection to be
-     * saved meant the break only began once you had rated the session and
-     * pressed a button — so the rest you were owed quietly started late, or
-     * not at all if you walked away. The reflection now rides on top of the
-     * running break instead of gating it.
+     * Rest starts the moment focus ends. Waiting for the rating to be saved
+     * meant the break only began once you had answered and pressed a button —
+     * so the rest you were owed quietly started late, or not at all if you
+     * walked away. The poster now rides on top of the running break instead of
+     * gating it.
      */
     if (settings.autoStartBreak) {
-      // Record it now, before the reflection is answered. The reflection is no
-      // longer a wall you have to get past — you are on a break and may simply
-      // walk away — and a focus session that happened should not depend on
-      // that. Saving the rating later re-posts the same id, which upserts.
+      // Record it now, before the rating is answered. The poster is no longer
+      // a wall you have to get past — you are on a break and may simply walk
+      // away — and a focus session that happened should not depend on that.
+      // Saving the rating later re-posts the same id, which upserts.
       void fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1276,21 +860,27 @@ export default function Timer({
 
     setPhase('reflect')
     clearTimerState()
-    syncToServer({
-      phase: 'idle',
-      sessionType: 'focus',
-      intention: '',
-      category,
-      targetMs: settings.focusDuration * 60000,
-      remainingMs: settings.focusDuration * 60000,
-      overflowMs: 0,
-      startedAt: null,
-      pausedAt: null,
-      todoistTaskId: null,
-    })
+    syncToServer(idleServerState())
     postSwMessage('TIMER_STOPPED')
     finishingRef.current = false
-  }, [category, makeDraft, postSwMessage, sessionType, settings.autoStartBreak, settings.autoStartFocus, settings.breakDuration, settings.focusDuration, settings.longBreakDuration, settings.sessionsBeforeLongBreak, settings.soundEnabled, start, syncToServer])
+  }, [category, idleServerState, makeDraft, postSwMessage, returnToIdle, sessionType, settings.autoStartBreak, settings.autoStartFocus, settings.breakDuration, settings.longBreakDuration, settings.sessionsBeforeLongBreak, settings.soundEnabled, start, syncToServer])
+
+  /**
+   * End the sitting without recording it. Distinct from Finish: abandoning
+   * says the session did not happen, so nothing is logged and no minutes are
+   * written back to a task.
+   */
+  const abandon = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    clearTimerState()
+    setDraft(null)
+    setRating(null)
+    setIntention('')
+    setTaskRefs([])
+    returnToIdle()
+    syncToServer(idleServerState())
+    postSwMessage('TIMER_STOPPED')
+  }, [idleServerState, postSwMessage, returnToIdle, syncToServer])
 
   /**
    * A break that reaches zero keeps counting up, exactly like focus — resting
@@ -1328,9 +918,7 @@ export default function Timer({
    * guess dressed up as a measurement.
    *
    * Nothing is ticked off. Finishing a session says the sitting is over, not
-   * that the work is — least of all when the session was pointed at several
-   * tasks, which is close to saying you did not expect to finish them all.
-   * Completing a task is a deliberate tap on the Tasks screen.
+   * that the work is. Completing a task is a deliberate tap on its checkbox.
    *
    * A write that fails is queued rather than lost: the minutes are real
    * whether or not the network agreed at that moment.
@@ -1349,14 +937,12 @@ export default function Timer({
         failures.push(err instanceof Error ? err.message : `Failed to reach ${PROVIDER_LABEL[ref.provider]}`)
       }
     }))
-    setTaskNotice(failures.length > 0
-      ? `${failures.join(' · ')} — will retry`
-      : null)
+    setTaskNotice(failures.length > 0 ? `${failures.join(' · ')} — will retry` : null)
   }
 
-  const saveReflection = async (rating: number, notes: string) => {
+  const saveSession = async (ratingValue: number) => {
     if (!draft) return
-    const session = { ...draft, notes, rating }
+    const session = { ...draft, notes: '', rating: ratingValue }
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
@@ -1366,451 +952,803 @@ export default function Timer({
       if (!res.ok) throw new Error('Failed to save session')
       void syncTasksAfterSession(draft.todoistTaskId, draft.actualMs)
     } catch {
-      const offline: QueuedSession = {
-        ...session,
-        queuedAt: Date.now(),
-      }
+      const offline: QueuedSession = { ...session, queuedAt: Date.now() }
       enqueueSession(offline)
     }
 
     setDraft(null)
+    setRating(null)
 
     // The break is already running underneath: clearing the draft just puts the
-    // reflection away, leaving the rest exactly where it had got to.
-    if (phase === 'running' || phase === 'paused') return
+    // poster away, leaving the rest exactly where it had got to.
+    if (live) return
 
     setIntention('')
     setTaskRefs([])
     setStartedAt(0)
-    setPhase('idle')
-    setSessionType('focus')
-    setTargetMs(settings.focusDuration * 60000)
-    setRemainingMs(settings.focusDuration * 60000)
+    returnToIdle()
   }
 
-  const greeting = (() => {
-    const h = new Date().getHours()
-    if (h < 12) return 'Good morning'
-    if (h < 18) return 'Good afternoon'
-    return 'Good evening'
-  })()
+  // ── Derived copy ───────────────────────────────────────────────────────
 
-  if (phase === 'running' || phase === 'paused') {
-    const handHeight = runningRingSize / 2 - 26
-    const clockColor = isOvertime ? 'var(--warn)' : 'var(--ink)'
+  const linkedTasks = selectedTasks
+    .map(entry => entry.task)
+    .filter((task): task is ExternalTask => task !== null)
+  const leadTask = linkedTasks[0] ?? null
+  const leadProvider = leadTask ? resolveProvider(leadTask) : null
 
-    const immersive = (
-      <div className="timer-immersive" data-phase={phase}>
-        <div className="timer-immersive-head">
-          {isFocus ? (
-            editingTopic ? (
-              <TopicEditor
-                categories={sortedCategories}
-                category={category}
-                intention={intention}
-                placeholder="What are you working on?"
-                testId="running-topic-categories"
-                onApply={changeRunningTopic}
-                onDone={() => setEditingTopic(false)}
-              />
-            ) : (
-              <button
-                type="button"
-                aria-label="Switch focus topic"
-                onClick={() => setEditingTopic(true)}
-                className="press mx-auto flex flex-col items-center border-0 bg-transparent p-0 text-center"
-              >
-                <span className="flex items-center gap-[6px] text-[12.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: selectedCategory?.color ?? 'var(--accent)' }}>
-                  {selectedCategory?.label ?? 'Focus'}
-                  <Icon name="edit" size={13} color={selectedCategory?.color ?? 'var(--accent)'} />
-                </span>
-                <span
-                  className="mt-[9px] max-w-[min(340px,80vw)] text-balance text-[18px] font-semibold leading-snug tracking-[-0.02em]"
-                  style={{ color: intention ? 'var(--ink)' : 'var(--ink-3)' }}
-                >
-                  {intention || 'Add an intention'}
-                </span>
-              </button>
-            )
-          ) : (
-            <div className="text-[12.5px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-3)]">
-              {isLongBreakRunning ? 'Long break' : 'Break'}
-            </div>
-          )}
-        </div>
+  const taskSlotLabel = leadTask && leadProvider
+    ? `${PROVIDER_LABEL[leadProvider]} · ${leadTask.projectName ?? PROVIDER_LABEL[leadProvider]}`
+    : taskRefs.length > 0 ? `${taskRefs.length} linked` : 'No task linked'
+  const taskSlotTitle = linkedTasks.length > 0
+    ? linkedTasks.map(t => t.content).join(' · ')
+    : taskRefs.length > 0 ? 'Linked task unavailable' : 'Focus without a task'
 
-        <div className="timer-immersive-main">
-          <div className="relative" data-running={phase === 'running'}>
-            <Ring
-              progress={progress}
-              size={runningRingSize}
-              stroke={4}
-              track="var(--line)"
-              tint={ringTint}
-              ticks={60}
-              tickColor="var(--ink-2)"
-              dot={false}
-              glow={phase === 'running'}
-            >
-              <div className="h-[44%] w-[44%] rounded-full border border-white/35 bg-[color-mix(in_srgb,var(--bg)_74%,transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_14px_36px_rgba(24,18,12,0.08)]" />
-            </Ring>
-            <div className="pointer-events-none absolute inset-0">
-              <div
-                className="absolute left-1/2 top-1/2 rounded-full"
-                style={{
-                  width: 4,
-                  height: handHeight,
-                  background: `linear-gradient(180deg, ${ringTint} 0%, color-mix(in srgb, ${ringTint} 70%, white) 100%)`,
-                  transform: `translate(-50%, -100%) rotate(${progress * 360}deg)`,
-                  transformOrigin: '50% 100%',
-                  boxShadow: `0 6px 18px color-mix(in srgb, ${ringTint} 24%, transparent)`,
-                  opacity: phase === 'paused' ? 0.5 : 0.96,
-                  // Matches the 1s tick so the hand sweeps instead of stepping.
-                  transition: 'transform .95s linear, opacity var(--dur-3) var(--ease-out)',
-                }}
-              >
-                <div
-                  className="absolute left-1/2 top-0 rounded-full border border-white/70"
-                  style={{
-                    width: 18,
-                    height: 18,
-                    marginLeft: -9,
-                    marginTop: -8,
-                    background: ringTint,
-                    boxShadow: '0 10px 22px rgba(20, 15, 10, 0.18)',
-                  }}
-                />
-              </div>
-              <div
-                className="absolute left-1/2 top-1/2 rounded-full border border-white/60"
-                style={{
-                  width: 18,
-                  height: 18,
-                  marginLeft: -9,
-                  marginTop: -9,
-                  background: 'var(--surface)',
-                  boxShadow: `0 0 0 5px color-mix(in srgb, ${ringTint} 14%, transparent)`,
-                }}
-              />
-            </div>
-          </div>
+  const clockSub = live
+    ? (phase === 'paused' ? 'Paused' : isOvertime ? 'Overtime' : 'Remaining')
+    : `${idleDurationMinutes} min planned`
+  const phaseLabel = phase === 'paused'
+    ? 'Paused'
+    : isOvertime ? 'Overtime' : `${typeLabel} · ${pad2(sessionNo)}`
+  const liveMeta = leadTask && leadProvider
+    ? `${PROVIDER_LABEL[leadProvider]} · ${leadTask.projectName ?? PROVIDER_LABEL[leadProvider]} · logging to task`
+    : 'No task linked'
 
-          <div className="timer-clock">
-            <div
-              className="timer-clock-label text-[11px] font-semibold uppercase tracking-[0.18em]"
-              style={{ color: isOvertime ? 'var(--warn)' : 'var(--ink-3)' }}
-            >
-              {runningClockLabel}
-            </div>
-            <div
-              className={`timer-clock-value ${isOvertime ? 'overflow-pulse' : ''}`}
-              style={{ color: clockColor }}
-            >
-              {fmtClock(remainingSec)}
-            </div>
-            <div className="mt-2 text-[13px] tracking-[0.01em] text-[var(--ink-3)]">{runningClockDetail}</div>
-            <div className="mt-3 flex justify-center">
-              <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={cycleAccent} size={7} />
-            </div>
-          </div>
-        </div>
+  // The desktop header's subtitle. Reported rather than lifted, so the shell
+  // stays a shell.
+  useEffect(() => {
+    reportSub('timer', live
+      ? 'Session in progress'
+      : `Session ${pad2(sessionNo)} · ${clockOf(idleDurationMinutes * 60)} planned`)
+  }, [idleDurationMinutes, live, reportSub, sessionNo])
 
-        <div className="timer-immersive-foot">
-          <button
-            type="button"
-            aria-label="Stop session"
-            onClick={() => finish(false)}
-            className="press grid place-items-center rounded-full border-[1.5px] border-[var(--line-strong)] bg-transparent text-[var(--ink)]"
-            style={{ width: 'var(--control-sm)', height: 'var(--control-sm)' }}
-          >
-            <Icon name="stop" size={20} />
-          </button>
-          <button
-            type="button"
-            aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
-            onClick={() => phase === 'paused' ? resume() : pause()}
-            className="press grid place-items-center rounded-full border-0 text-white shadow-[var(--shadow-lift)]"
-            style={{
-              width: 'var(--control-lg)',
-              height: 'var(--control-lg)',
-              background: isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--ink)',
-              color: isFocus ? '#fff' : 'var(--bg)',
-            }}
-          >
-            <Icon name={phase === 'paused' ? 'play' : 'pause'} size={32} />
-          </button>
-          <div aria-hidden="true" style={{ width: 'var(--control-sm)' }} />
-        </div>
-      </div>
-    )
+  // ── The queue, capped ──────────────────────────────────────────────────
 
-    // A focus session that rolled straight into its break leaves a draft
-    // behind. The rest is already counting underneath; this just asks how the
-    // focus went, and dismisses back to it.
-    if (!draft) return immersive
-    return (
-      <>
-        {immersive}
-        <div className="timer-reflect-overlay">
-          <Reflection
-            draft={draft}
-            category={categoryByName(categories, draft.category)}
-            categories={sortedCategories}
-            nextBreak={null}
-            restStarted
-            onChangeTopic={changeDraftTopic}
-            onSave={saveReflection}
-            onSkip={() => saveReflection(0, '')}
-          />
-        </div>
-      </>
-    )
-  }
+  const rowFor = useCallback((task: ExternalTask): TaskRowModel => {
+    const provider = resolveProvider(task)
+    const key = encodeTaskRef(provider, task.id)
+    return {
+      key,
+      title: task.content,
+      project: task.projectName ?? PROVIDER_LABEL[provider],
+      due: task.dueLabel ?? '',
+      est: estimateLabel(task),
+      dot: PROVIDER_COLOR[provider],
+      selected: taskRefs.includes(key),
+      completing: completingKey === key,
+      ariaLabel: taskRefs.includes(key)
+        ? `Remove ${task.content} from the session`
+        : `Add ${task.content} to the session`,
+      onPick: () => toggleTaskRef(task),
+      onFocus: () => focusOneTask(task),
+      onComplete: () => { void completeOne(task) },
+    }
+  }, [completeOne, completingKey, focusOneTask, taskRefs, toggleTaskRef])
 
-  if (phase === 'reflect' && draft) {
-    const nextBreak = settings.autoStartBreak && draft.type === 'focus'
-      ? ((cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 ? 'long' : 'short')
-      : null
-    return (
-      <Reflection
-        draft={draft}
-        category={categoryByName(categories, draft.category)}
-        categories={sortedCategories}
-        nextBreak={nextBreak}
-        onChangeTopic={changeDraftTopic}
-        onSave={saveReflection}
-        onSkip={() => saveReflection(0, '')}
-      />
-    )
-  }
+  const queueGroups: CappedGroup<TaskRowModel>[] = useMemo(() => {
+    const scoped = tasks.filter(task => inScope(task, scope))
+    const label = SCOPES.find(s => s.key === scope)?.label ?? 'All open'
+    return capGroups([{ label, rows: scoped.map(rowFor) }], phone ? 6 : 7)
+  }, [phone, rowFor, scope, tasks])
+
+  const showTaskRail = !phone && !live
+
+  // ── Render ─────────────────────────────────────────────────────────────
+
+  const focusPad = phone ? '16px 18px 22px' : '20px 26px 20px'
+
+  /**
+   * Overlays mount into the shell, not the pane. A sheet whose scrim stopped
+   * above the tab bar would leave the navigation lit and tappable underneath
+   * it, and the poster is meant to be full-bleed.
+   */
+  const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    setOverlayHost(document.getElementById('sesh-main') ?? document.body)
+  }, [])
+  const overlay = (node: React.ReactNode) => (overlayHost ? createPortal(node, overlayHost) : null)
+
+  const centreReadout = (
+    <>
+      <span
+        key={dragMinutes !== null ? idleDurationMinutes : 'steady'}
+        className={dragMinutes !== null ? 'md-numpop' : undefined}
+        style={{
+          fontFamily: 'var(--font-heading)',
+          fontWeight: 500,
+          fontSize: phone ? 42 : 38,
+          letterSpacing: '-.05em',
+          fontVariantNumeric: 'tabular-nums',
+          lineHeight: 1,
+        }}
+      >
+        {live ? clockOf(Math.ceil(remainingMs / 1000)) : clockOf(idleDurationMinutes * 60)}
+      </span>
+      <span
+        style={{
+          fontSize: 9.5,
+          letterSpacing: '.18em',
+          textTransform: 'uppercase',
+          color: 'var(--color-neutral-600)',
+          fontWeight: 600,
+          marginTop: 4,
+        }}
+      >
+        {clockSub}
+      </span>
+      {overflowSec > 0 && (
+        <span
+          className="md-pulse md-num"
+          style={{
+            marginTop: 6,
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 600,
+            fontSize: 13,
+            letterSpacing: '.06em',
+            color: 'var(--color-accent)',
+          }}
+        >
+          +{clockOf(overflowSec)}
+        </span>
+      )}
+    </>
+  )
 
   return (
-    <div className="timer-idle">
-      <div className="flex flex-shrink-0 items-start justify-between anim-fade-up">
-        <div>
-          <div className="timer-idle-greeting-prefix text-[13px] text-[var(--ink-3)]">{greeting},</div>
-          <div className="font-[var(--font-display)] text-[clamp(24px,6vw,32px)] font-bold tracking-[-0.035em]">{settings.displayName?.trim() || DEFAULT_SETTINGS.displayName}</div>
-        </div>
-        <div className="flex items-center gap-[7px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface)] px-[13px] py-2">
-          <Icon name="flame" size={17} color="var(--accent)" />
-          <span key={streak} className="anim-number-pop text-[15px] font-bold [font-variant-numeric:tabular-nums]">{streak}</span>
-        </div>
-      </div>
-
-      <div className="timer-idle-center hide-scrollbar">
-        <div className="timer-slot-mode">
-          <Seg<SessionType> options={[{ value: 'focus', label: 'Focus' }, { value: 'break', label: 'Break' }]} value={sessionType} onChange={selectSessionType} />
-        </div>
-        <div className="timer-slot-cycle flex items-center gap-[10px]">
-          <CycleDots count={cycleCount} total={settings.sessionsBeforeLongBreak} accent={selectedCategory?.color ?? 'var(--accent)'} size={7} />
-          {isFocus && (cycleCount + 1) % settings.sessionsBeforeLongBreak === 0 && (
-            <span className="text-[12px] text-[var(--ink-3)]">Long break after this one</span>
-          )}
-        </div>
-        <div className="timer-slot-ring anim-pop">
-          <div ref={idleRingFitRef} className="timer-ring-fit">
-          <div className="relative" style={{ width: idleRingSize, height: idleRingSize }}>
-            <Ring progress={idleDialProgress} size={idleRingSize} stroke={4} track="var(--line)" tint={isFocus ? selectedCategory?.color ?? 'var(--accent)' : 'var(--line-strong)'} ticks={60} tickColor="var(--ink-3)" animated={!isIdleDialDragging}>
-              <div
-                data-testid="timer-duration-face-fill"
-                className="relative h-[74%] w-[74%] overflow-hidden rounded-full border border-white/45"
-                style={{
-                  background: `conic-gradient(color-mix(in srgb, ${idleDialTint} 92%, white) 0deg, ${idleDialTint} ${idleDialProgress * 360}deg, color-mix(in srgb, var(--bg) 90%, white) ${idleDialProgress * 360}deg, color-mix(in srgb, var(--bg) 90%, white) 360deg)`,
-                  boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), inset 0 0 0 1px color-mix(in srgb, ${idleDialTint} 14%, transparent), 0 16px 34px rgba(24,18,12,0.08)`,
-                }}
-              >
-                <div
-                  className="absolute inset-[14%] rounded-full"
+    <>
+      <div className="md-screen">
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            padding: focusPad,
+          }}
+        >
+          {idle ? (
+            <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 18, flex: 'none' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span className="md-eyebrow" style={{ fontSize: 10.5 }}>
+                  Session {pad2(sessionNo)} · {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
+                </span>
+                <input
+                  value={intention}
+                  onChange={event => setIntention(event.target.value)}
+                  onBlur={() => syncIdleTopic({ intention, category, refs: taskRefs })}
+                  placeholder="What are you working on?"
+                  aria-label="Session intention"
                   style={{
-                    background: 'radial-gradient(circle at 50% 35%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.58) 18%, color-mix(in srgb, var(--bg) 74%, white) 60%, color-mix(in srgb, var(--bg) 88%, transparent) 100%)',
+                    width: '100%',
+                    border: 0,
+                    borderBottom: '2px solid var(--color-divider)',
+                    background: 'transparent',
+                    color: 'inherit',
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    // Never below 16px on a phone, or iOS zooms the page on focus.
+                    fontSize: phone ? 21 : 26,
+                    letterSpacing: '-.02em',
+                    padding: '0 0 9px',
+                    outline: 'none',
                   }}
                 />
               </div>
-            </Ring>
-            <div
-              data-testid="timer-duration-dial"
-              role="slider"
-              aria-label={isFocus ? 'Focus length dial' : 'Break length dial'}
-              aria-valuemin={durationBounds(sessionType).min}
-              aria-valuemax={durationBounds(sessionType).max}
-              aria-valuenow={idleDurationMinutes}
-              aria-valuetext={`${idleDurationMinutes} minutes`}
-              onPointerDown={handleIdleDialPointerDown}
-              className="absolute inset-0 touch-none"
-              style={{ borderRadius: '50%' }}
-            >
-              <div
-                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
+
+              <CategoryChips
+                categories={sortedCategories}
+                active={category}
+                phone={phone}
+                onPick={name => {
+                  setCategory(name)
+                  setRecentCategories(markCategoryUsed(name))
+                  syncIdleTopic({ intention, category: name, refs: taskRefs })
+                }}
+              />
+
+              <div style={{ position: 'relative', display: 'flex', border: '2px solid var(--color-divider)' }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: `${100 / 3}%`,
+                    background: 'var(--color-accent)',
+                    transform: `translateX(${['focus', 'short', 'long'].indexOf(typeKey) * 100}%)`,
+                    transition: 'transform 340ms var(--ease-spring)',
+                  }}
+                />
+                {(['focus', 'short', 'long'] as TypeKey[]).map(key => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="md-press"
+                    aria-pressed={typeKey === key}
+                    onClick={() => selectType(key)}
+                    style={{
+                      flex: 1,
+                      position: 'relative',
+                      zIndex: 1,
+                      border: 0,
+                      background: 'transparent',
+                      color: typeKey === key ? '#fff' : 'inherit',
+                      padding: '9px 6px',
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-heading)',
+                      fontWeight: 800,
+                      fontSize: 11.5,
+                      letterSpacing: '.07em',
+                      textTransform: 'uppercase',
+                      textAlign: 'left',
+                      transition: 'color 220ms',
+                    }}
+                  >
+                    {key === 'focus' ? 'Focus' : key === 'short' ? 'Short break' : 'Long break'}
+                    <span style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '.06em', opacity: .7, marginTop: 2 }}>
+                      {settings[durationKeyFor(key)]} min
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    fontSize: 11,
+                    letterSpacing: '.14em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-accent)',
+                  }}
+                >
+                  {phaseLabel}
+                </span>
+                <span style={{ height: 2, flex: 1, background: 'var(--color-divider)' }} />
+                <span
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-neutral-600)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {selectedCategory?.label ?? 'Focus'}
+                </span>
+              </div>
+              {/* Styled as the design's title line, but editable: rewriting
+                  what you are working on mid-session is worth keeping, and a
+                  borderless field looks identical to the text it replaces. */}
+              <input
+                value={intention}
+                onChange={event => setIntention(event.target.value)}
+                onBlur={event => changeRunningTopic(event.target.value)}
+                onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                placeholder={isFocus ? 'Untitled session' : typeLabel}
+                aria-label="Session topic"
                 style={{
-                  width: 4,
-                  height: idleRingSize / 2 - 24,
-                  background: `linear-gradient(180deg, ${idleDialTint} 0%, color-mix(in srgb, ${idleDialTint} 68%, white) 100%)`,
-                  transform: `translate(-50%, -100%) rotate(${idleDialProgress * 360}deg)`,
-                  transformOrigin: '50% 100%',
-                  opacity: 0.96,
-                  transition: isIdleDialDragging ? 'none' : 'transform 180ms ease-out',
+                  width: '100%',
+                  margin: 0,
+                  border: 0,
+                  background: 'transparent',
+                  color: 'inherit',
+                  fontFamily: 'var(--font-heading)',
+                  fontWeight: 800,
+                  fontSize: phone ? 21 : 26,
+                  lineHeight: 1.08,
+                  letterSpacing: '-.02em',
+                  padding: 0,
+                  outline: 'none',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 11,
+                  letterSpacing: '.08em',
+                  textTransform: 'uppercase',
+                  color: 'var(--color-neutral-600)',
+                  fontWeight: 700,
                 }}
               >
-                <div
-                  className="absolute left-1/2 top-0 grid rounded-full border border-white/70"
-                  style={{
-                    width: 24,
-                    height: 24,
-                    marginLeft: -12,
-                    marginTop: -10,
-                    placeItems: 'center',
-                    background: idleDialTint,
-                    color: '#fff',
-                    boxShadow: `0 10px 24px color-mix(in srgb, ${idleDialTint} 22%, transparent)`,
-                  }}
-                >
-                  <Icon name="play" size={11} style={{ transform: 'rotate(-90deg)', marginLeft: 1 }} />
+                {liveMeta}
+              </span>
+            </div>
+          )}
+
+          {/* The one elastic row: the dial takes whatever the fixed rows leave,
+              which is what keeps the screen off a scrollbar on short phones. */}
+          <div
+            ref={dialFitRef}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: phone ? '14px 0' : '4px 0',
+            }}
+          >
+            <Dial
+              size={dialSize}
+              phone={phone}
+              progress={progress}
+              color={dialCol}
+              live={live}
+              elapsedSec={elapsedSec}
+              darkGround={onDarkGround}
+              dragging={dragMinutes !== null}
+              ariaLabel={`${typeLabel} length dial`}
+              onMinutesChange={idle ? setDragMinutes : undefined}
+              onDragEnd={minutes => {
+                setDragMinutes(null)
+                commitIdleDuration(minutes)
+              }}
+            >
+              {centreReadout}
+            </Dial>
+          </div>
+
+          {idle ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto', flex: 'none' }}>
+              <div style={{ border: '2px solid var(--color-divider)', display: 'flex', alignItems: 'stretch' }}>
+                <div style={{ flex: 1, minWidth: 0, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: '.12em',
+                      textTransform: 'uppercase',
+                      color: 'var(--color-neutral-600)',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {taskSlotLabel}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 13.5,
+                      fontWeight: 600,
+                      lineHeight: 1.3,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {taskSlotTitle}
+                  </span>
                 </div>
+                {phone && tasks.length > 0 && (
+                  <button
+                    type="button"
+                    className="md-press md-lift"
+                    onClick={() => { setSheet(true); setSheetClosing(false) }}
+                    style={{
+                      flex: 'none',
+                      border: 0,
+                      borderLeft: '2px solid var(--color-divider)',
+                      background: 'transparent',
+                      color: 'inherit',
+                      padding: '0 14px',
+                      cursor: 'pointer',
+                      fontFamily: 'var(--font-heading)',
+                      fontWeight: 800,
+                      fontSize: 10.5,
+                      letterSpacing: '.1em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {taskRefs.length > 0 ? 'Change' : 'Choose'}
+                  </button>
+                )}
               </div>
-              <div
-                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full border border-white/60"
+
+              <button
+                type="button"
+                className="md-press"
+                onClick={() => start()}
                 style={{
-                  width: 16,
-                  height: 16,
-                  marginLeft: -8,
-                  marginTop: -8,
-                  background: 'var(--surface)',
-                  boxShadow: `0 0 0 4px color-mix(in srgb, ${idleDialTint} 16%, transparent)`,
-                  }}
-              />
-            </div>
-          </div>
-          </div>
-
-          <div className="timer-clock">
-            <div className="timer-clock-label text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ink-3)]">{idleClockLabel}</div>
-            <div className="timer-clock-value">{fmtClock(remainingSec)}</div>
-          </div>
-        </div>
-
-        {isFocus && (
-          <div className="timer-slot-picker flex w-full max-w-[min(420px,100%)] flex-col gap-2.5">
-            <div className="timer-category-scroller hide-scrollbar -mx-1 px-1 pb-1">
-              <div data-testid="timer-category-selector" className="timer-category-list flex gap-2">
-                {sortedCategories.map(cat => (
-                  <Chip key={cat.id} color={cat.color} active={category === cat.name} onClick={() => {
-                    setCategory(cat.name)
-                    setRecentCategories(markCategoryUsed(cat.name))
-                    syncToServer({
-                      phase: 'idle',
-                      sessionType,
-                      intention,
-                      category: cat.name,
-                      targetMs,
-                      remainingMs,
-                      overflowMs: 0,
-                      startedAt: null,
-                      pausedAt: null,
-                      todoistTaskId: taskRefValue,
-                    })
-                  }}>{cat.label}</Chip>
-                ))}
-              </div>
-            </div>
-            {compactCategoryLayout && (
-              <div className="timer-scroll-hint px-1 text-center text-[12px] text-[var(--ink-3)]">Swipe to see all categories</div>
-            )}
-            {/* Edited in place — an intention is one line, not a screen. */}
-            <div className="timer-intention-field">
-              <Icon name={taskRefs.length > 0 ? 'link' : 'edit'} size={18} color="var(--ink-3)" />
-              <input
-                type="text"
-                value={intention}
-                enterKeyHint="done"
-                aria-label="Focus intention"
-                placeholder="Add an intention (optional)"
-                onChange={event => {
-                  setIntention(event.target.value)
-                  // A hand-written intention is no longer the picked tasks.
-                  setTaskRefs([])
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  width: '100%',
+                  border: 0,
+                  background: 'var(--color-accent)',
+                  color: '#fff',
+                  padding: 16,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-heading)',
+                  fontWeight: 800,
+                  fontSize: 15,
+                  letterSpacing: '.06em',
+                  textTransform: 'uppercase',
+                  textAlign: 'left',
                 }}
-                onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
-                onBlur={() => {
-                  setIntention(current => current.trim())
-                  syncIdleIntention(intention.trim())
+              >
+                Start {typeLabel} · {idleDurationMinutes} min
+                <MdIcon name="arrow" size={20} strokeWidth={2.4} color="#fff" style={{ marginLeft: 'auto' }} />
+              </button>
+
+              <span
+                style={{
+                  fontSize: 10.5,
+                  letterSpacing: '.06em',
+                  textTransform: 'uppercase',
+                  color: 'var(--color-neutral-600)',
+                  fontWeight: 700,
                 }}
-                className="timer-intention-input"
-              />
-              {intention && (
-                <button
-                  type="button"
-                  aria-label="Clear intention"
-                  onClick={() => {
-                    setIntention('')
-                    setTaskRefs([])
-                    syncIdleIntention('')
-                  }}
-                  className="grid h-[22px] w-[22px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--surface-2)] p-0"
-                >
-                  <Icon name="x" size={13} color="var(--ink-3)" />
-                </button>
+              >
+                Ends {endsAtLabel(Date.now(), idleDurationMinutes)} · drag the dial to change length
+              </span>
+
+              {taskNotice && (
+                <span style={{ fontSize: 11, color: 'var(--color-accent)', fontWeight: 600 }}>{taskNotice}</span>
               )}
             </div>
-            {/* Named individually rather than counted: a session pointed at
-                four things should say which four, and let you drop one. */}
-            {selectedTasks.length > 0 && (
-              <div className="flex flex-wrap justify-center gap-[6px]">
-                {selectedTasks.map(({ ref, task }) => (
-                  <span
-                    key={ref}
-                    className="anim-chip-pop flex max-w-full items-center gap-[6px] rounded-[var(--r-pill)] border border-[var(--line)] bg-[var(--surface-2)] py-[5px] pl-[10px] pr-[6px] text-[12.5px] font-medium"
-                  >
-                    <span
-                      aria-hidden
-                      className="h-[6px] w-[6px] flex-shrink-0 rounded-full"
-                      style={{ background: PROVIDER_COLOR[decodeTaskRefs(ref)[0]?.provider ?? 'todoist'] }}
-                    />
-                    <span className="min-w-0 max-w-[180px] truncate">
-                      {task?.content ?? `${PROVIDER_LABEL[decodeTaskRefs(ref)[0]?.provider ?? 'todoist']} task`}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${task?.content ?? 'task'} from the session`}
-                      onClick={() => removeTaskRef(ref)}
-                      className="press-sm grid h-[18px] w-[18px] flex-shrink-0 place-items-center rounded-full border-0 bg-[var(--surface)] p-0"
-                    >
-                      <Icon name="x" size={11} color="var(--ink-3)" />
-                    </button>
-                  </span>
-                ))}
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto', flex: 'none' }}>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  type="button"
+                  className="md-press"
+                  aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
+                  onClick={() => (phase === 'paused' ? resume() : pause())}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    border: '2px solid var(--color-divider)',
+                    background: 'transparent',
+                    color: 'inherit',
+                    padding: 14,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    fontSize: 13,
+                    letterSpacing: '.08em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <MdIcon name={phase === 'paused' ? 'play' : 'pause'} size={16} strokeWidth={2.4} />
+                  {phase === 'paused' ? 'Resume' : 'Pause'}
+                </button>
+                <button
+                  type="button"
+                  className="md-press"
+                  aria-label="Finish session"
+                  onClick={() => finish(false)}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    border: 0,
+                    background: 'var(--color-accent)',
+                    color: '#fff',
+                    padding: 14,
+                    cursor: 'pointer',
+                    fontFamily: 'var(--font-heading)',
+                    fontWeight: 800,
+                    fontSize: 13,
+                    letterSpacing: '.08em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  <MdIcon name="check" size={16} strokeWidth={2.6} color="#fff" />
+                  Finish
+                </button>
               </div>
-            )}
-            {openTaskCount > 0 && (
-              <button type="button" onClick={() => { setSheet('tasks'); void refreshTasks() }} className="press flex items-center justify-center gap-[7px] border-0 bg-transparent p-0 text-[13.5px] font-medium text-[var(--ink-3)]">
-                <Icon name="list" size={15} color="var(--ink-3)" />
-                {selectedTasks.length > 0 ? 'Add another task' : 'Choose tasks'}
+              <button
+                type="button"
+                onClick={abandon}
+                style={{
+                  alignSelf: 'flex-start',
+                  background: 'transparent',
+                  border: 0,
+                  padding: '4px 0',
+                  cursor: 'pointer',
+                  color: 'var(--color-neutral-600)',
+                  fontSize: 11,
+                  letterSpacing: '.1em',
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  fontFamily: 'var(--font-heading)',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 3,
+                }}
+              >
+                Abandon session
               </button>
-            )}
-            {taskNotice && (
-              <div className="anim-fade-up rounded-[var(--r-md)] border border-[var(--warn)]/20 bg-[var(--warn)]/10 px-4 py-3 text-center text-[13px] leading-normal text-[var(--warn)]">
-                {taskNotice}
+            </div>
+          )}
+        </div>
+
+        {showTaskRail && (
+          <div
+            style={{
+              flex: 'none',
+              width: 326,
+              borderLeft: '2px solid var(--color-divider)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                padding: '14px 14px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 9,
+                borderBottom: '2px solid var(--color-divider)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 13, letterSpacing: '.1em', textTransform: 'uppercase' }}>
+                  Queue
+                </h3>
+                <span className="md-num" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-neutral-600)' }}>
+                  {tasks.length} open
+                </span>
               </div>
-            )}
+              <ScopeChips scope={scope} onChange={setScope} />
+            </div>
+            <TaskList groups={queueGroups} />
           </div>
         )}
       </div>
 
-      <div className="anim-fade-up flex-shrink-0 pb-[var(--screen-bottom-space)] pt-2">
-        <Btn full size="lg" variant="accent" icon="play" onClick={() => start()} style={isFocus ? { background: selectedCategory?.color ?? 'var(--accent)' } : undefined}>
-          {isFocus ? 'Start focus' : 'Start break'}
-        </Btn>
+      {sheet && overlay(
+        <div
+          className="md-sheet-root"
+          data-closing={sheetClosing ? 'true' : 'false'}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a task"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 70,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <button
+            type="button"
+            onClick={closeSheet}
+            aria-label="Close"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: 0,
+              background: 'color-mix(in srgb, #1b1918 52%, transparent)',
+              cursor: 'pointer',
+            }}
+          />
+          <div
+            className="md-sheet"
+            style={{
+              position: 'relative',
+              maxHeight: '82%',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--color-bg)',
+              borderTop: '2px solid var(--color-text)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div
+              style={{
+                padding: '14px 16px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                borderBottom: '2px solid var(--color-divider)',
+              }}
+            >
+              <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                Choose a task
+              </h3>
+              <button
+                type="button"
+                className="md-press"
+                onClick={closeSheet}
+                aria-label="Close task picker"
+                style={{ marginLeft: 'auto', background: 'transparent', border: 0, cursor: 'pointer', color: 'inherit', padding: 2 }}
+              >
+                <MdIcon name="close" size={18} strokeWidth={2.2} />
+              </button>
+            </div>
+            <div style={{ padding: '10px 16px', display: 'flex', gap: 6, borderBottom: '2px solid var(--color-divider)' }}>
+              <ScopeChips scope={scope} onChange={setScope} />
+            </div>
+            <div className="md-scroll">
+              <TaskList groups={queueGroups} />
+            </div>
+          </div>
+        </div>,
+      )}
+
+      {draft && overlay(
+        <Poster
+          minutes={Math.max(1, Math.round(draft.actualMs / 60000))}
+          categoryLabel={categoryByName(categories, draft.category)?.label ?? 'Focus'}
+          tasks={linkedTasks}
+          mirrorsToCalendar={settings.calendarSync}
+          breakRunning={live}
+          phone={phone}
+          rating={rating}
+          onRate={setRating}
+          onClose={() => {
+            const chosen = rating
+            void saveSession(chosen ?? 0).then(() => {
+              // A rating is a nod towards the next sitting; without one the
+              // poster just gets out of the way.
+              if (chosen !== null && !live) start('focus', '', category, [])
+            })
+          }}
+        />,
+      )}
+    </>
+  )
+}
+
+const RATINGS: { label: string; value: number }[] = [
+  { label: 'Focused', value: 5 },
+  { label: 'So-so', value: 3 },
+  { label: 'Scattered', value: 1 },
+]
+
+/**
+ * The session-complete poster: a full-bleed accent panel that says exactly
+ * what was written back, and to which provider. It sits over whatever is
+ * underneath — including a break that has already started — rather than
+ * gating it.
+ */
+function Poster({
+  minutes,
+  categoryLabel,
+  tasks,
+  mirrorsToCalendar,
+  breakRunning,
+  phone,
+  rating,
+  onRate,
+  onClose,
+}: {
+  minutes: number
+  categoryLabel: string
+  tasks: ExternalTask[]
+  mirrorsToCalendar: boolean
+  /** Rest has already started underneath — say so, or the poster looks like a wall. */
+  breakRunning: boolean
+  phone: boolean
+  rating: number | null
+  onRate: (value: number) => void
+  onClose: () => void
+}) {
+  const lead = tasks[0] ?? null
+  const leadProvider = lead ? PROVIDER_LABEL[resolveProvider(lead)] : null
+  const others = tasks.length - 1
+  const note = lead && leadProvider
+    ? `+${minutes} min written back to “${lead.content}”${others > 0 ? ` and ${others} more` : ''} in ${leadProvider}.${mirrorsToCalendar ? ' Mirrored to Google Calendar.' : ''}`
+    : `Logged to ${categoryLabel}. No task linked, so nothing was written back.`
+
+  return (
+    <div
+      className="md-poster"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Session logged"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 80,
+        background: '#ec3013',
+        color: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: phone ? '58px 20px 30px' : '34px 34px 30px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="square" aria-hidden="true">
+          <path className="md-draw" d="M3.5 12.5 9.5 18.5 20.5 5.5" />
+        </svg>
+        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 12, letterSpacing: '.16em', textTransform: 'uppercase' }}>
+          Session logged
+        </span>
       </div>
 
-      <TaskPickerSheet
-        open={sheet === 'tasks'}
-        onClose={() => setSheet(null)}
-        categories={categories}
-        fallbackCategory={category}
-        tasks={tasks}
-        loading={tasksLoading}
-        selectedRefs={taskRefs}
-        onToggle={toggleTaskRef}
-      />
+      <div style={{ height: 2, background: 'rgba(255,255,255,.55)', margin: '16px 0 18px' }} />
+
+      <span
+        className="md-num"
+        style={{
+          fontFamily: 'var(--font-heading)',
+          fontWeight: 800,
+          fontSize: phone ? 84 : 112,
+          letterSpacing: '-.045em',
+          lineHeight: .92,
+        }}
+      >
+        {minutes}
+      </span>
+      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 13, letterSpacing: '.14em', textTransform: 'uppercase', marginTop: 8 }}>
+        minutes · {categoryLabel}
+      </span>
+      <p style={{ margin: '14px 0 0', fontSize: 14, lineHeight: 1.45, maxWidth: '34ch', opacity: .92, textWrap: 'pretty' }}>
+        {note}
+      </p>
+      {breakRunning && (
+        <p style={{ margin: '8px 0 0', fontSize: 12.5, letterSpacing: '.02em', fontWeight: 600, opacity: .82 }}>
+          Your break is already running.
+        </p>
+      )}
+
+      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <span style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, opacity: .85 }}>
+          How did it go?
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {RATINGS.map(({ label, value }) => (
+            <button
+              key={label}
+              type="button"
+              className="md-press"
+              aria-pressed={rating === value}
+              onClick={() => onRate(value)}
+              style={{
+                flex: 1,
+                border: '2px solid rgba(255,255,255,.6)',
+                background: rating === value ? '#fff' : 'transparent',
+                color: rating === value ? 'var(--color-accent-700)' : '#fff',
+                padding: '11px 6px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 11,
+                letterSpacing: '.08em',
+                textTransform: 'uppercase',
+                transition: 'background 180ms, color 180ms',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="md-press"
+          onClick={onClose}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            border: 0,
+            background: '#fff',
+            color: 'var(--color-accent-700)',
+            padding: 15,
+            cursor: 'pointer',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 800,
+            fontSize: 14,
+            letterSpacing: '.08em',
+            textTransform: 'uppercase',
+            textAlign: 'left',
+          }}
+        >
+          {rating !== null ? 'Start next session' : 'Back to the dial'}
+          <MdIcon name="arrow" size={19} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />
+        </button>
+      </div>
     </div>
   )
 }

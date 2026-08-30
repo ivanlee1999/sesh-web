@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, render, screen, waitFor, within, act } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, act } from '@testing-library/react'
 
 let keepScreenAwake = false
 let autoStartBreak = false
@@ -185,13 +185,13 @@ describe('Timer', () => {
   it('renders the handoff idle focus surface', async () => {
     render(<Timer />)
 
-    expect(await screen.findByRole('button', { name: 'Start focus' })).toBeTruthy()
-    expect(screen.getByText('Focus')).toBeTruthy()
-    expect(screen.getByText('Break')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /^Start Focus/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Focus 25 min' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Short break 5 min' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Long break 15 min' })).toBeTruthy()
     expect(screen.getByText('25:00')).toBeTruthy()
-    expect(screen.getByText('Focus length')).toBeTruthy()
-    expect(screen.queryByText('Full dial = 60 min')).toBeNull()
-    expect(screen.getByPlaceholderText('Add an intention (optional)')).toBeTruthy()
+    expect(screen.getByText('25 min planned')).toBeTruthy()
+    expect(screen.getByPlaceholderText('What are you working on?')).toBeTruthy()
   })
 
   it('renders category chips and respects recency order', async () => {
@@ -207,13 +207,13 @@ describe('Timer', () => {
   it('edits the optional intention inline, with no sheet', async () => {
     render(<Timer />)
 
-    const field = await screen.findByPlaceholderText('Add an intention (optional)') as HTMLInputElement
+    const field = await screen.findByPlaceholderText('What are you working on?') as HTMLInputElement
     fireEvent.change(field, { target: { value: 'Review design handoff' } })
 
     expect(field.value).toBe('Review design handoff')
     expect(screen.queryByRole('button', { name: 'Set intention' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Clear intention' }))
+    fireEvent.change(field, { target: { value: '' } })
     expect(field.value).toBe('')
   })
 
@@ -237,14 +237,10 @@ describe('Timer', () => {
     fireEvent.pointerMove(window, { clientX: 150, clientY: 300, pointerId: 1 })
     fireEvent.pointerUp(window, { clientX: 150, clientY: 300, pointerId: 1 })
 
-    const progressCircle = dial.parentElement?.querySelectorAll('circle')[1] as SVGCircleElement | undefined
-    const faceFill = screen.getByTestId('timer-duration-face-fill') as HTMLDivElement
+    const progressArc = dial.querySelector('circle') as SVGCircleElement | null
 
     expect(screen.getByText('30:00')).toBeTruthy()
-    expect(screen.queryByText('Full dial = 60 min')).toBeNull()
-    expect(progressCircle?.getAttribute('stroke-dashoffset')).not.toEqual(progressCircle?.getAttribute('stroke-dasharray'))
-    expect(faceFill?.style.background).toContain('conic-gradient(')
-    expect(faceFill?.style.background).not.toContain('from -90deg')
+    expect(progressArc?.getAttribute('stroke-dashoffset')).not.toEqual(progressArc?.getAttribute('stroke-dasharray'))
     expect(updateSettings).toHaveBeenCalledWith({ focusDuration: 30 })
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -259,7 +255,7 @@ describe('Timer', () => {
 
   it('lets you drag the idle clock arrow to change break length', async () => {
     render(<Timer />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Break' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Short break 5 min' }))
 
     const dial = await screen.findByTestId('timer-duration-dial')
     vi.spyOn(dial, 'getBoundingClientRect').mockReturnValue({
@@ -278,15 +274,11 @@ describe('Timer', () => {
     fireEvent.pointerMove(window, { clientX: 150, clientY: 300, pointerId: 1 })
     fireEvent.pointerUp(window, { clientX: 150, clientY: 300, pointerId: 1 })
 
-    const progressCircle = dial.parentElement?.querySelectorAll('circle')[1] as SVGCircleElement | undefined
-    const faceFill = screen.getByTestId('timer-duration-face-fill') as HTMLDivElement
+    const progressArc = dial.querySelector('circle') as SVGCircleElement | null
 
-    expect(screen.getByText('15:00')).toBeTruthy()
-    expect(screen.queryByText('Break dial = 30 min')).toBeNull()
-    expect(progressCircle?.getAttribute('stroke-dashoffset')).not.toEqual(progressCircle?.getAttribute('stroke-dasharray'))
-    expect(faceFill?.style.background).toContain('conic-gradient(')
-    expect(faceFill?.style.background).not.toContain('from -90deg')
-    expect(updateSettings).toHaveBeenCalledWith({ breakDuration: 15 })
+    expect(screen.getByText('30:00')).toBeTruthy()
+    expect(progressArc?.getAttribute('stroke-dashoffset')).not.toEqual(progressArc?.getAttribute('stroke-dasharray'))
+    expect(updateSettings).toHaveBeenCalledWith({ breakDuration: 30 })
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/timer',
@@ -301,9 +293,9 @@ describe('Timer', () => {
   it('switches to break mode and syncs the idle server state', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Break' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Short break 5 min' }))
 
-    expect(screen.getByRole('button', { name: 'Start break' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Start Short break/ })).toBeTruthy()
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/timer',
@@ -318,28 +310,28 @@ describe('Timer', () => {
   it('starts an immersive session from the focus button', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
 
     expect(await screen.findByText('Remaining')).toBeTruthy()
-    expect(screen.getByLabelText('Stop session')).toBeTruthy()
+    expect(screen.getByLabelText('Finish session')).toBeTruthy()
     expect(screen.getByLabelText('Pause session')).toBeTruthy()
   })
 
   it('opens the reflection flow before saving a stopped focus session', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
 
-    expect(await screen.findByText('Session complete')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
+    expect(await screen.findByText('Session logged')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/sessions',
         expect.objectContaining({
           method: 'POST',
-          body: expect.stringContaining('"rating":4'),
+          body: expect.stringContaining('"rating":0'),
         }),
       )
     })
@@ -373,14 +365,14 @@ describe('Timer', () => {
       await flushPromises()
     })
 
-    expect(screen.getByText('Overtime')).toBeTruthy()
+    expect(screen.getAllByText('Overtime').length).toBeGreaterThan(0)
     expect(screen.getByText('+01:00')).toBeTruthy()
-    expect(screen.queryByText('Session complete')).toBeNull()
+    expect(screen.queryByText('Session logged')).toBeNull()
 
-    fireEvent.click(screen.getByLabelText('Stop session'))
-    expect(screen.getByText('Session complete')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Finish session'))
+    expect(screen.getByText('Session logged')).toBeTruthy()
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
+      fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
       await flushPromises()
     })
 
@@ -425,10 +417,10 @@ describe('Timer', () => {
   it('keeps an overdue break running and counts the extra rest', async () => {
     await renderOverdueBreak()
 
-    expect(screen.getByText('Extra rest')).toBeTruthy()
+    expect(screen.getAllByText('Overtime').length).toBeGreaterThan(0)
     expect(screen.getByText('+01:00')).toBeTruthy()
     // The break must not end itself out from under you.
-    expect(screen.queryByRole('button', { name: 'Start focus' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Start Focus/ })).toBeNull()
   })
 
   it('returns to idle when an overrunning break is stopped', async () => {
@@ -436,20 +428,20 @@ describe('Timer', () => {
 
     // findBy* would hang here: the suite runs on fake timers.
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('Stop session'))
+      fireEvent.click(screen.getByLabelText('Finish session'))
       await flushPromises()
     })
 
-    expect(screen.getByRole('button', { name: 'Start focus' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Start Focus/ })).toBeTruthy()
     // Breaks are not reflected on.
-    expect(screen.queryByText('Session complete')).toBeNull()
+    expect(screen.queryByText('Session logged')).toBeNull()
   })
 
   it('still ends the break at zero when auto-start focus is on', async () => {
     autoStartFocus = true
     await renderOverdueBreak()
 
-    expect(screen.queryByText('Extra rest')).toBeNull()
+    expect(screen.queryAllByText('Overtime')).toHaveLength(0)
     expect(screen.getByText('Remaining')).toBeTruthy()
   })
 
@@ -457,13 +449,13 @@ describe('Timer', () => {
     autoStartBreak = true
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
 
     // The reflection is shown, but rest is already counting behind it.
-    expect(await screen.findByText('Session complete')).toBeTruthy()
+    expect(await screen.findByText('Session logged')).toBeTruthy()
     expect(screen.getByText('Your break is already running.')).toBeTruthy()
-    expect(screen.getByText('Break remaining')).toBeTruthy()
+    expect(screen.getByText('Remaining')).toBeTruthy()
     expect(screen.getByText('05:00')).toBeTruthy()
     expect(vi.mocked(localStore.incrementPomodoroCycle)).toHaveBeenCalledTimes(1)
   })
@@ -474,9 +466,9 @@ describe('Timer', () => {
     autoStartBreak = true
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    await screen.findByText('Session complete')
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
 
     const posted = vi.mocked(globalThis.fetch).mock.calls.filter(([input, init]) => {
       const url = typeof input === 'string' ? input : (input as Request).url
@@ -487,9 +479,9 @@ describe('Timer', () => {
 
     // Answering it re-posts the same id, which the API upserts. The rating
     // click needs its own act, or Save still reads the previous state.
-    fireEvent.click(screen.getByLabelText('Rate 5 of 5'))
+    fireEvent.click(screen.getByRole('button', { name: 'Focused' }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      fireEvent.click(screen.getByRole('button', { name: /Start next session/ }))
       await flushPromises()
     })
 
@@ -514,12 +506,12 @@ describe('Timer', () => {
     render(<Timer />)
     await act(async () => { await flushPromises() })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start focus' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Start Focus/ }))
     await act(async () => { await flushPromises() })
-    fireEvent.click(screen.getByLabelText('Stop session'))
+    fireEvent.click(screen.getByLabelText('Finish session'))
     await act(async () => { await flushPromises() })
 
-    expect(screen.getByText('Session complete')).toBeTruthy()
+    expect(screen.getByText('Session logged')).toBeTruthy()
     expect(screen.getByText('05:00')).toBeTruthy()
 
     act(() => { vi.advanceTimersByTime(2000) })
@@ -532,17 +524,17 @@ describe('Timer', () => {
     autoStartBreak = true
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    await screen.findByText('Session complete')
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
       await flushPromises()
     })
 
-    expect(screen.queryByText('Session complete')).toBeNull()
-    expect(screen.getByText('Break remaining')).toBeTruthy()
+    expect(screen.queryByText('Session logged')).toBeNull()
+    expect(screen.getByText('Remaining')).toBeTruthy()
     // Counted once at the end of focus, not again on save.
     expect(vi.mocked(localStore.incrementPomodoroCycle)).toHaveBeenCalledTimes(1)
   })
@@ -551,17 +543,17 @@ describe('Timer', () => {
     autoStartBreak = true
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    await screen.findByText('Session complete')
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+      fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
       await flushPromises()
     })
 
-    expect(screen.queryByText('Session complete')).toBeNull()
-    expect(screen.getByText('Break remaining')).toBeTruthy()
+    expect(screen.queryByText('Session logged')).toBeNull()
+    expect(screen.getByText('Remaining')).toBeTruthy()
   })
 
   it('starts a long break after the final focus session of a cycle', async () => {
@@ -570,24 +562,24 @@ describe('Timer', () => {
     vi.mocked(localStore.incrementPomodoroCycle).mockReturnValue(4)
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
 
-    expect(await screen.findByText('Session complete')).toBeTruthy()
+    expect(await screen.findByText('Session logged')).toBeTruthy()
     expect(screen.getByText('15:00')).toBeTruthy()
-    expect(screen.getByText('Long break')).toBeTruthy()
+    expect(screen.getByText(/^Long break ·/)).toBeTruthy()
   })
 
   it('returns to idle after reflection when auto-start-break is disabled', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    expect(await screen.findByText('Session complete')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    expect(await screen.findByText('Session logged')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
+    fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
 
-    expect(await screen.findByRole('button', { name: 'Start focus' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /^Start Focus/ })).toBeTruthy()
     expect(screen.queryByText('Break remaining')).toBeNull()
   })
 
@@ -599,9 +591,9 @@ describe('Timer', () => {
       await flushPromises()
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Break' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Start break' }))
-    expect(screen.getByText('Break remaining')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Short break 5 min' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Start Short break/ }))
+    expect(screen.getByText('Remaining')).toBeTruthy()
 
     await act(async () => {
       vi.advanceTimersByTime(5 * 60 * 1000 + 1000)
@@ -687,84 +679,46 @@ describe('Timer', () => {
     expect(screen.getByText('24:30')).toBeTruthy()
   })
 
-  it('edits the focus topic inline on the running screen without a popup', async () => {
+  it('rewrites the focus topic in place on the running screen', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
 
-    // The editor renders in place — the timer stays on screen, no overlay.
-    const inlineCategories = await screen.findByTestId('running-topic-categories')
+    // The title line is the field — no overlay, and the clock stays put.
+    const topic = await screen.findByLabelText('Session topic') as HTMLInputElement
     expect(screen.getByText('Remaining')).toBeTruthy()
-    expect(screen.getByLabelText('Stop session')).toBeTruthy()
+    expect(screen.getByLabelText('Finish session')).toBeTruthy()
 
-    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.change(screen.getByPlaceholderText('What are you working on?'), {
-      target: { value: 'Read the spec' },
-    })
-    fireEvent.click(screen.getByLabelText('Done editing focus'))
+    fireEvent.change(topic, { target: { value: 'Read the spec' } })
+    fireEvent.blur(topic)
 
-    expect(await screen.findByText('Read the spec')).toBeTruthy()
-    expect(screen.getByText('Study')).toBeTruthy()
-    expect(screen.queryByTestId('running-topic-categories')).toBeNull()
+    expect(topic.value).toBe('Read the spec')
     await waitFor(() => {
       const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
         const url = typeof input === 'string' ? input : (input as Request).url
         return url === '/api/timer' && init?.method === 'PUT' && String(init?.body).includes('Read the spec')
       })
-      expect(put?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
       expect(put?.[1]?.body).toEqual(expect.stringContaining('"phase":"running"'))
     })
   })
 
-  it('carries a mid-session topic switch into the saved session', async () => {
+  it('carries a mid-session topic rewrite into the saved session', async () => {
     render(<Timer />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Switch focus topic'))
-    const inlineCategories = await screen.findByTestId('running-topic-categories')
-    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.click(screen.getByLabelText('Done editing focus'))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    const topic = await screen.findByLabelText('Session topic')
+    fireEvent.change(topic, { target: { value: 'Read the spec' } })
+    fireEvent.blur(topic)
 
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    fireEvent.click(await screen.findByRole('button', { name: /Back to the dial/ }))
 
     await waitFor(() => {
       const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
         const url = typeof input === 'string' ? input : (input as Request).url
         return url === '/api/sessions' && init?.method === 'POST'
       })
-      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
-    })
-  })
-
-  it('changes the topic inline on the reflection screen before saving', async () => {
-    render(<Timer />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-    fireEvent.click(await screen.findByLabelText('Stop session'))
-    expect(await screen.findByText('Session complete')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: /Change topic/ }))
-    const inlineCategories = await screen.findByTestId('reflection-topic-categories')
-    expect(screen.getByText('Session complete')).toBeTruthy()
-
-    fireEvent.click(within(inlineCategories).getByRole('button', { name: 'Study' }))
-    fireEvent.change(screen.getByPlaceholderText('What did you focus on?'), {
-      target: { value: 'Actually studied' },
-    })
-    fireEvent.click(screen.getByLabelText('Done editing focus'))
-
-    expect(await screen.findByText(/Actually studied/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Save to journal' }))
-
-    await waitFor(() => {
-      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
-        const url = typeof input === 'string' ? input : (input as Request).url
-        return url === '/api/sessions' && init?.method === 'POST'
-      })
-      expect(post?.[1]?.body).toEqual(expect.stringContaining('"category":"study"'))
-      expect(post?.[1]?.body).toEqual(expect.stringContaining('"intention":"Actually studied"'))
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"intention":"Read the spec"'))
     })
   })
 
@@ -785,7 +739,7 @@ describe('Timer', () => {
     })
 
     render(<Timer />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('screen'))
   })
@@ -794,32 +748,35 @@ describe('Timer', () => {
     /** Open the picker and select the two open tasks. */
     async function pickBothTasks() {
       render(<Timer />)
-      fireEvent.click(await screen.findByRole('button', { name: /Choose tasks/ }))
-      fireEvent.click(await screen.findByRole('button', { name: /Draft memo/ }))
-      fireEvent.click(await screen.findByRole('button', { name: /Book the room/ }))
+      fireEvent.click(await screen.findByRole('button', { name: /^Choose$|^Change$/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Draft memo to the session' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Book the room to the session' }))
     }
 
     it('keeps the picker open so a second task can be added without reopening it', async () => {
       todoistConfigured = true
       await pickBothTasks()
 
-      expect(await screen.findByText('2 tasks in this session')).toBeTruthy()
+      // The sheet stays open, and the slot behind it names both.
+      expect(await screen.findByRole('button', { name: 'Remove Draft memo from the session' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Remove Book the room from the session' })).toBeTruthy()
+      expect(screen.getAllByText('Draft memo · Book the room').length).toBeGreaterThan(0)
     })
 
     it('names every picked task in the topic', async () => {
       todoistConfigured = true
       await pickBothTasks()
-      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
 
-      const field = await screen.findByLabelText('Focus intention')
+      const field = await screen.findByLabelText('Session intention')
       expect((field as HTMLInputElement).value).toBe('Draft memo · Book the room')
     })
 
     it('starts the session against both tasks', async () => {
       todoistConfigured = true
       await pickBothTasks()
-      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
+      fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
 
       await waitFor(() => {
         const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
@@ -834,11 +791,11 @@ describe('Timer', () => {
     it('drops one task without disturbing the other', async () => {
       todoistConfigured = true
       await pickBothTasks()
-      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
 
       fireEvent.click(await screen.findByRole('button', { name: 'Remove Draft memo from the session' }))
 
-      const field = await screen.findByLabelText('Focus intention')
+      const field = await screen.findByLabelText('Session intention')
       await waitFor(() => expect((field as HTMLInputElement).value).toBe('Book the room'))
     })
 
@@ -850,10 +807,10 @@ describe('Timer', () => {
     /** Pick both tasks, run a session and save it. */
     async function runAndSaveSession() {
       await pickBothTasks()
-      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Start focus' }))
-      fireEvent.click(await screen.findByLabelText('Stop session'))
-      fireEvent.click(await screen.findByRole('button', { name: 'Save to journal' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
+      fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+      fireEvent.click(await screen.findByLabelText('Finish session'))
+      fireEvent.click(await screen.findByRole('button', { name: /Back to the dial/ }))
     }
 
     it('logs the time to every task in the session', async () => {
@@ -900,9 +857,9 @@ describe('Timer', () => {
 
     it('offers no tasks at all once Todoist is the only source and it is unconfigured', async () => {
       render(<Timer />)
-      await screen.findByRole('button', { name: 'Start focus' })
+      await screen.findByRole('button', { name: /^Start Focus/ })
 
-      expect(screen.queryByRole('button', { name: /Choose tasks/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /^Choose$|^Change$/ })).toBeNull()
     })
   })
 })
