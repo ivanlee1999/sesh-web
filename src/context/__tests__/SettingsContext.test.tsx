@@ -139,6 +139,37 @@ describe('SettingsContext – theme synchronization', () => {
     })
   })
 
+  /*
+   * Regression: the focus flag is written by a child (AppLayout) and this
+   * effect belongs to the provider, so it runs second. It used to key on
+   * darkMode alone and reset the chrome to light the next time any setting
+   * changed during a session, which on iOS left a light status bar above a
+   * dark screen.
+   */
+  it('keeps the chrome dark during focus mode, whatever the interface preference', async () => {
+    document.documentElement.dataset.focusmode = 'true'
+    const { result } = renderHook(() => useSettings(), { wrapper })
+
+    await waitFor(() => {
+      const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+      expect(meta?.content).toBe(THEME_COLOR_DARK)
+    })
+
+    // An unrelated setting changing mid-session must not undo it.
+    act(() => {
+      result.current.updateSettings({ soundEnabled: false })
+    })
+
+    await waitFor(() => {
+      expect(result.current.settings.soundEnabled).toBe(false)
+    })
+    const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+    expect(meta?.content).toBe(THEME_COLOR_DARK)
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+
+    delete document.documentElement.dataset.focusmode
+  })
+
   it('sets dark theme-color on initial render when localStorage has darkMode', async () => {
     localStorage.setItem('sesh-settings', JSON.stringify({ darkMode: true }))
 

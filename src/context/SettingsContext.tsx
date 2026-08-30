@@ -58,10 +58,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement
     root.classList.toggle('dark', settings.darkMode)
     root.dataset.theme = settings.darkMode ? 'dark' : 'light'
-    root.style.colorScheme = settings.darkMode ? 'dark' : 'light'
+
+    /*
+     * A running session is dark whatever the interface preference, and this
+     * effect belongs to a provider — so it runs *after* the child effect that
+     * sets the focus flag, and would otherwise reset the chrome to light the
+     * next time any setting changed mid-session. Reading the flag back off the
+     * root keeps the two writers agreeing on one answer.
+     */
+    const inFocusMode = root.dataset.focusmode === 'true'
+    const dark = settings.darkMode || inFocusMode
+    root.style.colorScheme = dark ? 'dark' : 'light'
 
     // Update theme-color meta tag for browser/PWA chrome
-    const themeColor = settings.darkMode ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
+    const themeColor = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
     let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
     if (meta) {
       meta.content = themeColor
