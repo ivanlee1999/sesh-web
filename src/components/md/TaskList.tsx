@@ -1,5 +1,6 @@
 'use client'
 
+import type { CSSProperties } from 'react'
 import { MdIcon } from './icons'
 import type { CappedGroup } from '@/lib/modernist'
 
@@ -74,7 +75,7 @@ export default function TaskList({
           {group.rows.map(row => (
             <div
               key={row.key}
-              className="md-row"
+              className="md-row md-hairline"
               data-selected={row.selected ? 'true' : 'false'}
               data-completing={row.completing ? 'true' : 'false'}
               style={{
@@ -82,9 +83,10 @@ export default function TaskList({
                 alignItems: 'flex-start',
                 gap: 11,
                 padding: '8px 14px 9px',
-                borderBottom: '1px solid var(--color-neutral-300)',
+                // Starts at the title, past the checkbox.
+                '--hairline-inset': '45px',
                 transition: 'background 160ms var(--ease-out)',
-              }}
+              } as CSSProperties}
             >
               <button
                 type="button"
@@ -189,7 +191,6 @@ export default function TaskList({
             <div
               style={{
                 padding: '7px 14px 8px',
-                borderBottom: '1px solid var(--color-neutral-300)',
                 fontSize: 10.5,
                 letterSpacing: '.1em',
                 textTransform: 'uppercase',
@@ -209,7 +210,6 @@ export default function TaskList({
             padding: '28px 16px',
             color: 'var(--color-neutral-600)',
             fontSize: 12.5,
-            borderBottom: '1px solid var(--color-neutral-300)',
           }}
         >
           {emptyLabel}

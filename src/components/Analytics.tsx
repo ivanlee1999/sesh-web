@@ -160,6 +160,10 @@ export default function Analytics() {
           display: 'grid',
           gridTemplateColumns: phone ? 'repeat(2,1fr)' : 'repeat(4,1fr)',
           borderTop: '2px solid var(--color-divider)',
+          // One rule under the whole strip rather than a border on each tile:
+          // the figures are already in a grid, and boxing each one turned four
+          // numbers into eight lines.
+          borderBottom: '1px solid var(--color-neutral-300)',
           flex: 'none',
         }}
       >
@@ -168,8 +172,6 @@ export default function Analytics() {
             key={cell.label}
             style={{
               padding: '11px 16px 12px',
-              borderRight: '1px solid var(--color-neutral-300)',
-              borderBottom: '1px solid var(--color-neutral-300)',
               display: 'flex',
               flexDirection: 'column',
               gap: 4,

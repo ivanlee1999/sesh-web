@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { CategoryRecord, ExternalTask, TaskProvider } from '@/types'
 import { resolveProvider } from '@/types'
 import {
@@ -300,13 +300,14 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
           {statuses.map(status => (
             <div
               key={status.provider}
+              className="md-hairline"
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 10,
                 padding: '10px 0',
-                borderBottom: '1px solid var(--color-neutral-300)',
-              }}
+                '--hairline-inset': '18px',
+              } as CSSProperties}
             >
               <span style={{ width: 8, height: 8, marginTop: 5, flex: 'none', background: PROVIDER_COLOR[status.provider] }} />
               <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
@@ -141,11 +141,10 @@ export default function Calendar() {
 
       <div
         style={{
-          padding: '11px 18px',
+          padding: '11px 18px 8px',
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          borderBottom: '2px solid var(--color-divider)',
           flex: 'none',
         }}
       >
@@ -214,9 +213,10 @@ export default function Calendar() {
                 gap: 4,
                 padding: '8px 0 7px',
                 cursor: cell.inMonth ? 'pointer' : 'default',
+                // No cell grid. Forty-two boxes drawn round the numbers made a
+                // mesh you read before the month; the numbers and the bars
+                // already sit on a grid, so the lines only restated it.
                 border: 0,
-                borderRight: '1px solid var(--color-neutral-300)',
-                borderBottom: '1px solid var(--color-neutral-300)',
                 background: active ? 'var(--color-accent)' : 'transparent',
                 color: active ? '#fff' : cell.inMonth ? 'inherit' : 'var(--color-neutral-500)',
                 fontFamily: 'inherit',
@@ -271,13 +271,15 @@ export default function Calendar() {
           return (
             <div
               key={session.id}
+              className="md-hairline"
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 12,
                 padding: '7px 18px',
-                borderBottom: '1px solid var(--color-neutral-300)',
-              }}
+                // Aligned to the title, past the time column and the spine.
+                '--hairline-inset': '77px',
+              } as CSSProperties}
             >
               <span
                 className="md-num"
@@ -312,7 +314,6 @@ export default function Calendar() {
           <div
             style={{
               padding: '7px 18px 8px',
-              borderBottom: '1px solid var(--color-neutral-300)',
               fontSize: 10.5,
               letterSpacing: '.1em',
               textTransform: 'uppercase',
