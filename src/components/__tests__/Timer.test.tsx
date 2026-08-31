@@ -499,11 +499,12 @@ describe('Timer', () => {
     expect(posted).toHaveLength(1)
     expect(posted[0][1]?.body).toEqual(expect.stringContaining('"rating":0'))
 
-    // Answering it re-posts the same id, which the API upserts. The rating
-    // click needs its own act, or Save still reads the previous state.
+    // Answering it re-posts the same id, which the API upserts. Every way out
+    // of the poster saves, so which one is taken does not matter here. The
+    // rating click needs its own act, or Save still reads the previous state.
     fireEvent.click(screen.getByRole('button', { name: 'Focused' }))
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Start next session/ }))
+      fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
       await flushPromises()
     })
 
@@ -603,6 +604,106 @@ describe('Timer', () => {
 
     expect(await screen.findByRole('button', { name: /^Start Focus/ })).toBeTruthy()
     expect(screen.queryByText('Break remaining')).toBeNull()
+  })
+
+  it('offers the three ways on from a finished session', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    expect(screen.getByRole('button', { name: /Start break · 5 min/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Next focus$/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Back to the dial/ })).toBeTruthy()
+  })
+
+  it('offers the long break when the cycle is up', async () => {
+    vi.mocked(localStore.getPomodoroCycleCount).mockReturnValue(3)
+    vi.mocked(localStore.incrementPomodoroCycle).mockReturnValue(4)
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    expect(screen.getByRole('button', { name: /Start break · 15 min/ })).toBeTruthy()
+  })
+
+  it('starts the break the poster offers', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Start break · 5 min/ }))
+      await flushPromises()
+    })
+
+    expect(screen.queryByText('Session logged')).toBeNull()
+    expect(screen.getByText('05:00')).toBeTruthy()
+    expect(screen.getByText(/^Short break ·/)).toBeTruthy()
+  })
+
+  it('goes straight into the next focus session', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Next focus$/ }))
+      await flushPromises()
+    })
+
+    expect(screen.queryByText('Session logged')).toBeNull()
+    expect(screen.getByLabelText('Finish session')).toBeTruthy()
+    expect(screen.getByText('25:00')).toBeTruthy()
+  })
+
+  it('offers to skip ahead rather than start a second break, when one is running', async () => {
+    autoStartBreak = true
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    expect(screen.queryByRole('button', { name: /Start break/ })).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Skip to next focus/ }))
+      await flushPromises()
+    })
+
+    expect(screen.queryByText('Session logged')).toBeNull()
+    expect(screen.getByText('25:00')).toBeTruthy()
+    expect(screen.getByLabelText('Finish session')).toBeTruthy()
+  })
+
+  it('saves the rating whichever way out of the poster is taken', async () => {
+    render(<Timer />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    fireEvent.click(await screen.findByLabelText('Finish session'))
+    await screen.findByText('Session logged')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focused' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Start break · 5 min/ }))
+      await flushPromises()
+    })
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"rating":5'),
+      }),
+    )
   })
 
   it('auto-starts the next focus when a break ends and auto-start-focus is enabled', async () => {

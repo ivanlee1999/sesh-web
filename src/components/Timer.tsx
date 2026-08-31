@@ -28,6 +28,9 @@ type TimerRunPhase = 'idle' | 'running' | 'paused' | 'reflect'
 
 /** The three cells of the segmented control, over the repo's two real types. */
 type TypeKey = 'focus' | 'short' | 'long'
+
+/** What the poster hands back to: the dial, a break, or straight into focus. */
+type PosterNext = 'idle' | 'break' | 'focus'
 type Scope = 'today' | 'upcoming' | 'all'
 
 /** The designed queue width, and how far it may be dragged from it. */
@@ -688,6 +691,16 @@ export default function Timer({
   const onDarkGround = live || settings.darkMode
   const dialCol = dialColor(selectedCategory?.color ?? DEFAULT_ACCENT, onDarkGround)
   const sessionNo = cycleCount + 1
+
+  /*
+   * How long the break after this sitting runs. `cycleCount` has already been
+   * advanced by finish(), so this is the same sum the auto-start path does —
+   * the two must agree, or taking the break by hand would give you a different
+   * length from letting it start itself.
+   */
+  const nextBreakMinutes = cycleCount % settings.sessionsBeforeLongBreak === 0
+    ? settings.longBreakDuration
+    : settings.breakDuration
 
   /**
    * The category is the interface's colour, not just the dial's — reporting it
@@ -1697,15 +1710,18 @@ export default function Timer({
           onPickTask={openSheet}
           mirrorsToCalendar={settings.calendarSync}
           breakRunning={live}
+          breakMinutes={nextBreakMinutes}
           phone={phone}
           rating={rating}
           onRate={setRating}
-          onClose={() => {
-            const chosen = rating
-            void saveSession(chosen ?? 0).then(() => {
-              // A rating is a nod towards the next sitting; without one the
-              // poster just gets out of the way.
-              if (chosen !== null && !live) start('focus', '', category, [])
+          onDone={next => {
+            // The rating goes with the session either way; the button only
+            // decides where the person lands afterwards. Saving first means a
+            // break started here replaces the finished sitting cleanly rather
+            // than racing the write that records it.
+            void saveSession(rating ?? 0).then(() => {
+              if (next === 'break') start('break', '', category, [], nextBreakMinutes)
+              if (next === 'focus') start('focus', '', category, [])
             })
           }}
         />,
@@ -1736,10 +1752,11 @@ function Poster({
   onPickTask,
   mirrorsToCalendar,
   breakRunning,
+  breakMinutes,
   phone,
   rating,
   onRate,
-  onClose,
+  onDone,
 }: {
   minutes: number
   categoryLabel: string
@@ -1752,10 +1769,12 @@ function Poster({
   mirrorsToCalendar: boolean
   /** Rest has already started underneath — say so, or the poster looks like a wall. */
   breakRunning: boolean
+  /** How long the break on offer would run: short, or long if the cycle is up. */
+  breakMinutes: number
   phone: boolean
   rating: number | null
   onRate: (value: number) => void
-  onClose: () => void
+  onDone: (next: PosterNext) => void
 }) {
   const lead = tasks[0] ?? null
   const leadProvider = lead ? PROVIDER_LABEL[resolveProvider(lead)] : null
@@ -1763,6 +1782,30 @@ function Poster({
   const note = lead && leadProvider
     ? `+${minutes} min written back to “${lead.content}”${others > 0 ? ` and ${others} more` : ''} in ${leadProvider}.${mirrorsToCalendar ? ' Mirrored to Google Calendar.' : ''}`
     : `Logged to ${categoryLabel}. No task linked, so nothing was written back.`
+
+  /*
+   * Where to go next, said out loud.
+   *
+   * This used to be one button whose meaning depended on whether you had
+   * rated — rate and it started another sitting, don't and it just closed.
+   * The rating is a rating now; the destination is a button. The lead action
+   * is rest, which is the whole point of the cycle, and the other two sit
+   * under it rather than behind a guess.
+   *
+   * A break already running underneath changes the question: rest is not on
+   * offer because it is already happening, so the lead becomes getting out of
+   * its way.
+   */
+  const [leadAction, ...restActions]: { label: string; next: PosterNext }[] = breakRunning
+    ? [
+      { label: 'Back to the dial', next: 'idle' },
+      { label: 'Skip to next focus', next: 'focus' },
+    ]
+    : [
+      { label: `Start break · ${breakMinutes} min`, next: 'break' },
+      { label: 'Next focus', next: 'focus' },
+      { label: 'Back to the dial', next: 'idle' },
+    ]
 
   return (
     <div
@@ -1913,7 +1956,7 @@ function Poster({
         <button
           type="button"
           className="md-press"
-          onClick={onClose}
+          onClick={() => onDone(leadAction.next)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -1931,9 +1974,35 @@ function Poster({
             textAlign: 'left',
           }}
         >
-          {rating !== null ? 'Start next session' : 'Back to the dial'}
+          {leadAction.label}
           <MdIcon name="arrow" size={19} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />
         </button>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          {restActions.map(action => (
+            <button
+              key={action.next}
+              type="button"
+              className="md-press"
+              onClick={() => onDone(action.next)}
+              style={{
+                flex: 1,
+                border: `2px solid ${RULE_ON_ACCENT}`,
+                background: 'transparent',
+                color: 'var(--accent-on)',
+                padding: '11px 6px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-heading)',
+                fontWeight: 800,
+                fontSize: 11,
+                letterSpacing: '.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
