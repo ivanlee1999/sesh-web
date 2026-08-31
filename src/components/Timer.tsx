@@ -1657,7 +1657,7 @@ export default function Timer({
                 <MdIcon name="close" size={18} strokeWidth={2.2} />
               </button>
             </div>
-            <div style={{ padding: '10px 16px', display: 'flex', gap: 6, borderBottom: '2px solid var(--color-divider)' }}>
+            <div style={{ padding: '10px 16px', display: 'flex', gap: 6 }}>
               <ScopeChips scope={scope} onChange={setScope} />
             </div>
             {canCompose && <TaskComposer scope={scope} onCreated={refreshTasks} compact />}

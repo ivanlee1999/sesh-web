@@ -477,7 +477,7 @@ function MdStepper({
   unit?: string
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+    <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px' }}>
       <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'center', border: '2px solid var(--color-divider)' }}>
         <button
@@ -536,7 +536,7 @@ function ToggleRow({
   onChange: (next: boolean) => void
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+    <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px' }}>
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
         <span style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{sub}</span>
@@ -824,8 +824,7 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
           display: 'flex',
           gap: 6,
           flexWrap: 'wrap',
-          padding: '9px 18px',
-          borderTop: '2px solid var(--color-divider)',
+          padding: '9px 18px 12px',
           borderBottom: '2px solid var(--color-divider)',
           flex: 'none',
         }}
@@ -866,7 +865,7 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
         {pane === 'alerts' && (
           <div>
             <div style={PANE_HEAD}>Alerts &amp; appearance</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+            <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px' }}>
               <span style={{ flex: 'none', fontSize: 14, fontWeight: 500 }}>Your name</span>
               <input
                 value={settings.displayName ?? ''}
@@ -935,7 +934,8 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
             {categories.map(category => (
               <div
                 key={category.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}
+                className="md-hairline"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px' }}
               >
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {category.label}
@@ -978,7 +978,6 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
                 width: '100%',
                 padding: '11px 18px',
                 border: 0,
-                borderBottom: '1px solid var(--color-neutral-300)',
                 background: 'transparent',
                 color: 'var(--color-neutral-600)',
                 cursor: 'pointer',
@@ -1001,7 +1000,8 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
             {sources.map(source => (
               <div
                 key={source.key}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}
+                className="md-hairline"
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px' }}
               >
                 <span style={{ width: 9, height: 9, background: source.dot, display: 'block', flex: 'none' }} />
                 <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1031,7 +1031,7 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
               </div>
             ))}
             {calConnected && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--color-neutral-300)' }}>
+              <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px' }}>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500 }}>Sync recent sessions now</span>
                 <button
                   type="button"

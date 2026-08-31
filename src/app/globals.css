@@ -1664,3 +1664,31 @@ button.sesh-row:active { background: var(--surface-2) }
   cursor: col-resize !important;
   user-select: none !important;
 }
+
+/* ---- Separators ----
+   A hairline under every row, full-bleed and including the last one, draws a
+   ladder: the eye reads the lines instead of the content, and the trailing one
+   fences off empty space below the list.
+
+   These are inset to the content they separate and dropped on the final row,
+   which is the convention both Apple's lists and Things use. The rule is still
+   there doing its job; there is just less of it. Override --hairline-inset to
+   line it up with whatever the row actually starts with. */
+.md-hairline {
+  position: relative;
+}
+
+.md-hairline::after {
+  content: '';
+  position: absolute;
+  left: var(--hairline-inset, 18px);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--color-neutral-300);
+}
+
+/* Nothing below it to separate from. */
+.md-hairline:last-child::after {
+  content: none;
+}
