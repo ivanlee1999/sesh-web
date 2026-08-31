@@ -112,7 +112,7 @@ export default function Onboarding({ onDone, phone = true }: { onDone: () => voi
             gap: 10,
             border: 0,
             background: 'var(--color-accent)',
-            color: '#fff',
+            color: 'var(--accent-on)',
             padding: '14px 16px',
             cursor: 'pointer',
             fontFamily: 'var(--font-heading)',
@@ -124,7 +124,7 @@ export default function Onboarding({ onDone, phone = true }: { onDone: () => voi
           }}
         >
           {last ? 'Start focusing' : 'Next'}
-          <MdIcon name="arrow" size={19} strokeWidth={2.4} color="#fff" style={{ marginLeft: 'auto' }} />
+          <MdIcon name="arrow" size={19} strokeWidth={2.4} color="var(--accent-on)" style={{ marginLeft: 'auto' }} />
         </button>
       </div>
     </div>

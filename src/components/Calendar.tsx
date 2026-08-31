@@ -366,7 +366,7 @@ export default function Calendar() {
           cursor: inMonth ? 'pointer' : 'default',
           border: 0,
           background: active ? 'var(--color-accent)' : 'transparent',
-          color: active ? '#fff' : inMonth ? 'inherit' : 'var(--color-neutral-500)',
+          color: active ? 'var(--accent-on)' : inMonth ? 'inherit' : 'var(--color-neutral-500)',
           fontFamily: 'inherit',
           opacity: inMonth ? 1 : 0.35,
         }}
@@ -380,7 +380,7 @@ export default function Calendar() {
                 display: 'block',
                 width: 3,
                 height: 4 + k * 3,
-                background: active ? '#fff' : getCategoryMeta(session.category, categories).color,
+                background: active ? 'var(--accent-on)' : getCategoryMeta(session.category, categories).color,
               }}
             />
           ))}
@@ -497,7 +497,7 @@ export default function Calendar() {
                   padding: '5px 0 6px',
                   border: 0,
                   background: active ? 'var(--color-accent)' : 'transparent',
-                  color: active ? '#fff' : 'inherit',
+                  color: active ? 'var(--accent-on)' : 'inherit',
                   cursor: 'pointer',
                   fontFamily: 'inherit',
                 }}

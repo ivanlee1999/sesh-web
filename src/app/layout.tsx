@@ -56,6 +56,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 var tc = dark ? '#1b1918' : '#f3f2f2';
                 var m = document.querySelector('meta[name="theme-color"]');
                 if (m) m.content = tc;
+                // The accent the last session settled on, already worked out
+                // for both grounds (see lib/accent) so there is no colour
+                // maths to repeat here — only a pick and two writes.
+                var accent = JSON.parse(localStorage.getItem('sesh:accent') || 'null');
+                var a = accent && (dark ? accent.dark : accent.light);
+                if (a && a.base) {
+                  document.documentElement.style.setProperty('--accent-base', a.base);
+                  document.documentElement.style.setProperty('--accent-on', a.on || '#ffffff');
+                }
               } catch(e) {}
             `,
           }}

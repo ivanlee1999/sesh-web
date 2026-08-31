@@ -174,7 +174,7 @@ export default function TaskList({
                   transform: 'translateX(4px)',
                   transition: 'opacity 180ms, transform 180ms var(--ease-spring)',
                   background: 'var(--color-accent)',
-                  color: '#fff',
+                  color: 'var(--accent-on)',
                   border: 0,
                   padding: '5px 9px',
                   fontFamily: 'var(--font-heading)',

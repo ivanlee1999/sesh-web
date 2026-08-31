@@ -55,16 +55,26 @@
     --color-neutral-800: #444141;
     --color-neutral-900: #2d2b2b;
 
-    --color-accent: #ec3013;
-    --color-accent-100: #fff2ef;
-    --color-accent-200: #ffe0d9;
-    --color-accent-300: #ffc4b8;
-    --color-accent-400: #ff9783;
-    --color-accent-500: #ff563c;
-    --color-accent-600: #dd2b0f;
-    --color-accent-700: #ae1800;
-    --color-accent-800: #7c1405;
-    --color-accent-900: #4d170e;
+    /* The accent is one colour with a ramp mixed from it, not ten hand-picked
+       values. `--accent-base` is the only thing that moves — the timer points
+       it at the category in play, and every step below follows — and
+       `--accent-on` is the ink that stays legible on an accent fill. Both are
+       set from JS (see lib/accent.ts), which is where the legibility of a
+       given colour on a given ground is decided; the values here are the red
+       the interface falls back to before a category is known. */
+    --accent-base: #ec3013;
+    --accent-on: #ffffff;
+
+    --color-accent: var(--accent-base);
+    --color-accent-100: color-mix(in srgb, var(--accent-base) 6%, #fff);
+    --color-accent-200: color-mix(in srgb, var(--accent-base) 15%, #fff);
+    --color-accent-300: color-mix(in srgb, var(--accent-base) 30%, #fff);
+    --color-accent-400: color-mix(in srgb, var(--accent-base) 54%, #fff);
+    --color-accent-500: color-mix(in srgb, var(--accent-base) 80%, #fff);
+    --color-accent-600: color-mix(in srgb, var(--accent-base) 90%, #000);
+    --color-accent-700: color-mix(in srgb, var(--accent-base) 72%, #000);
+    --color-accent-800: color-mix(in srgb, var(--accent-base) 52%, #000);
+    --color-accent-900: color-mix(in srgb, var(--accent-base) 34%, #000);
 
     /* Legacy aliases — one palette, two sets of names. */
     --bg: var(--color-bg);
@@ -79,7 +89,10 @@
     --accent: var(--color-accent);
     --accent-soft: var(--color-accent-200);
     --accent-ink: var(--color-accent-700);
-    --warn: var(--color-accent-700);
+    /* Pinned, not accent-derived: the accent now follows whichever category is
+       in play, and an error that turned green with it would stop reading as
+       an error. */
+    --warn: #ae1800;
     --good: #3f8f6f;
 
     /* The system has no rounded corners. The tokens stay so the older
@@ -124,10 +137,19 @@
     --color-neutral-600: rgba(243,242,242,.62);
     --color-neutral-700: rgba(243,242,242,.78);
     --color-neutral-900: #f3f2f2;
-    --color-accent: #ff563c;
-    --color-accent-100: rgba(255,86,60,.13);
-    --color-accent-200: rgba(255,86,60,.24);
-    --color-accent-700: #ff9783;
+    /* The default red, lifted for this ground — a stylesheet default only, so
+       the app is never briefly wearing the light-ground red on the dark one.
+       An accent set from JS lands inline on the root and wins over this. */
+    --accent-base: #f1634d;
+
+    /* `--accent-base` already arrives lifted for this ground, so only the
+       steps that change *character* on a dark surface are restated: the two
+       fills go translucent so the ground shows through, and the "ink" step
+       inverts to a tint, since nothing darker than the base reads here. */
+    --color-accent-100: color-mix(in srgb, var(--accent-base) 13%, transparent);
+    --color-accent-200: color-mix(in srgb, var(--accent-base) 24%, transparent);
+    --color-accent-700: color-mix(in srgb, var(--accent-base) 62%, #fff);
+    --warn: #ff9783;
 
     --shadow-lift: 0 12px 32px rgba(0,0,0,.5);
     --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
@@ -707,7 +729,7 @@
 .sesh-btn-md { padding: 13px 22px; font-size: 16px }
 .sesh-btn-lg { padding: 17px 30px; font-size: 18px }
 .sesh-btn-primary { background: var(--ink); color: var(--bg) }
-.sesh-btn-accent { background: var(--accent); color: #fff }
+.sesh-btn-accent { background: var(--accent); color: var(--accent-on) }
 .sesh-btn-soft { background: var(--surface-2); color: var(--ink) }
 .sesh-btn-ghost { background: transparent; color: var(--ink-2) }
 .sesh-btn-danger { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn) }
@@ -1360,8 +1382,9 @@ button.sesh-row:active { background: var(--surface-2) }
 /* ============================================================
    Modernist system — the redesign's own layer.
 
-   Flat, architectural, Archivo throughout, one red accent, zero corner
-   radius. Rules do the work that shadows used to: 2px `--color-divider`
+   Flat, architectural, Archivo throughout, one accent, zero corner radius.
+   The accent is a single colour — red until a category is chosen, then that
+   category's — and every step of it is mixed from `--accent-base`. Rules do the work that shadows used to: 2px `--color-divider`
    between major sections, 1px `--color-neutral-300` between list rows.
 
    Nothing scrolls. Every screen is a fixed pane sized to the viewport and
@@ -1472,7 +1495,7 @@ button.sesh-row:active { background: var(--surface-2) }
 }
 .md-btn:disabled { opacity: .45; cursor: default }
 
-.md-btn-solid { background: var(--color-accent); color: #fff }
+.md-btn-solid { background: var(--color-accent); color: var(--accent-on) }
 .md-btn-outline { border: 2px solid var(--color-divider) }
 .md-btn-accent-outline { border: 2px solid var(--color-accent); color: var(--color-accent) }
 
@@ -1492,7 +1515,7 @@ button.sesh-row:active { background: var(--surface-2) }
 .md-quiet[data-active='true'] {
   border-color: var(--color-accent);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--accent-on);
 }
 
 /* ---- Horizontal scrollers (category chips) ---- */

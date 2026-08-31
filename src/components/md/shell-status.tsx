@@ -15,9 +15,17 @@ import type { AppTab } from '../TabBar'
 export interface ShellStatus {
   reportSub: (tab: AppTab, sub: string | null) => void
   reportOpenTasks: (count: number | null) => void
+  /**
+   * The colour the whole interface should take. The timer reports whichever
+   * category is selected; `null` restores the default red. It travels this
+   * way rather than as a CSS write from the screen because the shell is what
+   * knows which ground — light, dark, or a running session — the colour has
+   * to be legible on.
+   */
+  reportAccent: (color: string | null) => void
 }
 
-const noop: ShellStatus = { reportSub: () => {}, reportOpenTasks: () => {} }
+const noop: ShellStatus = { reportSub: () => {}, reportOpenTasks: () => {}, reportAccent: () => {} }
 
 export const ShellStatusContext = createContext<ShellStatus>(noop)
 

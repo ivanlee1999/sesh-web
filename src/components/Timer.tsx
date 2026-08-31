@@ -13,6 +13,7 @@ import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCoun
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
 import { PROVIDER_COLOR, PROVIDER_LABEL, canCreateTasks, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
 import { capGroups, clockOf, dialColor, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
+import { DEFAULT_ACCENT } from '@/lib/accent'
 import Dial from './Dial'
 import CategoryChips from './md/CategoryChips'
 import TaskList, { type TaskRowModel } from './md/TaskList'
@@ -31,6 +32,14 @@ type Scope = 'today' | 'upcoming' | 'all'
 
 /** The designed queue width, and how far it may be dragged from it. */
 const QUEUE_BOUNDS = { min: 248, max: 520, fallback: 326 }
+
+/**
+ * The hairlines drawn on the poster's accent field: the same ink as its type,
+ * held back so they read as rules rather than as another line of text. Held
+ * back from `--accent-on` rather than from white, since the ink flips to dark
+ * on the pale end of the palette and a white rule would vanish there.
+ */
+const RULE_ON_ACCENT = 'color-mix(in srgb, var(--accent-on) 55%, transparent)'
 
 interface ServerTimerState {
   phase: string
@@ -195,7 +204,7 @@ export default function Timer({
 }) {
   const { settings, loaded: settingsLoaded, updateSettings } = useSettings()
   const { categories, byName } = useCategories()
-  const { reportSub } = useShellStatus()
+  const { reportSub, reportAccent } = useShellStatus()
   const isDesktop = useIsDesktop()
   const phone = !isDesktop
   // Only this one setting decides which providers are asked; depending on the
@@ -677,8 +686,17 @@ export default function Timer({
   const overflowSec = Math.max(0, Math.ceil(-remainingMs / 1000))
   const elapsedSec = live ? Math.max(0, Math.floor((totalMs - remainingMs) / 1000)) : 0
   const onDarkGround = live || settings.darkMode
-  const dialCol = dialColor(selectedCategory?.color ?? '#ec3013', onDarkGround)
+  const dialCol = dialColor(selectedCategory?.color ?? DEFAULT_ACCENT, onDarkGround)
   const sessionNo = cycleCount + 1
+
+  /**
+   * The category is the interface's colour, not just the dial's — reporting it
+   * to the shell re-themes every screen, so the timer and the tasks list and
+   * the calendar all agree on what is being worked on.
+   */
+  useEffect(() => {
+    reportAccent(selectedCategory?.color ?? null)
+  }, [reportAccent, selectedCategory?.color]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * The handoff's 226px desktop dial was drawn for a 1180×760 frame; on a real
@@ -1254,7 +1272,7 @@ export default function Timer({
                       zIndex: 1,
                       border: 0,
                       background: 'transparent',
-                      color: typeKey === key ? '#fff' : 'inherit',
+                      color: typeKey === key ? 'var(--accent-on)' : 'inherit',
                       padding: '9px 6px',
                       cursor: 'pointer',
                       fontFamily: 'var(--font-heading)',
@@ -1437,7 +1455,7 @@ export default function Timer({
                   width: '100%',
                   border: 0,
                   background: 'var(--color-accent)',
-                  color: '#fff',
+                  color: 'var(--accent-on)',
                   padding: 16,
                   cursor: 'pointer',
                   fontFamily: 'var(--font-heading)',
@@ -1449,7 +1467,7 @@ export default function Timer({
                 }}
               >
                 Start {typeLabel} · {idleDurationMinutes} min
-                <MdIcon name="arrow" size={20} strokeWidth={2.4} color="#fff" style={{ marginLeft: 'auto' }} />
+                <MdIcon name="arrow" size={20} strokeWidth={2.4} color="var(--accent-on)" style={{ marginLeft: 'auto' }} />
               </button>
 
               <span
@@ -1508,7 +1526,7 @@ export default function Timer({
                     gap: 9,
                     border: 0,
                     background: 'var(--color-accent)',
-                    color: '#fff',
+                    color: 'var(--accent-on)',
                     padding: 14,
                     cursor: 'pointer',
                     fontFamily: 'var(--font-heading)',
@@ -1518,7 +1536,7 @@ export default function Timer({
                     textTransform: 'uppercase',
                   }}
                 >
-                  <MdIcon name="check" size={16} strokeWidth={2.6} color="#fff" />
+                  <MdIcon name="check" size={16} strokeWidth={2.6} color="var(--accent-on)" />
                   Finish
                 </button>
               </div>
@@ -1756,8 +1774,8 @@ function Poster({
         position: 'absolute',
         inset: 0,
         zIndex: 80,
-        background: '#ec3013',
-        color: '#fff',
+        background: 'var(--color-accent)',
+        color: 'var(--accent-on)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -1765,7 +1783,7 @@ function Poster({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, flex: 'none' }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="square" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--accent-on)" strokeWidth="2.8" strokeLinecap="square" aria-hidden="true">
           <path className="md-draw" d="M3.5 12.5 9.5 18.5 20.5 5.5" />
         </svg>
         <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 12, letterSpacing: '.16em', textTransform: 'uppercase' }}>
@@ -1773,7 +1791,7 @@ function Poster({
         </span>
       </div>
 
-      <div style={{ height: 2, background: 'rgba(255,255,255,.55)', margin: '16px 0 18px' }} />
+      <div style={{ height: 2, background: RULE_ON_ACCENT, margin: '16px 0 18px' }} />
 
       <span
         className="md-num"
@@ -1803,9 +1821,9 @@ function Poster({
           width: '100%',
           marginTop: 16,
           border: 0,
-          borderBottom: '2px solid rgba(255,255,255,.55)',
+          borderBottom: `2px solid ${RULE_ON_ACCENT}`,
           background: 'transparent',
-          color: '#fff',
+          color: 'var(--accent-on)',
           fontFamily: 'var(--font-heading)',
           fontWeight: 800,
           fontSize: phone ? 18 : 21,
@@ -1815,7 +1833,7 @@ function Poster({
         }}
       />
 
-      <div style={{ border: '2px solid rgba(255,255,255,.55)', display: 'flex', alignItems: 'stretch', marginTop: 12 }}>
+      <div style={{ border: `2px solid ${RULE_ON_ACCENT}`, display: 'flex', alignItems: 'stretch', marginTop: 12 }}>
         <div style={{ flex: 1, minWidth: 0, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           <span style={{ fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, opacity: .8 }}>
             {lead && leadProvider ? `${leadProvider} · ${lead.projectName ?? leadProvider}` : 'No task linked'}
@@ -1835,9 +1853,9 @@ function Poster({
             style={{
               flex: 'none',
               border: 0,
-              borderLeft: '2px solid rgba(255,255,255,.55)',
+              borderLeft: `2px solid ${RULE_ON_ACCENT}`,
               background: 'transparent',
-              color: '#fff',
+              color: 'var(--accent-on)',
               padding: '0 13px',
               cursor: 'pointer',
               fontFamily: 'var(--font-heading)',
@@ -1875,9 +1893,9 @@ function Poster({
               onClick={() => onRate(value)}
               style={{
                 flex: 1,
-                border: '2px solid rgba(255,255,255,.6)',
-                background: rating === value ? '#fff' : 'transparent',
-                color: rating === value ? 'var(--color-accent-700)' : '#fff',
+                border: `2px solid ${RULE_ON_ACCENT}`,
+                background: rating === value ? 'var(--accent-on)' : 'transparent',
+                color: rating === value ? 'var(--color-accent)' : 'var(--accent-on)',
                 padding: '11px 6px',
                 cursor: 'pointer',
                 fontFamily: 'var(--font-heading)',
@@ -1901,8 +1919,8 @@ function Poster({
             alignItems: 'center',
             gap: 10,
             border: 0,
-            background: '#fff',
-            color: 'var(--color-accent-700)',
+            background: 'var(--accent-on)',
+            color: 'var(--color-accent)',
             padding: 15,
             cursor: 'pointer',
             fontFamily: 'var(--font-heading)',

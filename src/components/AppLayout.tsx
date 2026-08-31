@@ -6,6 +6,8 @@ import { useNativeGestureLock } from '@/hooks/useNativeGestureLock'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription } from '@/lib/push-client'
 import { enabledProviders, loadProviderStatuses, type ProviderStatus } from '@/lib/task-sources'
+import { accentPair, applyAccent, DEFAULT_ACCENT } from '@/lib/accent'
+import { saveAccent } from '@/lib/local-store'
 import Timer from './Timer'
 import Tasks, { type PendingFocus } from './Tasks'
 import Calendar from './Calendar'
@@ -43,6 +45,7 @@ export default function AppLayout() {
   const [subs, setSubs] = useState<Partial<Record<AppTab, string>>>({})
   const [openTasks, setOpenTasks] = useState<number | null>(null)
   const [statuses, setStatuses] = useState<ProviderStatus[]>([])
+  const [accent, setAccent] = useState<string | null>(null)
   const { settings } = useSettings()
   const isDesktop = useIsDesktop()
 
@@ -103,6 +106,21 @@ export default function AppLayout() {
     if (meta) meta.content = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
   }, [focusMode, settings.darkMode])
 
+  /**
+   * The interface takes its colour from the category in play.
+   *
+   * Both grounds are worked out together and stored, so the next boot can
+   * paint the accent before React has run — and so the switch into a running
+   * session, which turns the ground dark whatever the preference is, is a
+   * variable swap rather than a recalculation.
+   */
+  useEffect(() => {
+    if (accent === null) return
+    const pair = accentPair(accent)
+    applyAccent(document.documentElement, focusMode || settings.darkMode ? pair.dark : pair.light)
+    saveAccent(pair)
+  }, [accent, focusMode, settings.darkMode])
+
   const reportSub = useCallback((tab: AppTab, sub: string | null) => {
     setSubs(prev => (prev[tab] === (sub ?? undefined) ? prev : { ...prev, [tab]: sub ?? undefined }))
   }, [])
@@ -111,7 +129,14 @@ export default function AppLayout() {
     setOpenTasks(prev => (prev === count ? prev : count))
   }, [])
 
-  const shellStatus = useMemo(() => ({ reportSub, reportOpenTasks }), [reportSub, reportOpenTasks])
+  const reportAccent = useCallback((color: string | null) => {
+    setAccent(prev => (prev === (color ?? DEFAULT_ACCENT) ? prev : color ?? DEFAULT_ACCENT))
+  }, [])
+
+  const shellStatus = useMemo(
+    () => ({ reportSub, reportOpenTasks, reportAccent }),
+    [reportAccent, reportOpenTasks, reportSub],
+  )
 
   const finishOnboarding = () => {
     localStorage.setItem(ONBOARDED_KEY, '1')

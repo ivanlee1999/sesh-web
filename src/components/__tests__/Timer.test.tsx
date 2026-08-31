@@ -75,6 +75,7 @@ vi.mock('@/lib/local-store', () => ({
 
 import Timer from '../Timer'
 import * as localStore from '@/lib/local-store'
+import { ShellStatusContext } from '../md/shell-status'
 
 function timerState(overrides: Record<string, unknown> = {}) {
   return {
@@ -205,6 +206,24 @@ describe('Timer', () => {
     const selector = await screen.findByTestId('timer-category-selector')
     const labels = Array.from(selector.querySelectorAll('button')).map(button => button.textContent?.trim())
     expect(labels.slice(0, 2)).toEqual(['Study', 'Work'])
+  })
+
+  it('reports the selected category as the accent the shell should wear', async () => {
+    const reportAccent = vi.fn()
+    render(
+      <ShellStatusContext.Provider value={{ reportSub: vi.fn(), reportOpenTasks: vi.fn(), reportAccent }}>
+        <Timer />
+      </ShellStatusContext.Provider>,
+    )
+
+    const selector = await screen.findByTestId('timer-category-selector')
+    await waitFor(() => expect(reportAccent).toHaveBeenCalledWith('#3b82f6'))
+
+    const study = Array.from(selector.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === 'Study')
+    fireEvent.click(study!)
+
+    await waitFor(() => expect(reportAccent).toHaveBeenLastCalledWith('#8b5cf6'))
   })
 
   it('edits the optional intention inline, with no sheet', async () => {

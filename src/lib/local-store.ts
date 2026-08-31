@@ -6,6 +6,8 @@
  * Categories cache: last server response cached, used when offline.
  */
 
+import type { AccentPair } from './accent'
+
 // ── Keys ────────────────────────────────────────────────────────────────
 const TIMER_KEY = 'sesh:timer'
 const SESSION_QUEUE_KEY = 'sesh:sessionQueue'
@@ -15,6 +17,7 @@ const POMODORO_CYCLE_KEY = 'sesh:pomodoroCycle'
 const FOCUS_TIME_QUEUE_KEY = 'sesh:focusTimeQueue'
 const PANE_LAYOUT_KEY = 'sesh:paneLayout'
 const CALENDAR_VIEW_KEY = 'sesh:calendarView'
+export const ACCENT_KEY = 'sesh:accent'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -337,4 +340,30 @@ export function saveCalendarView(view: CalendarView): void {
   try {
     localStorage.setItem(CALENDAR_VIEW_KEY, view)
   } catch {}
+}
+
+// ── Accent ──────────────────────────────────────────────────────────────
+
+/**
+ * The accent the interface last settled on, kept so the boot script in the
+ * root layout can paint it before React runs.
+ *
+ * Both grounds are stored rather than the source colour, because the script
+ * has to be able to apply one without doing any colour maths of its own.
+ */
+export function saveAccent(pair: AccentPair): void {
+  try {
+    localStorage.setItem(ACCENT_KEY, JSON.stringify(pair))
+  } catch {}
+}
+
+export function loadAccent(): AccentPair | null {
+  try {
+    const raw = localStorage.getItem(ACCENT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AccentPair
+    return parsed?.light?.base && parsed?.dark?.base ? parsed : null
+  } catch {
+    return null
+  }
 }

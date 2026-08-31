@@ -402,7 +402,7 @@ const PANES: { key: Pane; label: string }[] = [
 const quietStyle = (active: boolean): CSSProperties => ({
   border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
   background: active ? 'var(--color-accent)' : 'transparent',
-  color: active ? '#fff' : 'inherit',
+  color: active ? 'var(--accent-on)' : 'inherit',
   padding: '6px 10px',
   cursor: 'pointer',
   fontFamily: 'var(--font-heading)',
@@ -451,7 +451,7 @@ function MdToggle({ on, disabled, onChange, label }: { on: boolean; disabled?: b
           display: 'block',
           width: 18,
           height: 18,
-          background: on ? '#fff' : 'var(--color-neutral-500)',
+          background: on ? 'var(--accent-on)' : 'var(--color-neutral-500)',
           transition: 'background 200ms',
         }}
       />

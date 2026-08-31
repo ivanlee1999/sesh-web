@@ -277,7 +277,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const quiet = (active: boolean) => ({
     border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
     background: active ? 'var(--color-accent)' : 'transparent',
-    color: active ? '#fff' : 'inherit',
+    color: active ? 'var(--accent-on)' : 'inherit',
     padding: '6px 10px',
     cursor: 'pointer',
     fontFamily: 'var(--font-heading)',
@@ -328,7 +328,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
               gap: 10,
               border: 0,
               background: 'var(--color-accent)',
-              color: '#fff',
+              color: 'var(--accent-on)',
               padding: '14px 16px',
               cursor: 'pointer',
               fontFamily: 'var(--font-heading)',
@@ -339,7 +339,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
             }}
           >
             {authRequired ? 'Sign in' : 'Check connections'}
-            <MdIcon name="arrow" size={18} strokeWidth={2.4} color="#fff" />
+            <MdIcon name="arrow" size={18} strokeWidth={2.4} color="var(--accent-on)" />
           </button>
         </div>
       </div>
@@ -532,7 +532,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
                 flex: 'none',
                 border: 0,
                 background: 'var(--color-accent)',
-                color: '#fff',
+                color: 'var(--accent-on)',
                 padding: '9px 14px',
                 cursor: 'pointer',
                 fontFamily: 'var(--font-heading)',

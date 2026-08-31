@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { MdIcon } from './icons'
 import type { CategoryRecord } from '@/types'
+import { readableInk } from '@/lib/accent'
 
 const FADE = 'linear-gradient(to right, #000 0, #000 calc(100% - 30px), transparent 100%)'
 
@@ -185,7 +186,7 @@ export default function CategoryChips({
                 ...CHIP_BASE,
                 borderColor: isActive ? category.color : 'var(--color-divider)',
                 background: isActive ? category.color : 'transparent',
-                color: isActive ? '#fff' : 'inherit',
+                color: isActive ? readableInk(category.color) : 'inherit',
               }}
             >
               <span style={{ width: 8, height: 8, background: category.color, display: 'block' }} />

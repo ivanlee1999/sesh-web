@@ -100,7 +100,7 @@ export default function TaskComposer({
               border: 0,
               borderLeft: '2px solid var(--color-divider)',
               background: 'var(--color-accent)',
-              color: '#fff',
+              color: 'var(--accent-on)',
               padding: '0 13px',
               cursor: busy ? 'default' : 'pointer',
               opacity: busy ? 0.6 : 1,
@@ -115,7 +115,7 @@ export default function TaskComposer({
             }}
           >
             {busy ? 'Adding' : 'Add'}
-            {!busy && <MdIcon name="arrow" size={14} strokeWidth={2.4} color="#fff" />}
+            {!busy && <MdIcon name="arrow" size={14} strokeWidth={2.4} color="var(--accent-on)" />}
           </button>
         )}
       </div>
