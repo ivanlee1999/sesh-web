@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}))
 import {
   ThingsAuthError,
   ThingsCloudError,
+  ACTION_CREATED,
   commitItem,
   completedFields,
   decodeNote,
@@ -132,6 +133,20 @@ describe('commitItem', () => {
     const headers = init.headers as Record<string, string>
     expect(headers.Schema).toBe('301')
     expect(headers['App-Id']).toBe('com.culturedcode.ThingsMac')
+  })
+
+  it('commits a create under action 0, not the modify every other write uses', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ 'server-head-index': 60 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await commitItem(CREDS, 'hist-1', 59, 'new-uuid', 'Task6', { tt: 'New' }, ACTION_CREATED)
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    // t:0 is create. Sending t:1 for a new item asks Things to patch something
+    // that does not exist yet, which lands as nothing at all.
+    expect(JSON.parse(String(init.body))).toEqual({
+      'new-uuid': { t: 0, e: 'Task6', p: { tt: 'New' } },
+    })
   })
 })
 

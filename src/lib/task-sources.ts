@@ -188,6 +188,36 @@ export function taskKey(task: ExternalTask): string {
   return `${resolveProvider(task)}:${task.id}`
 }
 
+/**
+ * Which providers sesh can add a to-do to.
+ *
+ * Todoist is read-and-complete only here: nothing in the app has needed to
+ * create one, and offering a control that quietly does nothing is worse than
+ * not offering it. The UI asks this rather than assuming.
+ */
+export function canCreateTasks(provider: TaskProvider): boolean {
+  return provider === 'things'
+}
+
+/** Where a new to-do is filed. Mirrors the lists Things itself offers. */
+export type NewTaskWhen = 'today' | 'anytime' | 'someday' | 'inbox'
+
+export async function createTask(
+  provider: TaskProvider,
+  input: { title: string; when: NewTaskWhen },
+): Promise<void> {
+  if (!canCreateTasks(provider)) {
+    throw new Error(`${PROVIDER_LABEL[provider]} tasks cannot be created from sesh`)
+  }
+  const tz = viewerTimeZone()
+  const res = await fetch(`${base(provider)}/tasks${tz ? `?tz=${encodeURIComponent(tz)}` : ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(await readApiError(res, `Failed to add the ${PROVIDER_LABEL[provider]} to-do`))
+}
+
 export async function completeTask(task: ExternalTask): Promise<void> {
   const provider = resolveProvider(task)
   const res = await fetch(`${base(provider)}/tasks/${task.id}/close`, { method: 'POST' })

@@ -11,11 +11,12 @@ import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
-import { PROVIDER_COLOR, PROVIDER_LABEL, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
+import { PROVIDER_COLOR, PROVIDER_LABEL, canCreateTasks, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
 import { capGroups, clockOf, dialColor, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
 import Dial from './Dial'
 import CategoryChips from './md/CategoryChips'
 import TaskList, { type TaskRowModel } from './md/TaskList'
+import TaskComposer from './md/TaskComposer'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 import type { PendingFocus } from './Tasks'
@@ -213,6 +214,7 @@ export default function Timer({
   const [scope, setScope] = useState<Scope>('today')
   const [recentCategories, setRecentCategories] = useState<string[]>([])
   const [tasks, setTasks] = useState<ExternalTask[]>([])
+  const [canCompose, setCanCompose] = useState(false)
   const [completingKey, setCompletingKey] = useState<string | null>(null)
   const [taskNotice, setTaskNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
@@ -257,6 +259,7 @@ export default function Timer({
         return
       }
       const connected = statuses.filter(s => s.state === 'connected').map(s => s.provider)
+      setCanCompose(connected.some(canCreateTasks))
       if (connected.length === 0) {
         // Nothing configured is a normal state, not an error worth surfacing.
         setTaskNotice(null)
@@ -1567,6 +1570,7 @@ export default function Timer({
               </div>
               <ScopeChips scope={scope} onChange={setScope} />
             </div>
+            {canCompose && <TaskComposer scope={scope} onCreated={refreshTasks} compact />}
             <TaskList groups={queueGroups} />
           </div>
         )}
@@ -1637,6 +1641,7 @@ export default function Timer({
             <div style={{ padding: '10px 16px', display: 'flex', gap: 6, borderBottom: '2px solid var(--color-divider)' }}>
               <ScopeChips scope={scope} onChange={setScope} />
             </div>
+            {canCompose && <TaskComposer scope={scope} onCreated={refreshTasks} compact />}
             <div className="md-scroll">
               <TaskList groups={queueGroups} />
             </div>

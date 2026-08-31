@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { randomBytes } from 'node:crypto'
+
 /**
  * Native Things Cloud client.
  *
@@ -266,8 +268,9 @@ export async function commitItem(
   uuid: string,
   kind: string,
   fields: Record<string, unknown>,
+  action: number = ACTION_MODIFIED,
 ): Promise<number> {
-  const body = JSON.stringify({ [uuid]: { t: ACTION_MODIFIED, e: kind, p: fields } })
+  const body = JSON.stringify({ [uuid]: { t: action, e: kind, p: fields } })
   const res = await request(
     `/version/1/history/${encodeURIComponent(historyKey)}/commit?ancestor-index=${ancestorIndex}&_cnt=1`,
     creds,
@@ -296,4 +299,73 @@ export function completedFields() {
 
 export function noteFields(text: string) {
   return { md: nowTimestamp(), nt: encodeNote(text) }
+}
+
+// ── Creating a to-do ───────────────────────────────────────────────────────
+
+/**
+ * Things identifies items by Base58 of a 16-byte UUID, using Bitcoin's
+ * alphabet (no 0, O, I or l). The server rejects anything else as a malformed
+ * id, so this is not interchangeable with a standard UUID string.
+ */
+const BASE58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+export function newTaskUuid(): string {
+  const bytes = randomBytes(16)
+
+  // Long division over the byte array rather than a BigInt: this file compiles
+  // to the project's ES target, which predates BigInt literals.
+  const digits: number[] = [0]
+  for (let i = 0; i < bytes.length; i += 1) {
+    let carry = bytes[i]
+    for (let j = 0; j < digits.length; j += 1) {
+      carry += digits[j] << 8
+      digits[j] = carry % 58
+      carry = (carry / 58) | 0
+    }
+    while (carry > 0) {
+      digits.push(carry % 58)
+      carry = (carry / 58) | 0
+    }
+  }
+
+  let out = ''
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i += 1) out += BASE58[0]
+  for (let j = digits.length - 1; j >= 0; j -= 1) out += BASE58[digits[j]]
+  return out
+}
+
+/** Where a new to-do lands. `today` also needs a date; the rest are lists. */
+export type ThingsWhen = 'today' | 'anytime' | 'someday' | 'inbox'
+
+/**
+ * A newly created to-do, in full.
+ *
+ * Things does not merge a create onto anything, so unlike a modify this has to
+ * carry every field the app itself writes — a sparse create leaves the item
+ * half-formed on other devices. The shape mirrors what Things.app commits, as
+ * captured by the reference SDK and the things-cloud companion service.
+ *
+ * `st` and `sr` together decide the list: 0 is Inbox, 1 with a date is Today,
+ * 1 without is Anytime, 2 without is Someday — the same reading `things-store`
+ * uses on the way back in.
+ */
+export function createdTaskFields(
+  title: string,
+  when: ThingsWhen,
+  todayStart: number,
+): Record<string, unknown> {
+  const dated = when === 'today'
+  const schedule = when === 'inbox' ? 0 : when === 'someday' ? 2 : 1
+  const now = nowTimestamp()
+
+  return {
+    tp: 0, sr: dated ? todayStart : null, dds: null, rt: [], rmd: null,
+    ss: 0, tr: false, dl: [], icp: false, st: schedule,
+    ar: [], tt: title, do: 0, lai: null, tir: dated ? todayStart : null,
+    tg: [], agr: [], ix: 0, cd: now, lt: false,
+    icc: 0, md: now, ti: 0, dd: null, ato: null, nt: encodeNote(''),
+    icsd: null, pr: [], rp: null, acrd: null, sp: null,
+    sb: 0, rr: null, xx: { sn: {}, _t: 'oo' },
+  }
 }

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
-import { dayClock, dueKind, dueLabel, formatDayLabel, readTimeZone } from '@/lib/task-dates'
+import { dayClock, dayStartUtcSeconds, dueKind, dueLabel, formatDayLabel, readTimeZone } from '@/lib/task-dates'
 import { type ThingsTaskRaw } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
-import { loadThingsTasks, thingsCatchingUp } from '@/lib/things-service'
+import { createThings, loadThingsTasks, thingsCatchingUp } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,6 +94,50 @@ export async function GET(request: Request) {
     // list can legitimately be short here. Say so rather than let it read as
     // "you have nothing to do".
     return NextResponse.json({ tasks: filtered, syncing: thingsCatchingUp() })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return NextResponse.json({ error: message }, { status: 502 })
+  }
+}
+
+/** Where a new to-do may be filed. Anything else is rejected rather than guessed. */
+const WHEN_VALUES = ['today', 'anytime', 'someday', 'inbox'] as const
+type When = (typeof WHEN_VALUES)[number]
+
+function readWhen(value: unknown): When {
+  return WHEN_VALUES.includes(value as When) ? value as When : 'inbox'
+}
+
+export async function POST(request: Request) {
+  const auth = validateTodoistAuth(request)
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.reason }, { status: 401 })
+  }
+  if (isRateLimited(getClientIp(request))) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
+  const conn = readThingsConfig()
+  if (!conn) {
+    return NextResponse.json({ error: 'Things not configured' }, { status: 503 })
+  }
+
+  try {
+    const body = await request.json() as { title?: unknown; when?: unknown }
+    const title = typeof body.title === 'string' ? body.title.trim() : ''
+    if (!title) {
+      return NextResponse.json({ error: 'A to-do needs a title' }, { status: 400 })
+    }
+    if (title.length > 500) {
+      return NextResponse.json({ error: 'That title is too long' }, { status: 400 })
+    }
+
+    // "Today" is the viewer's today: sesh runs in UTC, and scheduling against
+    // the server's day would file the to-do a day out for anyone far enough
+    // east or west of it.
+    const clock = dayClock(readTimeZone(new URL(request.url).searchParams))
+    await createThings(conn, { title, when: readWhen(body.when) }, dayStartUtcSeconds(clock.today))
+
+    return NextResponse.json({ ok: true })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 502 })
