@@ -1,20 +1,64 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Session } from '@/types'
 import { useCategories } from '@/context/CategoriesContext'
 import { getCategoryMeta } from '@/lib/categories'
 import { isAuthResponse, readApiError, redirectToLogin } from '@/lib/api-client'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
-import { hoursMinutes } from '@/lib/modernist'
+import { hoursMinutes, pad2 } from '@/lib/modernist'
+import { loadCalendarView, saveCalendarView, type CalendarView } from '@/lib/local-store'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+/** The day view's strip runs 06:00–21:59, wide enough for most working days. */
+const HOUR_FROM = 6
+const HOUR_TO = 21
+
+const VIEWS: { key: CalendarView; label: string }[] = [
+  { key: 'month', label: 'Month' },
+  { key: 'week', label: 'Week' },
+  { key: 'day', label: 'Day' },
+]
+
 function dayKey(input: Date | number): string {
   const d = input instanceof Date ? input : new Date(input)
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+/** Monday-first, matching the day-of-week header. */
+function startOfWeek(date: Date): Date {
+  const d = startOfDay(date)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return d
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+/**
+ * Step whole months, keeping the day of the month.
+ *
+ * `setMonth` alone skips: from 31 August it lands on 1 October, because 31
+ * September does not exist. Building from the 1st and then clamping the day to
+ * the new month's length steps to 30 September instead — and paging away and
+ * back returns you to the day you were on, rather than to the 1st.
+ */
+function addMonths(date: Date, months: number): Date {
+  const day = date.getDate()
+  const d = new Date(date.getFullYear(), date.getMonth() + months, 1)
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(day, lastDay))
+  return d
 }
 
 function sessionMinutes(session: Session): number {
@@ -28,9 +72,15 @@ export default function Calendar() {
   const phone = !isDesktop
   const [sessions, setSessions] = useState<Session[]>([])
   const [error, setError] = useState<string | null>(null)
-  const now = useMemo(() => new Date(), [])
-  const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() })
-  const [selectedKey, setSelectedKey] = useState(dayKey(now))
+  const [view, setView] = useState<CalendarView>('month')
+  const [selected, setSelected] = useState<Date>(() => startOfDay(new Date()))
+  /** How far the body has been dragged, in px, while a swipe is in progress. */
+  const [dragX, setDragX] = useState(0)
+  const draggingRef = useRef(false)
+
+  useEffect(() => {
+    setView(loadCalendarView() ?? 'month')
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -62,52 +112,150 @@ export default function Calendar() {
     return map
   }, [sessions])
 
-  const first = new Date(cursor.y, cursor.m, 1)
-  const monthLabel = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  const minutesOn = useCallback((date: Date) => (byDay.get(dayKey(date)) ?? [])
+    .reduce((sum, s) => sum + sessionMinutes(s), 0), [byDay])
 
-  const monthMinutes = useMemo(() => sessions
-    .filter(s => {
-      const d = new Date(s.startedAt)
-      return d.getFullYear() === cursor.y && d.getMonth() === cursor.m
+  /** One step of whatever the current view shows. */
+  const shift = useCallback((dir: number) => {
+    setSelected(current => (view === 'month'
+      ? addMonths(current, dir)
+      : addDays(current, dir * (view === 'week' ? 7 : 1))))
+  }, [view])
+
+  /**
+   * Drag the body sideways to move a period.
+   *
+   * The whole pane follows the pointer so the gesture is visibly connected to
+   * what it does, then either commits past the threshold or springs back. A
+   * short drag is a misfire, not a tiny navigation.
+   */
+  const SWIPE_THRESHOLD = 64
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // Only a real drag; a tap on a day still selects it.
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    const originX = event.clientX
+    draggingRef.current = false
+
+    const move = (moveEvent: PointerEvent) => {
+      const dx = moveEvent.clientX - originX
+      if (!draggingRef.current && Math.abs(dx) > 6) draggingRef.current = true
+      if (draggingRef.current) setDragX(dx)
+    }
+
+    const finish = (upEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      const dx = upEvent.clientX - originX
+      setDragX(0)
+      if (Math.abs(dx) >= SWIPE_THRESHOLD) shift(dx < 0 ? 1 : -1)
+      // Let the click that follows through only if nothing was dragged.
+      window.setTimeout(() => { draggingRef.current = false }, 0)
+    }
+
+    const cancel = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      setDragX(0)
+      draggingRef.current = false
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', cancel)
+  }
+
+  const pickDay = (date: Date) => {
+    // A drag that ended on a cell must not also select it.
+    if (draggingRef.current) return
+    setSelected(date)
+  }
+
+  // ── What the current view covers ────────────────────────────────────────
+
+  const monthCells = useMemo(() => {
+    const first = new Date(selected.getFullYear(), selected.getMonth(), 1)
+    const lead = (first.getDay() + 6) % 7
+    const daysInMonth = new Date(selected.getFullYear(), selected.getMonth() + 1, 0).getDate()
+    return Array.from({ length: 42 }, (_, i) => {
+      const dayNumber = i - lead + 1
+      const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth
+      return {
+        key: `cell-${i}`,
+        dayNumber,
+        inMonth,
+        date: new Date(selected.getFullYear(), selected.getMonth(), dayNumber),
+      }
     })
-    .reduce((sum, s) => sum + sessionMinutes(s), 0), [cursor.m, cursor.y, sessions])
+  }, [selected])
+
+  const weekDays = useMemo(() => {
+    const from = startOfWeek(selected)
+    return Array.from({ length: 7 }, (_, i) => addDays(from, i))
+  }, [selected])
+
+  const periodLabel = useMemo(() => {
+    if (view === 'month') return selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    if (view === 'day') return selected.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
+    const from = weekDays[0]
+    const to = weekDays[6]
+    const sameMonth = from.getMonth() === to.getMonth()
+    return sameMonth
+      ? `${from.getDate()}–${to.getDate()} ${from.toLocaleDateString(undefined, { month: 'long' })}`
+      : `${from.getDate()} ${from.toLocaleDateString(undefined, { month: 'short' })} – ${to.getDate()} ${to.toLocaleDateString(undefined, { month: 'short' })}`
+  }, [selected, view, weekDays])
+
+  /** Total across whatever the view is showing, not always the month. */
+  const periodMinutes = useMemo(() => {
+    if (view === 'day') return minutesOn(selected)
+    if (view === 'week') return weekDays.reduce((sum, d) => sum + minutesOn(d), 0)
+    return sessions
+      .filter(s => {
+        const d = new Date(s.startedAt)
+        return d.getFullYear() === selected.getFullYear() && d.getMonth() === selected.getMonth()
+      })
+      .reduce((sum, s) => sum + sessionMinutes(s), 0)
+  }, [minutesOn, selected, sessions, view, weekDays])
 
   useEffect(() => {
-    reportSub('calendar', `${monthLabel} · ${hoursMinutes(monthMinutes)}`)
-  }, [monthLabel, monthMinutes, reportSub])
+    reportSub('calendar', `${periodLabel} · ${hoursMinutes(periodMinutes)}`)
+  }, [periodLabel, periodMinutes, reportSub])
 
-  // Six rows of seven, always — the grid absorbs the slack rather than
-  // changing height as you page between months.
-  const lead = (first.getDay() + 6) % 7
-  const daysInMonth = new Date(cursor.y, cursor.m + 1, 0).getDate()
-  const cells = Array.from({ length: 42 }, (_, i) => {
-    const dayNumber = i - lead + 1
-    const inMonth = dayNumber >= 1 && dayNumber <= daysInMonth
-    const date = inMonth ? new Date(cursor.y, cursor.m, dayNumber) : null
-    return { dayNumber, inMonth, date, key: date ? dayKey(date) : `blank-${i}` }
-  })
+  const daySessions = useMemo(
+    () => [...(byDay.get(dayKey(selected)) ?? [])].sort((a, b) => a.startedAt - b.startedAt),
+    [byDay, selected],
+  )
 
-  const selectedSessions = [...(byDay.get(selectedKey) ?? [])].sort((a, b) => a.startedAt - b.startedAt)
-  const selectedTotal = selectedSessions.reduce((sum, s) => sum + sessionMinutes(s), 0)
-  const selectedDate = (() => {
-    const [y, m, d] = selectedKey.split('-').map(Number)
-    return new Date(y, m, d)
-  })()
+  // Nothing scrolls: the list shows what fits and counts the rest. The day view
+  // has the whole pane, so it can show far more of them.
+  const listBudget = view === 'day' ? (phone ? 9 : 16) : phone ? 4 : 7
+  const shown = daySessions.slice(0, listBudget)
+  const hidden = daySessions.length - shown.length
 
-  // Nothing scrolls: the day list shows what fits and counts the rest.
-  const listBudget = phone ? 4 : 7
-  const shown = selectedSessions.slice(0, listBudget)
-  const hidden = selectedSessions.length - shown.length
-
-  const shift = (dir: number) => {
-    setCursor(current => {
-      let m = current.m + dir
-      let y = current.y
-      if (m < 0) { m = 11; y -= 1 }
-      if (m > 11) { m = 0; y += 1 }
-      return { y, m }
+  /** Where the day's work actually fell, for the day view's strip. */
+  const hours = useMemo(() => {
+    const from = selected.getTime()
+    return Array.from({ length: HOUR_TO - HOUR_FROM + 1 }, (_, i) => {
+      const start = from + (HOUR_FROM + i) * 3600000
+      const end = start + 3600000
+      let minutes = 0
+      let color = 'var(--color-accent)'
+      let best = 0
+      for (const session of daySessions) {
+        if (session.type !== 'focus') continue
+        const overlap = Math.min(end, session.startedAt + session.actualMs) - Math.max(start, session.startedAt)
+        if (overlap <= 0) continue
+        minutes += overlap / 60000
+        if (overlap > best) {
+          best = overlap
+          color = getCategoryMeta(session.category, categories).color
+        }
+      }
+      return { minutes, color }
     })
-  }
+  }, [categories, daySessions, selected])
 
   const navButton = (label: string, dir: number, icon: 'prev' | 'next') => (
     <button
@@ -133,6 +281,76 @@ export default function Calendar() {
     </button>
   )
 
+  const dayCell = (date: Date, inMonth: boolean, label: string, tall: boolean) => {
+    const list = byDay.get(dayKey(date)) ?? []
+    const active = dayKey(date) === dayKey(selected)
+    const bars = list.slice(0, 4)
+    return (
+      <button
+        key={dayKey(date) + label}
+        type="button"
+        className="md-press"
+        disabled={!inMonth}
+        aria-label={date.toDateString()}
+        aria-pressed={active}
+        onClick={() => inMonth && pickDay(date)}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: tall ? 'flex-start' : 'center',
+          gap: 4,
+          padding: tall ? '10px 0' : '8px 0 7px',
+          cursor: inMonth ? 'pointer' : 'default',
+          border: 0,
+          background: active ? 'var(--color-accent)' : 'transparent',
+          color: active ? '#fff' : inMonth ? 'inherit' : 'var(--color-neutral-500)',
+          fontFamily: 'inherit',
+          opacity: inMonth ? 1 : 0.35,
+        }}
+      >
+        <span className="md-num" style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
+        <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 14 }}>
+          {bars.map((session, k) => (
+            <span
+              key={session.id}
+              style={{
+                display: 'block',
+                width: 3,
+                height: 4 + k * 3,
+                background: active ? '#fff' : getCategoryMeta(session.category, categories).color,
+              }}
+            />
+          ))}
+        </span>
+        {tall && (
+          <span
+            className="md-num"
+            style={{
+              marginTop: 'auto',
+              fontSize: 10.5,
+              fontWeight: 700,
+              letterSpacing: '.04em',
+              color: active ? 'rgba(255,255,255,.85)' : 'var(--color-neutral-600)',
+            }}
+          >
+            {minutesOn(date) > 0 ? hoursMinutes(minutesOn(date)) : ''}
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  const bodyStyle: CSSProperties = {
+    flex: view === 'day' ? 'none' : 1,
+    minHeight: 0,
+    // Follows the pointer while dragging, then springs back or commits.
+    transform: dragX ? `translateX(${dragX * 0.45}px)` : undefined,
+    transition: dragX ? 'none' : 'transform 260ms var(--ease-out)',
+    touchAction: 'pan-y',
+    cursor: 'grab',
+  }
+
   return (
     <div className="md-screen md-screen-col" data-testid="calendar-screen">
       {phone && (
@@ -145,103 +363,109 @@ export default function Calendar() {
           display: 'flex',
           alignItems: 'center',
           gap: 10,
+          flexWrap: 'wrap',
           flex: 'none',
         }}
       >
-        {navButton('Previous month', -1, 'prev')}
+        {navButton(`Previous ${view}`, -1, 'prev')}
         <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '.06em', textTransform: 'uppercase' }}>
-          {monthLabel}
+          {periodLabel}
         </span>
-        {navButton('Next month', 1, 'next')}
+        {navButton(`Next ${view}`, 1, 'next')}
         <span
           style={{
             marginLeft: 'auto',
-            fontSize: 11,
-            letterSpacing: '.1em',
-            textTransform: 'uppercase',
-            color: 'var(--color-neutral-600)',
-            fontWeight: 700,
+            display: 'flex',
+            gap: 6,
           }}
         >
-          {hoursMinutes(monthMinutes)} focused
+          {VIEWS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className="md-quiet md-press"
+              data-active={view === key ? 'true' : 'false'}
+              aria-pressed={view === key}
+              onClick={() => { setView(key); saveCalendarView(key) }}
+            >
+              {label}
+            </button>
+          ))}
         </span>
       </div>
 
       {error && (
-        <div style={{ padding: '10px 18px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
+        <div style={{ padding: '0 18px 10px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
           {error}
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: '2px solid var(--color-divider)', flex: 'none' }}>
-        {DOW.map(label => (
-          <span
-            key={label}
-            style={{
-              padding: '5px 0',
-              textAlign: 'center',
-              fontSize: 10,
-              letterSpacing: '.1em',
-              textTransform: 'uppercase',
-              color: 'var(--color-neutral-600)',
-              fontWeight: 700,
-            }}
-          >
-            {label}
-          </span>
-        ))}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr', flex: 1, minHeight: 0 }}>
-        {cells.map(cell => {
-          const list = cell.date ? byDay.get(cell.key) ?? [] : []
-          const active = cell.key === selectedKey
-          const bars = list.slice(0, 4)
-          return (
-            <button
-              key={cell.key}
-              type="button"
-              className="md-press"
-              disabled={!cell.inMonth}
-              aria-label={cell.date ? cell.date.toDateString() : undefined}
-              aria-pressed={active}
-              onClick={() => cell.inMonth && setSelectedKey(cell.key)}
+      {view !== 'day' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: '2px solid var(--color-divider)', flex: 'none' }}>
+          {DOW.map(label => (
+            <span
+              key={label}
               style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-                padding: '8px 0 7px',
-                cursor: cell.inMonth ? 'pointer' : 'default',
-                // No cell grid. Forty-two boxes drawn round the numbers made a
-                // mesh you read before the month; the numbers and the bars
-                // already sit on a grid, so the lines only restated it.
-                border: 0,
-                background: active ? 'var(--color-accent)' : 'transparent',
-                color: active ? '#fff' : cell.inMonth ? 'inherit' : 'var(--color-neutral-500)',
-                fontFamily: 'inherit',
-                opacity: cell.inMonth ? 1 : 0.35,
+                padding: '5px 0',
+                textAlign: 'center',
+                fontSize: 10,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
               }}
             >
-              <span className="md-num" style={{ fontSize: 12, fontWeight: 600 }}>
-                {cell.inMonth ? cell.dayNumber : ''}
-              </span>
-              <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 14 }}>
-                {bars.map((session, k) => (
-                  <span
-                    key={session.id}
-                    style={{
-                      display: 'block',
-                      width: 3,
-                      height: 4 + k * 3,
-                      background: active ? '#fff' : getCategoryMeta(session.category, categories).color,
-                    }}
-                  />
-                ))}
-              </span>
-            </button>
-          )
-        })}
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div onPointerDown={onPointerDown} style={bodyStyle}>
+        {view === 'month' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr', height: '100%' }}>
+            {monthCells.map(cell => dayCell(cell.date, cell.inMonth, cell.inMonth ? String(cell.dayNumber) : '', false))}
+          </div>
+        )}
+
+        {view === 'week' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', height: '100%' }}>
+            {weekDays.map(date => dayCell(date, true, String(date.getDate()), true))}
+          </div>
+        )}
+
+        {view === 'day' && (
+          <div style={{ padding: '4px 18px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <span style={{ display: 'flex', height: 26, border: '2px solid var(--color-divider)' }}>
+              {hours.map((hour, i) => (
+                <span
+                  key={i}
+                  style={{
+                    display: 'block',
+                    flex: 1,
+                    background: hour.minutes > 0 ? hour.color : 'transparent',
+                    opacity: hour.minutes > 0 ? Math.min(0.9, 0.25 + (hour.minutes / 60) * 0.65) : 0,
+                  }}
+                />
+              ))}
+            </span>
+            <span
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 10,
+                letterSpacing: '.08em',
+                color: 'var(--color-neutral-600)',
+                fontWeight: 700,
+              }}
+            >
+              <span>{pad2(HOUR_FROM)}</span>
+              <span>{pad2(HOUR_FROM + 5)}</span>
+              <span>{pad2(HOUR_FROM + 10)}</span>
+              <span>{pad2(HOUR_TO + 1)}</span>
+            </span>
+          </div>
+        )}
       </div>
 
       <div
@@ -255,16 +479,16 @@ export default function Calendar() {
         }}
       >
         <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-          {selectedDate.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
+          {selected.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
         </h3>
         <span style={{ fontSize: 11, color: 'var(--color-neutral-600)', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-          {selectedSessions.length === 0
+          {daySessions.length === 0
             ? 'No sessions'
-            : `${selectedSessions.length} session${selectedSessions.length === 1 ? '' : 's'} · ${hoursMinutes(selectedTotal)}`}
+            : `${daySessions.length} session${daySessions.length === 1 ? '' : 's'} · ${hoursMinutes(minutesOn(selected))}`}
         </span>
       </div>
 
-      <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', flex: 'none', overflow: 'hidden' }}>
+      <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', flex: view === 'day' ? 1 : 'none', minHeight: 0, overflow: 'hidden' }}>
         {shown.map(session => {
           const meta = getCategoryMeta(session.category, categories)
           const time = new Date(session.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -277,7 +501,6 @@ export default function Calendar() {
                 alignItems: 'flex-start',
                 gap: 12,
                 padding: '7px 18px',
-                // Aligned to the title, past the time column and the spine.
                 '--hairline-inset': '77px',
               } as CSSProperties}
             >

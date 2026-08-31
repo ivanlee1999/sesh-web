@@ -14,6 +14,7 @@ const CATEGORY_RECENCY_KEY = 'sesh:categoryRecency'
 const POMODORO_CYCLE_KEY = 'sesh:pomodoroCycle'
 const FOCUS_TIME_QUEUE_KEY = 'sesh:focusTimeQueue'
 const PANE_LAYOUT_KEY = 'sesh:paneLayout'
+const CALENDAR_VIEW_KEY = 'sesh:calendarView'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -313,5 +314,27 @@ export function clearPaneWidth(key: PaneKey): void {
     const next = loadPaneLayout()
     delete next[key]
     localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify(next))
+  } catch {}
+}
+
+// ── Calendar view ───────────────────────────────────────────────────────
+
+/** Which span the calendar shows. Device-local, like the pane widths. */
+export type CalendarView = 'month' | 'week' | 'day'
+
+const CALENDAR_VIEWS: CalendarView[] = ['month', 'week', 'day']
+
+export function loadCalendarView(): CalendarView | null {
+  try {
+    const raw = localStorage.getItem(CALENDAR_VIEW_KEY)
+    return CALENDAR_VIEWS.includes(raw as CalendarView) ? raw as CalendarView : null
+  } catch {
+    return null
+  }
+}
+
+export function saveCalendarView(view: CalendarView): void {
+  try {
+    localStorage.setItem(CALENDAR_VIEW_KEY, view)
   } catch {}
 }

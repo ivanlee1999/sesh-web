@@ -398,7 +398,9 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
             flexWrap: 'wrap',
             alignItems: 'center',
             gap: 8,
-            borderBottom: '2px solid var(--color-divider)',
+            // The composer sits directly below and ends the block itself, so
+            // the filters only close it off when there is no composer.
+            borderBottom: canCompose ? 0 : '2px solid var(--color-divider)',
             flex: 'none',
           }}
         >
