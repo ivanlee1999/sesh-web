@@ -13,6 +13,7 @@ const CATEGORIES_CACHE_KEY = 'sesh:categories'
 const CATEGORY_RECENCY_KEY = 'sesh:categoryRecency'
 const POMODORO_CYCLE_KEY = 'sesh:pomodoroCycle'
 const FOCUS_TIME_QUEUE_KEY = 'sesh:focusTimeQueue'
+const PANE_LAYOUT_KEY = 'sesh:paneLayout'
 
 // ── Timer state ─────────────────────────────────────────────────────────
 export interface LocalTimerState {
@@ -260,4 +261,57 @@ export function incrementPomodoroCycle(): number {
     localStorage.setItem(POMODORO_CYCLE_KEY, JSON.stringify({ count: next, date: localDateStr() } satisfies PomodoroCycle))
   } catch {}
   return next
+}
+
+// ── Desktop pane layout ─────────────────────────────────────────────────
+
+/**
+ * Widths of the resizable desktop panes, in pixels.
+ *
+ * Deliberately device-local rather than synced with the rest of settings: how
+ * wide a queue rail should be is a fact about the monitor in front of you, and
+ * pushing a 27-inch layout onto a laptop would be worse than remembering
+ * nothing. A pane with no entry falls back to its designed width.
+ */
+export interface PaneLayout {
+  /** The desktop navigation rail. */
+  rail?: number
+  /** The task queue beside the dial. */
+  queue?: number
+  /** The Tasks screen's list sidebar. */
+  sidebar?: number
+}
+
+export type PaneKey = keyof PaneLayout
+
+export function loadPaneLayout(): PaneLayout {
+  try {
+    const raw = localStorage.getItem(PANE_LAYOUT_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const out: PaneLayout = {}
+    for (const key of ['rail', 'queue', 'sidebar'] as PaneKey[]) {
+      const value = parsed[key]
+      // A stored width is only ever a hint; the pane clamps it to its own
+      // bounds on the way out, so a stale or absurd value cannot strand a pane.
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) out[key] = value
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function savePaneWidth(key: PaneKey, width: number): void {
+  try {
+    localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify({ ...loadPaneLayout(), [key]: Math.round(width) }))
+  } catch {}
+}
+
+export function clearPaneWidth(key: PaneKey): void {
+  try {
+    const next = loadPaneLayout()
+    delete next[key]
+    localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify(next))
+  } catch {}
 }

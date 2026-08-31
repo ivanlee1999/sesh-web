@@ -1,6 +1,8 @@
 'use client'
 
 import { MdIcon } from './icons'
+import ResizeHandle from './ResizeHandle'
+import { usePaneWidth } from '@/hooks/usePaneWidth'
 import { APP_TABS, type AppTab } from '../TabBar'
 import { PROVIDER_COLOR, PROVIDER_LABEL } from '@/lib/task-sources'
 import type { TaskProvider } from '@/types'
@@ -10,6 +12,9 @@ import type { TaskProvider } from '@/types'
  * than sitting alongside it, and is hidden outright while a session runs so
  * focus mode is genuinely full-bleed.
  */
+/** The designed width, and how far it may be taken from it. */
+export const RAIL_BOUNDS = { min: 168, max: 340, fallback: 214 }
+
 export default function NavRail({
   activeTab,
   onChange,
@@ -21,15 +26,19 @@ export default function NavRail({
   openTasks: number | null
   sources: { provider: TaskProvider; state: string }[]
 }) {
+  const rail = usePaneWidth('rail', RAIL_BOUNDS)
+
   return (
+    <>
     <aside
       style={{
         flex: 'none',
-        width: 214,
-        borderRight: '2px solid var(--color-divider)',
+        width: rail.width,
+        // The border moves to the handle, which is the same 2px rule.
         display: 'flex',
         flexDirection: 'column',
         padding: '20px 0 0',
+        overflow: 'hidden',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 16px 20px' }}>
@@ -114,5 +123,17 @@ export default function NavRail({
         ))}
       </div>
     </aside>
+    <ResizeHandle
+      label="Navigation width"
+      width={rail.width}
+      min={RAIL_BOUNDS.min}
+      max={RAIL_BOUNDS.max}
+      dragging={rail.dragging}
+      towards="start"
+      onStart={rail.startDrag}
+      onNudge={rail.nudge}
+      onReset={rail.reset}
+    />
+    </>
   )
 }

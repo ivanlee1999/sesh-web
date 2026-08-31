@@ -34,6 +34,8 @@ import {
 } from '@/lib/task-sources'
 import TaskList, { type TaskRowModel } from './md/TaskList'
 import TaskComposer from './md/TaskComposer'
+import ResizeHandle from './md/ResizeHandle'
+import { usePaneWidth } from '@/hooks/usePaneWidth'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 
@@ -51,6 +53,9 @@ export interface PendingFocus {
 type Filter = 'today' | 'upcoming' | 'all'
 
 const SORT_ORDER: SortKey[] = ['date', 'priority', 'project']
+
+/** The designed sidebar width, and how far it may be dragged from it. */
+const SIDEBAR_BOUNDS = { min: 150, max: 340, fallback: 196 }
 
 function taskCategory(task: ExternalTask, categories: CategoryRecord[]): CategoryRecord | null {
   const raw = task.category?.toLowerCase()
@@ -116,6 +121,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   const [allOptions, setAllOptions] = useState<AllOptions>(DEFAULT_ALL_OPTIONS)
   /** Keyed by `taskKey`, so a refreshed list keeps the same tasks selected. */
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const sidebarPane = usePaneWidth('sidebar', SIDEBAR_BOUNDS)
 
   const load = useCallback(async () => {
     // Until the stored settings land, `providers` is only the default — asking
@@ -342,12 +348,12 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   return (
     <div className="md-screen">
       {!phone && filter === 'all' && (
+        <>
         <nav
           aria-label="Task lists"
           style={{
             flex: 'none',
-            width: 196,
-            borderRight: '2px solid var(--color-divider)',
+            width: sidebarPane.width,
             padding: '14px 0',
             display: 'flex',
             flexDirection: 'column',
@@ -369,6 +375,18 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
             />
           ))}
         </nav>
+        <ResizeHandle
+          label="Task list sidebar width"
+          width={sidebarPane.width}
+          min={SIDEBAR_BOUNDS.min}
+          max={SIDEBAR_BOUNDS.max}
+          dragging={sidebarPane.dragging}
+          towards="start"
+          onStart={sidebarPane.startDrag}
+          onNudge={sidebarPane.nudge}
+          onReset={sidebarPane.reset}
+        />
+        </>
       )}
 
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
