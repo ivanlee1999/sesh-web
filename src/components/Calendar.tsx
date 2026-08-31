@@ -17,6 +17,9 @@ const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOUR_FROM = 6
 const HOUR_TO = 21
 
+/** Width of the week grid's hour column. */
+const HOUR_GUTTER = 30
+
 const VIEWS: { key: CalendarView; label: string }[] = [
   { key: 'month', label: 'Month' },
   { key: 'week', label: 'Week' },
@@ -196,6 +199,65 @@ export default function Calendar() {
     return Array.from({ length: 7 }, (_, i) => addDays(from, i))
   }, [selected])
 
+  /**
+   * The hours the week's grid covers.
+   *
+   * Derived from the work rather than fixed at 00–24, which would spend most
+   * of the pane on hours nobody worked. Padded by an hour either side, floored
+   * at a six-hour span so a single short session still gets a readable grid,
+   * and defaulted to a working day when the week is empty.
+   */
+  const weekRange = useMemo(() => {
+    const inWeek = weekDays.flatMap(d => byDay.get(dayKey(d)) ?? [])
+    if (inWeek.length === 0) return { from: 8, to: 18 }
+
+    let first = 24
+    let last = 0
+    for (const session of inWeek) {
+      const start = new Date(session.startedAt)
+      const end = new Date(session.startedAt + Math.max(session.actualMs, 60000))
+      first = Math.min(first, start.getHours())
+      last = Math.max(last, end.getHours() + (end.getMinutes() > 0 ? 1 : 0))
+    }
+    const from = Math.max(0, first - 1)
+    const to = Math.min(24, Math.max(last + 1, from + 6))
+    return { from, to: Math.max(to, from + 6) }
+  }, [byDay, weekDays])
+
+  /** Every session in the week, placed by its real start and length. */
+  const weekBlocks = useMemo(() => {
+    const spanMinutes = (weekRange.to - weekRange.from) * 60
+    return weekDays.map(date => {
+      const dayStart = date.getTime()
+      const blocks = (byDay.get(dayKey(date)) ?? []).map(session => {
+        const startMin = (session.startedAt - dayStart) / 60000 - weekRange.from * 60
+        const lengthMin = Math.max(session.actualMs, 60000) / 60000
+        const top = (startMin / spanMinutes) * 100
+        const height = (lengthMin / spanMinutes) * 100
+        return {
+          session,
+          // Clamped so a session that ran past the grid still shows where it
+          // began, rather than being drawn outside the column.
+          top: Math.max(0, Math.min(100, top)),
+          height: Math.max(1.4, Math.min(100 - Math.max(0, top), height)),
+          color: getCategoryMeta(session.category, categories).color,
+        }
+      })
+      return { date, blocks }
+    })
+  }, [byDay, categories, weekDays, weekRange])
+
+  /** Label every other hour, or every third on a long span. */
+  const weekHourLines = useMemo(() => {
+    const span = weekRange.to - weekRange.from
+    const step = span > 12 ? 3 : 2
+    const lines: { hour: number; top: number }[] = []
+    for (let hour = weekRange.from; hour <= weekRange.to; hour += step) {
+      lines.push({ hour, top: ((hour - weekRange.from) / span) * 100 })
+    }
+    return lines
+  }, [weekRange])
+
   const periodLabel = useMemo(() => {
     if (view === 'month') return selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
     if (view === 'day') return selected.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
@@ -281,7 +343,7 @@ export default function Calendar() {
     </button>
   )
 
-  const dayCell = (date: Date, inMonth: boolean, label: string, tall: boolean) => {
+  const monthCell = (date: Date, inMonth: boolean, label: string) => {
     const list = byDay.get(dayKey(date)) ?? []
     const active = dayKey(date) === dayKey(selected)
     const bars = list.slice(0, 4)
@@ -298,9 +360,9 @@ export default function Calendar() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: tall ? 'flex-start' : 'center',
+          justifyContent: 'center',
           gap: 4,
-          padding: tall ? '10px 0' : '8px 0 7px',
+          padding: '8px 0 7px',
           cursor: inMonth ? 'pointer' : 'default',
           border: 0,
           background: active ? 'var(--color-accent)' : 'transparent',
@@ -323,20 +385,6 @@ export default function Calendar() {
             />
           ))}
         </span>
-        {tall && (
-          <span
-            className="md-num"
-            style={{
-              marginTop: 'auto',
-              fontSize: 10.5,
-              fontWeight: 700,
-              letterSpacing: '.04em',
-              color: active ? 'rgba(255,255,255,.85)' : 'var(--color-neutral-600)',
-            }}
-          >
-            {minutesOn(date) > 0 ? hoursMinutes(minutesOn(date)) : ''}
-          </span>
-        )}
       </button>
     )
   }
@@ -400,7 +448,7 @@ export default function Calendar() {
         </div>
       )}
 
-      {view !== 'day' && (
+      {view === 'month' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: '2px solid var(--color-divider)', flex: 'none' }}>
           {DOW.map(label => (
             <span
@@ -421,16 +469,151 @@ export default function Calendar() {
         </div>
       )}
 
+      {view === 'week' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `${HOUR_GUTTER}px repeat(7,1fr)`,
+            borderBottom: '2px solid var(--color-divider)',
+            flex: 'none',
+          }}
+        >
+          <span />
+          {weekDays.map(date => {
+            const active = dayKey(date) === dayKey(selected)
+            return (
+              <button
+                key={dayKey(date)}
+                type="button"
+                className="md-press"
+                aria-pressed={active}
+                aria-label={date.toDateString()}
+                onClick={() => pickDay(date)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  padding: '5px 0 6px',
+                  border: 0,
+                  background: active ? 'var(--color-accent)' : 'transparent',
+                  color: active ? '#fff' : 'inherit',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                    color: active ? 'rgba(255,255,255,.85)' : 'var(--color-neutral-600)',
+                  }}
+                >
+                  {DOW[(date.getDay() + 6) % 7]}
+                </span>
+                <span className="md-num" style={{ fontSize: 13, fontWeight: 700 }}>{date.getDate()}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div onPointerDown={onPointerDown} style={bodyStyle}>
         {view === 'month' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '1fr', height: '100%' }}>
-            {monthCells.map(cell => dayCell(cell.date, cell.inMonth, cell.inMonth ? String(cell.dayNumber) : '', false))}
+            {monthCells.map(cell => monthCell(cell.date, cell.inMonth, cell.inMonth ? String(cell.dayNumber) : ''))}
           </div>
         )}
 
         {view === 'week' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', height: '100%' }}>
-            {weekDays.map(date => dayCell(date, true, String(date.getDate()), true))}
+          <div
+            style={{
+              position: 'relative',
+              display: 'grid',
+              gridTemplateColumns: `${HOUR_GUTTER}px repeat(7,1fr)`,
+              height: '100%',
+              minHeight: 0,
+            }}
+          >
+            {/* Hour references, drawn behind the work. Only every second or
+                third hour: enough to read a start time from, without laying a
+                grid over the thing you came to look at. */}
+            {weekHourLines.map(line => (
+              <div
+                key={line.hour}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: HOUR_GUTTER,
+                  right: 0,
+                  top: `${line.top}%`,
+                  height: 1,
+                  background: 'var(--color-neutral-300)',
+                  pointerEvents: 'none',
+                }}
+              />
+            ))}
+
+            <div data-testid="week-hours" style={{ position: 'relative' }}>
+              {weekHourLines.map(line => (
+                <span
+                  key={line.hour}
+                  className="md-num"
+                  style={{
+                    position: 'absolute',
+                    top: `${line.top}%`,
+                    right: 6,
+                    transform: 'translateY(-50%)',
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    letterSpacing: '.04em',
+                    color: 'var(--color-neutral-600)',
+                  }}
+                >
+                  {pad2(line.hour)}
+                </span>
+              ))}
+            </div>
+
+            {weekBlocks.map(({ date, blocks }) => (
+              <button
+                key={dayKey(date)}
+                type="button"
+                aria-label={`${date.toDateString()} — ${blocks.length} session${blocks.length === 1 ? '' : 's'}`}
+                onClick={() => pickDay(date)}
+                style={{
+                  position: 'relative',
+                  border: 0,
+                  background: dayKey(date) === dayKey(selected)
+                    ? 'var(--color-accent-100)'
+                    : 'transparent',
+                  padding: 0,
+                  cursor: 'pointer',
+                  minHeight: 0,
+                  transition: 'background 160ms var(--ease-out)',
+                }}
+              >
+                {blocks.map(block => (
+                  <span
+                    key={block.session.id}
+                    title={`${block.session.intention || getCategoryMeta(block.session.category, categories).label} · ${hoursMinutes(sessionMinutes(block.session))}`}
+                    style={{
+                      position: 'absolute',
+                      left: 2,
+                      right: 2,
+                      top: `${block.top}%`,
+                      height: `${block.height}%`,
+                      // A break is rest, not work, so it reads as an outline.
+                      background: block.session.type === 'break' ? 'transparent' : block.color,
+                      boxShadow: block.session.type === 'break' ? `inset 0 0 0 1.5px ${block.color}` : undefined,
+                      opacity: block.session.type === 'break' ? 0.7 : 0.9,
+                    }}
+                  />
+                ))}
+              </button>
+            ))}
           </div>
         )}
 
