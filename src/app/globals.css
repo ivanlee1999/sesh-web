@@ -64,6 +64,7 @@
        the interface falls back to before a category is known. */
     --accent-base: #ec3013;
     --accent-on: #ffffff;
+    --accent-ground: #4d1006;
 
     --color-accent: var(--accent-base);
     --color-accent-100: color-mix(in srgb, var(--accent-base) 6%, #fff);
@@ -137,11 +138,6 @@
     --color-neutral-600: rgba(243,242,242,.62);
     --color-neutral-700: rgba(243,242,242,.78);
     --color-neutral-900: #f3f2f2;
-    /* The default red, lifted for this ground — a stylesheet default only, so
-       the app is never briefly wearing the light-ground red on the dark one.
-       An accent set from JS lands inline on the root and wins over this. */
-    --accent-base: #f1634d;
-
     /* `--accent-base` already arrives lifted for this ground, so only the
        steps that change *character* on a dark surface are restated: the two
        fills go translucent so the ground shows through, and the "ink" step
@@ -153,6 +149,39 @@
 
     --shadow-lift: 0 12px 32px rgba(0,0,0,.5);
     --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
+  }
+
+  /* The default red, lifted for the dark ground — a stylesheet fallback for a
+     value JS sets, so it is scoped to `:root` and nothing else.
+     The block above deliberately matches the app element as well as the root,
+     which is right for palette tokens but catastrophic for a fallback: the
+     element would re-declare it for its whole subtree and beat the real accent
+     set inline on the root, quietly painting every accent-derived token inside
+     a running session with this red. Anything here that stands in for a JS
+     value belongs in this rule, not that one. */
+  :root[data-theme='dark'],
+  :root[data-focusmode='true'] {
+    --accent-base: #f1634d;
+  }
+
+  /* The session ground.
+     A running session takes the whole dark palette above, then swaps the one
+     token that says which room you are in: the category's own colour taken
+     all the way down, so the twenty-five minutes you spend here are
+     recognisably this category's and not any other's.
+     Dark *mode* is deliberately left neutral. It is where lists and calendars
+     are read, and tinting every card would put task text on a coloured
+     surface; the session screen earns it by being bare.
+     Two selectors because the flag is set twice — on the root, and on the app
+     element, which is what the dark block's own bare `[data-focusmode]` was
+     written to catch. The bare one here re-declares the token for the app
+     subtree, where anything reading `--color-bg` actually lives; the
+     `:root` one exists only to outrank `:root[data-theme='dark']` on the
+     root itself, which a bare attribute selector loses to. Dropping either
+     leaves half the screen on the old ground. */
+  :root[data-focusmode='true'],
+  [data-focusmode='true'] {
+    --color-bg: var(--accent-ground);
   }
 
   /* Small phones (iPhone SE and friends) — tighten everything a notch. */

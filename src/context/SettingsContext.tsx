@@ -1,9 +1,11 @@
 'use client'
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { DEFAULT_SETTINGS, type AppSettings } from '@/types'
+import { applyThemeColor } from '@/lib/accent'
 
-export const THEME_COLOR_LIGHT = '#f3f2f2'
-export const THEME_COLOR_DARK = '#1b1918'
+// Re-exported from where the chrome is now decided, so the older imports and
+// the tests around them keep resolving to one definition rather than a copy.
+export { THEME_COLOR_LIGHT, THEME_COLOR_DARK } from '@/lib/accent'
 
 interface SettingsContextType {
   settings: AppSettings
@@ -70,17 +72,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const dark = settings.darkMode || inFocusMode
     root.style.colorScheme = dark ? 'dark' : 'light'
 
-    // Update theme-color meta tag for browser/PWA chrome
-    const themeColor = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
-    let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
-    if (meta) {
-      meta.content = themeColor
-    } else {
-      meta = document.createElement('meta')
-      meta.name = 'theme-color'
-      meta.content = themeColor
-      document.head.appendChild(meta)
-    }
+    // The chrome takes the ground the page is standing on rather than a
+    // constant per mode: a running session tints the ground with its
+    // category, and the strip behind the status bar has to agree with it.
+    applyThemeColor(root, dark)
   }, [settings.darkMode])
 
   const updateSettings = useCallback((updates: Partial<AppSettings>) => {

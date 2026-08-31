@@ -64,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 if (a && a.base) {
                   document.documentElement.style.setProperty('--accent-base', a.base);
                   document.documentElement.style.setProperty('--accent-on', a.on || '#ffffff');
+                  if (a.ground) document.documentElement.style.setProperty('--accent-ground', a.ground);
                 }
               } catch(e) {}
             `,

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { accentFor, accentPair, applyAccent, readableInk, DEFAULT_ACCENT } from '../accent'
+import {
+  accentFor, accentPair, applyAccent, applyThemeColor, groundFor, readableInk,
+  DEFAULT_ACCENT, THEME_COLOR_DARK, THEME_COLOR_LIGHT,
+} from '../accent'
 
 /** WCAG relative luminance, written out again so the tests don't trust the module's own maths. */
 function luminance(hex: string): number {
@@ -64,5 +67,69 @@ describe('applyAccent', () => {
     applyAccent(root, accentPair('#7E9476').light)
     expect(root.style.getPropertyValue('--accent-base')).toBe('#7e9476')
     expect(root.style.getPropertyValue('--accent-on')).toBe('#ffffff')
+  })
+})
+
+describe('groundFor', () => {
+  it('lands every category at one depth, whatever it started at', () => {
+    // A gold and a slate blue are far apart in luminance to begin with; the
+    // room they become must not be.
+    for (const color of ['#BE6E45', '#C8943A', '#7E9476', '#6E86B0', '#5E9AA0']) {
+      expect(luminance(groundFor(color))).toBeLessThanOrEqual(0.02)
+      expect(luminance(groundFor(color))).toBeGreaterThan(0.012)
+    }
+  })
+
+  it('keeps the hue it came from', () => {
+    // Darkened toward black, so the channel ordering of the source survives:
+    // a warm colour stays warm, a cool one stays cool.
+    const warm = groundFor('#BE6E45')
+    const cool = groundFor('#6E86B0')
+    const chan = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
+    expect(chan(warm)[0]).toBeGreaterThan(chan(warm)[2])
+    expect(chan(cool)[2]).toBeGreaterThan(chan(cool)[0])
+  })
+
+  it('stays legible under the accent that sits on it', () => {
+    for (const color of ['#BE6E45', '#C8943A', '#7E9476', '#6E86B0', '#2d2b2b']) {
+      expect(contrast(accentFor(color, true).base, groundFor(color))).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('travels on the theme, so applying one paints the room too', () => {
+    const root = document.createElement('div')
+    applyAccent(root, accentPair('#6E86B0').dark)
+    expect(root.style.getPropertyValue('--accent-ground')).toBe(groundFor('#6E86B0'))
+  })
+})
+
+describe('applyThemeColor', () => {
+  function meta() {
+    return (document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null)?.content
+  }
+
+  it('takes the plain grounds when no session is running', () => {
+    const root = document.documentElement
+    delete root.dataset.focusmode
+    applyThemeColor(root, false)
+    expect(meta()).toBe(THEME_COLOR_LIGHT)
+    applyThemeColor(root, true)
+    expect(meta()).toBe(THEME_COLOR_DARK)
+  })
+
+  it('takes the session ground while one is running', () => {
+    const root = document.documentElement
+    applyAccent(root, accentPair('#6E86B0').dark)
+    root.dataset.focusmode = 'true'
+    applyThemeColor(root, true)
+    expect(meta()).toBe(groundFor('#6E86B0'))
+  })
+
+  it('falls back rather than emptying the chrome when no accent is set yet', () => {
+    const root = document.documentElement
+    root.style.removeProperty('--accent-ground')
+    root.dataset.focusmode = 'true'
+    applyThemeColor(root, true)
+    expect(meta()).toBe(THEME_COLOR_DARK)
   })
 })

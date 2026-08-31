@@ -1538,8 +1538,17 @@ export default function Timer({
                     alignItems: 'center',
                     gap: 9,
                     border: 0,
-                    background: 'var(--color-accent)',
-                    color: 'var(--accent-on)',
+                    /*
+                     * Paper, not more accent. The ground is now the category's
+                     * own colour taken all the way down, so an accent fill
+                     * here would be the same hue at a near value and the
+                     * screen would read as one note. This is the system's
+                     * existing primary — `.sesh-btn-primary` is ink on ground
+                     * — which makes the single pure-white element on the
+                     * screen the one thing you can press without thinking.
+                     */
+                    background: 'var(--color-text)',
+                    color: 'var(--color-bg)',
                     padding: 14,
                     cursor: 'pointer',
                     fontFamily: 'var(--font-heading)',
@@ -1549,7 +1558,7 @@ export default function Timer({
                     textTransform: 'uppercase',
                   }}
                 >
-                  <MdIcon name="check" size={16} strokeWidth={2.6} color="var(--accent-on)" />
+                  <MdIcon name="check" size={16} strokeWidth={2.6} color="var(--color-bg)" />
                   Finish
                 </button>
               </div>

@@ -1,12 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSettings, THEME_COLOR_DARK, THEME_COLOR_LIGHT } from '@/context/SettingsContext'
+import { useSettings } from '@/context/SettingsContext'
 import { useNativeGestureLock } from '@/hooks/useNativeGestureLock'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription } from '@/lib/push-client'
 import { enabledProviders, loadProviderStatuses, type ProviderStatus } from '@/lib/task-sources'
-import { accentPair, applyAccent, DEFAULT_ACCENT } from '@/lib/accent'
+import { accentPair, applyAccent, applyThemeColor, DEFAULT_ACCENT } from '@/lib/accent'
 import { saveAccent } from '@/lib/local-store'
 import Timer from './Timer'
 import Tasks, { type PendingFocus } from './Tasks'
@@ -102,8 +102,7 @@ export default function AppLayout() {
     const root = document.documentElement
     root.dataset.focusmode = focusMode ? 'true' : 'false'
     root.style.colorScheme = dark ? 'dark' : 'light'
-    const meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
-    if (meta) meta.content = dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
+    applyThemeColor(root, dark)
   }, [focusMode, settings.darkMode])
 
   /**
@@ -118,6 +117,9 @@ export default function AppLayout() {
     if (accent === null) return
     const pair = accentPair(accent)
     applyAccent(document.documentElement, focusMode || settings.darkMode ? pair.dark : pair.light)
+    // The ground moved with the accent, so the chrome behind the status bar
+    // has to move with it too.
+    applyThemeColor(document.documentElement, focusMode || settings.darkMode)
     saveAccent(pair)
   }, [accent, focusMode, settings.darkMode])
 

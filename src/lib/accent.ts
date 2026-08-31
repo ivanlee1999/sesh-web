@@ -31,11 +31,29 @@ const LIGHT_GROUND_MAX_LUMINANCE = 0.5
 /** WCAG AA for large text, which is all the type an accent fill ever carries. */
 const LARGE_TEXT_CONTRAST = 3
 
+/**
+ * How dark the room is while a session runs.
+ *
+ * A luminance rather than a mix percentage, because the same percentage of
+ * black leaves a gold and a slate blue at visibly different darknesses — and
+ * the ground has to be one depth whatever category you are in. Roughly twice
+ * the old flat `#1b1918`, which is still firmly dark: enough light for the
+ * hue to be legible as a hue, not enough to glare in an unlit room.
+ */
+const SESSION_GROUND_LUMINANCE = 0.02
+
 export interface AccentTheme {
   /** The colour every accent step is mixed from. */
   base: string
   /** The ink that stays legible on a surface filled with `base`. */
   on: string
+  /**
+   * The ground a running session sits on: the same colour taken all the way
+   * down. Carried on both grounds rather than beside them, so applying a
+   * theme stays one object and three writes — the value is identical in
+   * either, since the session is dark whatever the interface preference is.
+   */
+  ground: string
 }
 
 export interface AccentPair {
@@ -123,13 +141,25 @@ export function readableInk(color: string): string {
   return inkOn(parseHex(color) ?? (parseHex(DEFAULT_ACCENT) as Rgb))
 }
 
+/**
+ * The room a session runs in: the accent darkened until it is a ground.
+ *
+ * Toward black rather than toward more saturation — the palette is chalky and
+ * muted, and pushing chroma up on the way down turns a print colour into a
+ * gemstone, which is not what the rest of the interface is.
+ */
+export function groundFor(color: string): string {
+  const rgb = parseHex(color) ?? (parseHex(DEFAULT_ACCENT) as Rgb)
+  return toHex(nudge(rgb, [0, 0, 0], lum => lum <= SESSION_GROUND_LUMINANCE))
+}
+
 /** The accent as it should be drawn on one ground. */
 export function accentFor(color: string, dark: boolean): AccentTheme {
   const rgb = parseHex(color) ?? (parseHex(DEFAULT_ACCENT) as Rgb)
   const adjusted = dark
     ? nudge(rgb, parseHex(PAPER) as Rgb, lum => lum >= DARK_GROUND_MIN_LUMINANCE)
     : nudge(rgb, [0, 0, 0], lum => lum <= LIGHT_GROUND_MAX_LUMINANCE)
-  return { base: toHex(adjusted), on: inkOn(adjusted) }
+  return { base: toHex(adjusted), on: inkOn(adjusted), ground: groundFor(color) }
 }
 
 export function accentPair(color: string): AccentPair {
@@ -140,4 +170,33 @@ export function accentPair(color: string): AccentPair {
 export function applyAccent(root: HTMLElement, theme: AccentTheme): void {
   root.style.setProperty('--accent-base', theme.base)
   root.style.setProperty('--accent-on', theme.on)
+  root.style.setProperty('--accent-ground', theme.ground)
+}
+
+/** The chrome on the two plain grounds, when no session is tinting one. */
+export const THEME_COLOR_LIGHT = '#f3f2f2'
+export const THEME_COLOR_DARK = '#1b1918'
+
+/**
+ * Point the browser and PWA chrome at the ground the page is standing on.
+ *
+ * A running session tints that ground with its category, so the strip behind
+ * the status bar has to follow or the phone frames the session in the wrong
+ * colour. The ground is read from the inline property rather than from
+ * computed styles: `applyAccent` writes it there as a plain value, so this
+ * needs no stylesheet to be correct — and stays right in a test environment
+ * that has none.
+ */
+export function applyThemeColor(root: HTMLElement, dark: boolean): void {
+  const ground = root.style.getPropertyValue('--accent-ground').trim()
+  const inSession = root.dataset.focusmode === 'true'
+  const content = inSession && ground ? ground : dark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT
+
+  let meta = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null
+  if (!meta) {
+    meta = document.createElement('meta')
+    meta.name = 'theme-color'
+    document.head.appendChild(meta)
+  }
+  meta.content = content
 }
