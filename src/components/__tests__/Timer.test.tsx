@@ -68,6 +68,9 @@ vi.mock('@/lib/local-store', () => ({
   removeQueuedFocusTime: vi.fn(),
   markFocusTimeAttempt: vi.fn(),
   MAX_FOCUS_TIME_ATTEMPTS: 5,
+  loadPaneLayout: vi.fn(() => ({})),
+  savePaneWidth: vi.fn(),
+  clearPaneWidth: vi.fn(),
 }))
 
 import Timer from '../Timer'

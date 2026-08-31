@@ -17,6 +17,8 @@ import Dial from './Dial'
 import CategoryChips from './md/CategoryChips'
 import TaskList, { type TaskRowModel } from './md/TaskList'
 import TaskComposer from './md/TaskComposer'
+import ResizeHandle from './md/ResizeHandle'
+import { usePaneWidth } from '@/hooks/usePaneWidth'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 import type { PendingFocus } from './Tasks'
@@ -26,6 +28,9 @@ type TimerRunPhase = 'idle' | 'running' | 'paused' | 'reflect'
 /** The three cells of the segmented control, over the repo's two real types. */
 type TypeKey = 'focus' | 'short' | 'long'
 type Scope = 'today' | 'upcoming' | 'all'
+
+/** The designed queue width, and how far it may be dragged from it. */
+const QUEUE_BOUNDS = { min: 248, max: 520, fallback: 326 }
 
 interface ServerTimerState {
   phase: string
@@ -681,6 +686,8 @@ export default function Timer({
    * takes the room the desktop actually has, and `useFitSquare` still shrinks
    * it to whatever the fixed rows leave — so a short window is unaffected.
    */
+  const queue = usePaneWidth('queue', QUEUE_BOUNDS)
+
   const dialCap = phone ? 250 : 360
   const [dialFitRef, dialSize] = useFitSquare(dialCap, 132)
   // Every readout is quoted against the 250px phone dial, matching Dial's own
@@ -1541,11 +1548,22 @@ export default function Timer({
         </div>
 
         {showTaskRail && (
+          <>
+          <ResizeHandle
+            label="Queue width"
+            width={queue.width}
+            min={QUEUE_BOUNDS.min}
+            max={QUEUE_BOUNDS.max}
+            dragging={queue.dragging}
+            towards="end"
+            onStart={queue.startDrag}
+            onNudge={queue.nudge}
+            onReset={queue.reset}
+          />
           <div
             style={{
               flex: 'none',
-              width: 326,
-              borderLeft: '2px solid var(--color-divider)',
+              width: queue.width,
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
@@ -1573,6 +1591,7 @@ export default function Timer({
             {canCompose && <TaskComposer scope={scope} onCreated={refreshTasks} compact />}
             <TaskList groups={queueGroups} />
           </div>
+          </>
         )}
       </div>
 
