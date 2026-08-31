@@ -48,8 +48,10 @@ export default function TaskList({
               alignItems: 'baseline',
               justifyContent: 'space-between',
               gap: 8,
-              padding: '10px 14px 8px',
-              borderBottom: '2px solid var(--color-divider)',
+              padding: '14px 14px 6px',
+              // No rule under a group header. The label is already uppercase,
+              // 800 and tracked — a 2px rule under each of four groups made the
+              // list read as four boxed tables rather than one list.
               position: 'sticky',
               top: 0,
               background: 'var(--color-bg)',
