@@ -156,3 +156,20 @@ export async function appendThingsFocusNote(conn: ThingsConnection, uuid: string
     body: JSON.stringify({ uuid, note: `Focused ${minutes}m via sesh` }),
   })
 }
+
+/**
+ * Create a to-do through the companion service.
+ *
+ * `when` is passed through as the service's own vocabulary (today, anytime,
+ * someday, inbox) rather than translated to wire fields here — the service
+ * owns that mapping, and duplicating it would be two things to keep in step.
+ */
+export async function createThingsTask(
+  conn: ThingsConnection,
+  input: { title: string; when: string },
+): Promise<void> {
+  await request<unknown>(conn, '/api/tasks/create', {
+    method: 'POST',
+    body: JSON.stringify({ title: input.title, when: input.when }),
+  })
+}

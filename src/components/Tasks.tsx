@@ -24,6 +24,7 @@ import { capGroups, type CappedGroup } from '@/lib/modernist'
 import {
   PROVIDER_COLOR,
   PROVIDER_LABEL,
+  canCreateTasks,
   completeTask as completeProviderTask,
   enabledProviders,
   loadProviderStatuses,
@@ -32,6 +33,7 @@ import {
   type ProviderStatus,
 } from '@/lib/task-sources'
 import TaskList, { type TaskRowModel } from './md/TaskList'
+import TaskComposer from './md/TaskComposer'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 
@@ -190,6 +192,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
 
   const connected = statuses.filter(s => s.state === 'connected')
   const authRequired = statuses.some(s => s.state === 'auth_required')
+  const canCompose = connected.some(s => canCreateTasks(s.provider))
 
   // Resolved against the current list rather than stored as task objects, so a
   // refresh (or a filter change) can never hand the timer a stale copy. Kept in
@@ -453,6 +456,8 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
             Still catching up with Things — more tasks will appear shortly.
           </div>
         )}
+
+        {canCompose && <TaskComposer scope={filter} onCreated={load} />}
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <TaskList groups={groups} emptyLabel="Nothing here. Enjoy the calm." />

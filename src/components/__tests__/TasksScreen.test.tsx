@@ -38,9 +38,10 @@ const THINGS_TASKS = [
 /** Records every URL asked for, so "never touched Todoist" is assertable. */
 function mockProviders() {
   const seen: string[] = []
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : (input as Request).url
     seen.push(url)
+    if (url.includes('/api/things/tasks') && init?.method === 'POST') return json({ ok: true })
     if (url.includes('/api/things/status')) return json({ configured: true, reachable: true })
     if (url.includes('/api/things/tasks')) return json({ tasks: THINGS_TASKS })
     return json({ configured: false })
@@ -128,5 +129,90 @@ describe('Tasks screen multi-select', () => {
       category: 'work',
       taskIds: ['things:A1'],
     })
+  })
+})
+
+describe('adding a to-do', () => {
+  /** The one call that created something, with its parsed body. */
+  function createCall() {
+    const call = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      return url.includes('/api/things/tasks') && init?.method === 'POST'
+    })
+    return call ? { url: String(call[0]), body: JSON.parse(String(call[1]?.body)) } : null
+  }
+
+  it('files a to-do into Today while looking at Today, and reloads the list', async () => {
+    mockProviders()
+    render(<Tasks onFocusTask={vi.fn()} />)
+    await screen.findByText('Draft the memo')
+
+    const before = vi.mocked(globalThis.fetch).mock.calls.length
+    fireEvent.change(await screen.findByPlaceholderText('Add to Today…'), {
+      target: { value: 'Book the venue' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add “Book the venue” to Today' }))
+
+    await waitFor(() => expect(createCall()).toBeTruthy())
+    expect(createCall()?.body).toEqual({ title: 'Book the venue', when: 'today' })
+
+    // The list is re-read, so the new to-do shows without a manual refresh.
+    await waitFor(() => {
+      expect(vi.mocked(globalThis.fetch).mock.calls.length).toBeGreaterThan(before + 1)
+    })
+  })
+
+  it('files into the Inbox from any other list, rather than filling up Today', async () => {
+    mockProviders()
+    render(<Tasks onFocusTask={vi.fn()} />)
+    await screen.findByText('Draft the memo')
+
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }))
+
+    fireEvent.change(await screen.findByPlaceholderText('Add to Inbox…'), {
+      target: { value: 'Someday idea' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add “Someday idea” to Inbox' }))
+
+    await waitFor(() => expect(createCall()?.body).toEqual({ title: 'Someday idea', when: 'inbox' }))
+  })
+
+  it('says what went wrong and keeps the text, rather than losing it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/things/tasks') && init?.method === 'POST') {
+        return json({ error: 'Things Cloud is not answering' }, 502)
+      }
+      if (url.includes('/api/things/status')) return json({ configured: true, reachable: true })
+      if (url.includes('/api/things/tasks')) return json({ tasks: THINGS_TASKS })
+      return json({ configured: false })
+    })
+    render(<Tasks onFocusTask={vi.fn()} />)
+    await screen.findByText('Draft the memo')
+
+    const field = await screen.findByPlaceholderText('Add to Today…') as HTMLInputElement
+    fireEvent.change(field, { target: { value: 'Will not land' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add “Will not land” to Today' }))
+
+    expect(await screen.findByText(/Things Cloud is not answering/)).toBeTruthy()
+    expect(field.value).toBe('Will not land')
+  })
+
+  it('offers nothing to add when no provider accepts one', async () => {
+    // Todoist only, and sesh does not create Todoist tasks.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/api/todoist/status')) return json({ configured: true })
+      if (url.includes('/api/todoist/tasks')) return json({ tasks: [] })
+      return json({ configured: false })
+    })
+    settings.todoistEnabled = true
+    try {
+      render(<Tasks onFocusTask={vi.fn()} />)
+      await waitFor(() => expect(screen.queryByText('Checking Todoist...')).toBeNull())
+      expect(screen.queryByPlaceholderText(/^Add to /)).toBeNull()
+    } finally {
+      settings.todoistEnabled = false
+    }
   })
 })

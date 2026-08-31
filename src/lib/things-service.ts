@@ -2,13 +2,18 @@ import 'server-only'
 import { dayClock, dayStartUtcSeconds, type DayClock } from './task-dates'
 import { rememberHistoryKey, type ResolvedThingsConfig } from './things-config'
 import {
+  ACTION_CREATED,
   ThingsAuthError,
   commitItem,
   completedFields,
+  createdTaskFields,
+  newTaskUuid,
   noteFields,
   verifyAccount,
+  type ThingsWhen,
 } from './things-cloud'
 import {
+  applyItems,
   markTaskCompletedLocally,
   readTaskNote,
   readTasks,
@@ -21,6 +26,7 @@ import {
 import {
   appendThingsFocusNote,
   completeThingsTask,
+  createThingsTask,
   listThingsTasks,
   verifyThings,
   type ThingsTaskRaw,
@@ -224,6 +230,40 @@ export async function completeThings(config: ResolvedThingsConfig, uuid: string)
   await ensureSynced(config, WRITE_WAIT_MS)
   await commitItem(config.credentials, historyKey, thingsSyncState().serverIndex, uuid, 'Task6', completedFields())
   markTaskCompletedLocally(uuid)
+}
+
+/**
+ * Add a to-do.
+ *
+ * A create is the one write that has to carry a whole item rather than a patch,
+ * so the cloud path builds the full payload and then replays it locally — the
+ * next sync would otherwise be the first time the new to-do appeared, which
+ * reads as the button having done nothing.
+ */
+export async function createThings(
+  config: ResolvedThingsConfig,
+  input: { title: string; when: ThingsWhen },
+  todayStart: number,
+): Promise<void> {
+  if (config.mode !== 'cloud') {
+    await createThingsTask(config, input)
+    return
+  }
+  const historyKey = await historyKeyFor(config)
+  await ensureSynced(config, WRITE_WAIT_MS)
+
+  const uuid = newTaskUuid()
+  const fields = createdTaskFields(input.title, input.when, todayStart)
+  await commitItem(
+    config.credentials,
+    historyKey,
+    thingsSyncState().serverIndex,
+    uuid,
+    'Task6',
+    fields,
+    ACTION_CREATED,
+  )
+  applyItems([{ uuid, kind: 'Task6', action: ACTION_CREATED, payload: fields }])
 }
 
 export async function recordThingsFocus(
