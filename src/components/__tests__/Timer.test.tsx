@@ -855,6 +855,62 @@ describe('Timer', () => {
       expect(screen.queryByText(/<html>/)).toBeNull()
     })
 
+    it('re-files the finished session against a different task from the poster', async () => {
+      todoistConfigured = true
+      render(<Timer />)
+
+      // Start against one task, then decide on the poster it was really the other.
+      fireEvent.click(await screen.findByRole('button', { name: /^Choose$|^Change$/ }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Draft memo to the session' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
+      fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+      fireEvent.click(await screen.findByLabelText('Finish session'))
+      await screen.findByText('Session logged')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Change the task this session is filed against' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Add Book the room to the session' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Remove Draft memo from the session' }))
+      fireEvent.click(screen.getByLabelText('Close task picker'))
+
+      await act(async () => {
+        fireEvent.click(await screen.findByRole('button', { name: /Back to the dial/ }))
+        await flushPromises()
+      })
+
+      // The minutes follow the task chosen here, not the one it started against.
+      await waitFor(() => {
+        const posted = (path: string) => vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => {
+          const url = typeof input === 'string' ? input : (input as Request).url
+          return url === path && init?.method === 'POST'
+        })
+        expect(posted('/api/todoist/tasks/t2/duration')).toBe(true)
+        expect(posted('/api/todoist/tasks/t1/duration')).toBe(false)
+      })
+    })
+
+    it('carries a title edited on the poster into the saved session', async () => {
+      render(<Timer />)
+
+      fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+      fireEvent.click(await screen.findByLabelText('Finish session'))
+      await screen.findByText('Session logged')
+
+      fireEvent.change(screen.getByLabelText('What this session was'), {
+        target: { value: 'Actually rewrote the parser' },
+      })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
+        await flushPromises()
+      })
+
+      const post = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/sessions' && init?.method === 'POST'
+      })
+      expect(post?.[1]?.body).toEqual(expect.stringContaining('"intention":"Actually rewrote the parser"'))
+    })
+
     it('offers no tasks at all once Todoist is the only source and it is unconfigured', async () => {
       render(<Timer />)
       await screen.findByRole('button', { name: /^Start Focus/ })

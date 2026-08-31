@@ -10,7 +10,7 @@ import { useFitSquare } from '@/hooks/useFitSquare'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
-import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs } from '@/lib/task-ref'
+import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
 import { PROVIDER_COLOR, PROVIDER_LABEL, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
 import { capGroups, clockOf, dialColor, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
 import Dial from './Dial'
@@ -547,6 +547,33 @@ export default function Timer({
    * name them — it is the one line that says what the session is for — and the
    * first task, being the one that leads, decides the category and the length.
    */
+  /**
+   * Which tasks the picker is currently choosing for. With the poster up it is
+   * editing the session that just ended; otherwise it is setting up the next
+   * one. Everything downstream — the selected state, the picker's writes —
+   * reads this rather than assuming.
+   */
+  const draftRefs = useMemo(() => splitTaskRefs(draft?.todoistTaskId), [draft])
+  const editingDraft = draft !== null
+  const activeRefs = editingDraft ? draftRefs : taskRefs
+
+  /**
+   * Re-file the finished session against a different set of tasks. The title
+   * and category follow the lead task, exactly as picking one does before a
+   * session — and because nothing has been written back yet (that happens on
+   * save), the minutes land on whatever is chosen here.
+   */
+  const applyDraftTasks = useCallback((nextRefs: string[]) => {
+    const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
+    const picked = nextRefs.map(ref => byRef.get(ref)).filter((task): task is ExternalTask => !!task)
+    setDraft(prev => prev ? {
+      ...prev,
+      intention: picked.length > 0 ? picked.map(task => task.content).join(' · ') : prev.intention,
+      category: picked.length > 0 ? taskCategory(picked[0], categories, prev.category) : prev.category,
+      todoistTaskId: encodeTaskRefs(nextRefs),
+    } : prev)
+  }, [categories, tasks])
+
   const applyTaskRefs = useCallback((nextRefs: string[]) => {
     const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
     const picked = nextRefs.map(ref => byRef.get(ref)).filter((task): task is ExternalTask => !!task)
@@ -571,21 +598,48 @@ export default function Timer({
 
   const toggleTaskRef = useCallback((task: ExternalTask) => {
     const ref = encodeTaskRef(resolveProvider(task), task.id)
-    applyTaskRefs(taskRefs.includes(ref) ? taskRefs.filter(r => r !== ref) : [...taskRefs, ref])
-  }, [applyTaskRefs, taskRefs])
+    const next = activeRefs.includes(ref) ? activeRefs.filter(r => r !== ref) : [...activeRefs, ref]
+    if (editingDraft) applyDraftTasks(next)
+    else applyTaskRefs(next)
+  }, [activeRefs, applyDraftTasks, applyTaskRefs, editingDraft])
+
+  /**
+   * The sheet stays mounted through its exit animation, so closing schedules
+   * the unmount rather than doing it. Reopening inside that window has to
+   * cancel the pending unmount — otherwise the timer fires against the *new*
+   * sheet and closes it out from under you, which is easy to hit going from
+   * the idle picker to the poster's.
+   */
+  const sheetCloseTimer = useRef<number | null>(null)
+
+  const openSheet = useCallback(() => {
+    if (sheetCloseTimer.current !== null) {
+      window.clearTimeout(sheetCloseTimer.current)
+      sheetCloseTimer.current = null
+    }
+    setSheet(true)
+    setSheetClosing(false)
+  }, [])
 
   const closeSheet = useCallback(() => {
     setSheetClosing(true)
-    window.setTimeout(() => {
+    sheetCloseTimer.current = window.setTimeout(() => {
+      sheetCloseTimer.current = null
       setSheet(false)
       setSheetClosing(false)
     }, 260)
   }, [])
 
+  useEffect(() => () => {
+    if (sheetCloseTimer.current !== null) window.clearTimeout(sheetCloseTimer.current)
+  }, [])
+
   const focusOneTask = useCallback((task: ExternalTask) => {
-    applyTaskRefs([encodeTaskRef(resolveProvider(task), task.id)])
+    const only = [encodeTaskRef(resolveProvider(task), task.id)]
+    if (editingDraft) applyDraftTasks(only)
+    else applyTaskRefs(only)
     if (sheet) closeSheet()
-  }, [applyTaskRefs, closeSheet, sheet])
+  }, [applyDraftTasks, applyTaskRefs, closeSheet, editingDraft, sheet])
 
   const completeOne = useCallback(async (task: ExternalTask) => {
     const key = encodeTaskRef(resolveProvider(task), task.id)
@@ -981,6 +1035,11 @@ export default function Timer({
 
   // ── Derived copy ───────────────────────────────────────────────────────
 
+  const draftTasks = useMemo(() => {
+    const byRef = new Map(tasks.map(task => [encodeTaskRef(resolveProvider(task), task.id), task]))
+    return draftRefs.map(ref => byRef.get(ref)).filter((task): task is ExternalTask => !!task)
+  }, [draftRefs, tasks])
+
   const linkedTasks = selectedTasks
     .map(entry => entry.task)
     .filter((task): task is ExternalTask => task !== null)
@@ -1024,16 +1083,16 @@ export default function Timer({
       due: task.dueLabel ?? '',
       est: estimateLabel(task),
       dot: PROVIDER_COLOR[provider],
-      selected: taskRefs.includes(key),
+      selected: activeRefs.includes(key),
       completing: completingKey === key,
-      ariaLabel: taskRefs.includes(key)
+      ariaLabel: activeRefs.includes(key)
         ? `Remove ${task.content} from the session`
         : `Add ${task.content} to the session`,
       onPick: () => toggleTaskRef(task),
       onFocus: () => focusOneTask(task),
       onComplete: () => { void completeOne(task) },
     }
-  }, [completeOne, completingKey, focusOneTask, taskRefs, toggleTaskRef])
+  }, [activeRefs, completeOne, completingKey, focusOneTask, toggleTaskRef])
 
   const queueGroups: CappedGroup<TaskRowModel>[] = useMemo(() => {
     const scoped = tasks.filter(task => inScope(task, scope))
@@ -1336,7 +1395,7 @@ export default function Timer({
                   <button
                     type="button"
                     className="md-press md-lift"
-                    onClick={() => { setSheet(true); setSheetClosing(false) }}
+                    onClick={openSheet}
                     style={{
                       flex: 'none',
                       border: 0,
@@ -1523,7 +1582,7 @@ export default function Timer({
           style={{
             position: 'absolute',
             inset: 0,
-            zIndex: 70,
+            zIndex: 90,
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'flex-end',
@@ -1589,7 +1648,11 @@ export default function Timer({
         <Poster
           minutes={Math.max(1, Math.round(draft.actualMs / 60000))}
           categoryLabel={categoryByName(categories, draft.category)?.label ?? 'Focus'}
-          tasks={linkedTasks}
+          intention={draft.intention}
+          onIntentionChange={next => setDraft(prev => (prev ? { ...prev, intention: next } : prev))}
+          tasks={draftTasks}
+          canPickTask={tasks.length > 0}
+          onPickTask={openSheet}
           mirrorsToCalendar={settings.calendarSync}
           breakRunning={live}
           phone={phone}
@@ -1624,7 +1687,11 @@ const RATINGS: { label: string; value: number }[] = [
 function Poster({
   minutes,
   categoryLabel,
+  intention,
+  onIntentionChange,
   tasks,
+  canPickTask,
+  onPickTask,
   mirrorsToCalendar,
   breakRunning,
   phone,
@@ -1634,7 +1701,12 @@ function Poster({
 }: {
   minutes: number
   categoryLabel: string
+  /** Editable: what the session ends up filed as is decided here, not before. */
+  intention: string
+  onIntentionChange: (next: string) => void
   tasks: ExternalTask[]
+  canPickTask: boolean
+  onPickTask: () => void
   mirrorsToCalendar: boolean
   /** Rest has already started underneath — say so, or the poster looks like a wall. */
   breakRunning: boolean
@@ -1664,10 +1736,11 @@ function Poster({
         color: '#fff',
         display: 'flex',
         flexDirection: 'column',
-        padding: phone ? '58px 20px 30px' : '34px 34px 30px',
+        overflow: 'hidden',
+        padding: phone ? 'calc(var(--safe-t) + 20px) 20px calc(var(--safe-b) + 22px)' : '34px 34px 30px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, flex: 'none' }}>
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="square" aria-hidden="true">
           <path className="md-draw" d="M3.5 12.5 9.5 18.5 20.5 5.5" />
         </svg>
@@ -1683,7 +1756,7 @@ function Poster({
         style={{
           fontFamily: 'var(--font-heading)',
           fontWeight: 800,
-          fontSize: phone ? 84 : 112,
+          fontSize: phone ? 'min(84px, 13vh)' : 'min(112px, 16vh)',
           letterSpacing: '-.045em',
           lineHeight: .92,
         }}
@@ -1693,7 +1766,69 @@ function Poster({
       <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 13, letterSpacing: '.14em', textTransform: 'uppercase', marginTop: 8 }}>
         minutes · {categoryLabel}
       </span>
-      <p style={{ margin: '14px 0 0', fontSize: 14, lineHeight: 1.45, maxWidth: '34ch', opacity: .92, textWrap: 'pretty' }}>
+
+      {/* What it gets filed as is still open until you dismiss this. The field
+          carries the poster's own ink rather than a box, so it reads as the
+          title it is. */}
+      <input
+        value={intention}
+        onChange={event => onIntentionChange(event.target.value)}
+        placeholder="Untitled session"
+        aria-label="What this session was"
+        style={{
+          width: '100%',
+          marginTop: 16,
+          border: 0,
+          borderBottom: '2px solid rgba(255,255,255,.55)',
+          background: 'transparent',
+          color: '#fff',
+          fontFamily: 'var(--font-heading)',
+          fontWeight: 800,
+          fontSize: phone ? 18 : 21,
+          letterSpacing: '-.02em',
+          padding: '0 0 8px',
+          outline: 'none',
+        }}
+      />
+
+      <div style={{ border: '2px solid rgba(255,255,255,.55)', display: 'flex', alignItems: 'stretch', marginTop: 12 }}>
+        <div style={{ flex: 1, minWidth: 0, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <span style={{ fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, opacity: .8 }}>
+            {lead && leadProvider ? `${leadProvider} · ${lead.projectName ?? leadProvider}` : 'No task linked'}
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tasks.length > 0 ? tasks.map(t => t.content).join(' · ') : 'Nothing written back'}
+          </span>
+        </div>
+        {canPickTask && (
+          <button
+            type="button"
+            className="md-press"
+            onClick={onPickTask}
+            // The idle slot behind the poster carries the same word, so this
+            // one says which task it means.
+            aria-label={tasks.length > 0 ? 'Change the task this session is filed against' : 'Choose a task for this session'}
+            style={{
+              flex: 'none',
+              border: 0,
+              borderLeft: '2px solid rgba(255,255,255,.55)',
+              background: 'transparent',
+              color: '#fff',
+              padding: '0 13px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-heading)',
+              fontWeight: 800,
+              fontSize: 10.5,
+              letterSpacing: '.1em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {tasks.length > 0 ? 'Change' : 'Choose'}
+          </button>
+        )}
+      </div>
+
+      <p style={{ margin: '12px 0 0', fontSize: 13.5, lineHeight: 1.45, maxWidth: '34ch', opacity: .92, textWrap: 'pretty' }}>
         {note}
       </p>
       {breakRunning && (
