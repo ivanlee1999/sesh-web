@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import Calendar from '../Calendar'
 
 vi.mock('@/context/CategoriesContext', () => ({
@@ -21,6 +21,32 @@ function json(data: unknown, status = 200) {
 
 /** Mid-month and mid-week, so a step in either direction is unambiguous. */
 const TODAY = new Date(2026, 7, 19, 10, 0, 0)
+
+/** A focus session on a given day at a given wall-clock time. */
+function session(id: string, day: number, hour: number, minutes: number, type: 'focus' | 'break' = 'focus') {
+  const startedAt = new Date(2026, 7, day, hour, 0, 0).getTime()
+  return {
+    id,
+    intention: `Session ${id}`,
+    category: 'work',
+    type,
+    targetMs: minutes * 60000,
+    actualMs: minutes * 60000,
+    overflowMs: 0,
+    startedAt,
+    endedAt: startedAt + minutes * 60000,
+    notes: '',
+  }
+}
+
+/** The seven day columns of the week grid, in order. */
+function weekColumns() {
+  return screen.getAllByRole('button').filter(b => /— \d+ session/.test(b.getAttribute('aria-label') ?? ''))
+}
+
+function blocksIn(column: HTMLElement) {
+  return Array.from(column.querySelectorAll('span'))
+}
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -137,5 +163,92 @@ describe('dragging the calendar', () => {
 
     swipe(-120)
     expect(screen.getByText('24–30 August')).toBeTruthy()
+  })
+})
+
+describe('the week grid', () => {
+  /** Two sessions on Wednesday the 19th, plus one on Thursday. */
+  function withSessions() {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json([
+      session('a', 19, 9, 60),
+      session('b', 19, 14, 30),
+      session('c', 20, 11, 90),
+    ]))
+  }
+
+  /** Renders, switches to the week, and lets the session fetch land. */
+  async function openWeek() {
+    renderCalendar()
+    fireEvent.click(screen.getByRole('button', { name: 'Week' }))
+    // The response and its .json() are each a microtask.
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+  }
+
+  it('gives every day of the week a column', async () => {
+    withSessions()
+    await openWeek()
+    expect(weekColumns()).toHaveLength(7)
+  })
+
+  it('places a later session lower than an earlier one on the same day', async () => {
+    withSessions()
+    await openWeek()
+
+    // Wednesday is the third column of a Monday-first week.
+    const blocks = blocksIn(weekColumns()[2])
+    expect(blocks).toHaveLength(2)
+
+    const top = (el: Element) => parseFloat((el as HTMLElement).style.top)
+    // 09:00 sits above 14:00.
+    expect(top(blocks[0])).toBeLessThan(top(blocks[1]))
+  })
+
+  it('makes a longer session a taller block', async () => {
+    withSessions()
+    await openWeek()
+
+    const height = (el: Element) => parseFloat((el as HTMLElement).style.height)
+    const wed = blocksIn(weekColumns()[2])
+    // 60 minutes against 30, in the same grid.
+    expect(height(wed[0])).toBeGreaterThan(height(wed[1]))
+  })
+
+  it('draws a break as an outline, since rest is not work', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json([
+      session('focus', 19, 9, 60),
+      session('rest', 19, 10, 15, 'break'),
+    ]))
+    await openWeek()
+
+    const [work, rest] = blocksIn(weekColumns()[2]) as HTMLElement[]
+    expect(work.style.background).not.toBe('transparent')
+    expect(rest.style.background).toBe('transparent')
+    expect(rest.style.boxShadow).toContain('inset')
+  })
+
+  it('follows the work when setting the hour range', async () => {
+    // Everything late in the day: the grid should not still start at 08.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json([session('late', 19, 19, 60)]))
+    await openWeek()
+
+    // Scoped to the gutter: day numbers in the header collide with hours.
+    const hours = within(screen.getByTestId('week-hours')).getAllByText(/\d\d/).map(el => el.textContent)
+    // An hour before the first session, and nowhere near a default morning.
+    expect(hours[0]).toBe('18')
+    expect(hours).not.toContain('08')
+  })
+
+  it('falls back to a working day when the week is empty', async () => {
+    await openWeek()
+    expect(screen.getByText('08')).toBeTruthy()
+  })
+
+  it('selects a day by its column, and the list below follows', async () => {
+    withSessions()
+    await openWeek()
+
+    // Thursday the 20th, where session c sits.
+    fireEvent.click(weekColumns()[3])
+    expect(screen.getByText(/1 session/)).toBeTruthy()
   })
 })
