@@ -290,10 +290,20 @@ export default function Calendar() {
     [byDay, selected],
   )
 
-  // Nothing scrolls: the list shows what fits and counts the rest. The day view
-  // has the whole pane, so it can show far more of them.
-  const listBudget = view === 'day' ? (phone ? 9 : 16) : phone ? 4 : 7
-  const shown = daySessions.slice(0, listBudget)
+  /*
+   * Month and week are overviews, so their list shows what fits and counts the
+   * rest — nothing scrolls, as everywhere else.
+   *
+   * The day view is the exception, and has to be: it is the log of one day,
+   * its length is whatever that day was, and a fixed row budget cannot know
+   * how tall the pane is. On a short viewport — an iOS phone with Safari's
+   * chrome, most of all — the budget overran the pane and `overflow: hidden`
+   * quietly cut the list off, taking the "+N more" line with it, so the extra
+   * sessions were neither shown nor counted nor reachable. It scrolls and
+   * shows all of them instead.
+   */
+  const dayList = view === 'day'
+  const shown = dayList ? daySessions : daySessions.slice(0, phone ? 4 : 7)
   const hidden = daySessions.length - shown.length
 
   /** Where the day's work actually fell, for the day view's strip. */
@@ -671,7 +681,16 @@ export default function Calendar() {
         </span>
       </div>
 
-      <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', flex: view === 'day' ? 1 : 'none', minHeight: 0, overflow: 'hidden' }}>
+      <div
+        className={dayList ? 'md-stagger md-scroll' : 'md-stagger'}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: dayList ? 1 : 'none',
+          minHeight: 0,
+          ...(dayList ? null : { overflow: 'hidden' }),
+        }}
+      >
         {shown.map(session => {
           const meta = getCategoryMeta(session.category, categories)
           const time = new Date(session.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })

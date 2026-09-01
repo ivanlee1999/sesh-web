@@ -1560,8 +1560,16 @@ button.sesh-row:active { background: var(--surface-2) }
 .md-hscroll::-webkit-scrollbar { display: none }
 .md-hscroll > * { flex: none }
 
-/* ---- Vertical scroller (phone picker sheet only) ---- */
-.md-scroll { overflow: auto; scrollbar-width: thin }
+/* ---- Vertical scroller (the phone picker sheet, and the day log) ---- */
+.md-scroll {
+  overflow: auto;
+  scrollbar-width: thin;
+  /* Momentum on older iOS, and a scroll that stops at its own ends rather
+     than handing the rest to the shell, which has nowhere to go and would
+     rubber-band the whole app instead. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
 .md-scroll::-webkit-scrollbar { width: 8px }
 .md-scroll::-webkit-scrollbar-thumb { background: var(--color-neutral-300) }
 

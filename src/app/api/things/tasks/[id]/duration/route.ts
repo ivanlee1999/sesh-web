@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
 import { readThingsConfig } from '@/lib/things-config'
+import { thingsWriteError } from '@/app/api/things/write-error'
 import { recordThingsFocus } from '@/lib/things-service'
 
 export const dynamic = 'force-dynamic'
@@ -23,14 +24,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'Things not configured' }, { status: 503 })
   }
 
+  // Outside the try: the id names the task in the failure log, so it has to
+  // outlive the call that failed.
+  const { id } = await params
+
   try {
-    const { id } = await params
     const body = await request.json().catch(() => ({}))
     const minutes = Math.max(1, Math.round(Number(body.add_minutes) || 0))
     await recordThingsFocus(conn, id, minutes)
     return NextResponse.json({ ok: true, minutes })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 502 })
+    return thingsWriteError('duration write', id, err)
   }
 }

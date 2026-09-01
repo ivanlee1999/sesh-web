@@ -97,6 +97,48 @@ describe('Calendar views', () => {
     expect(screen.getByRole('button', { name: 'Day' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('shows every session of a long day, rather than capping the log', async () => {
+    // Twelve on one day: past the old fixed budget, which cut the list off
+    // inside an overflow-hidden pane and took the counter with it.
+    const many = Array.from({ length: 12 }, (_, i) => session(`s${i}`, 19, 6 + i, 25))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(many))
+
+    renderCalendar()
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }))
+
+    for (let i = 0; i < 12; i += 1) {
+      expect(screen.getByText(`Session s${i}`)).toBeTruthy()
+    }
+    expect(screen.queryByText(/more that day/)).toBeNull()
+  })
+
+  it('lets the day log scroll, since nothing else on the screen can', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => session(`s${i}`, 19, 6 + i, 25))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(many))
+
+    renderCalendar()
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: 'Day' }))
+
+    const log = screen.getByText('Session s0').closest('.md-stagger')
+    expect(log?.classList.contains('md-scroll')).toBe(true)
+    expect((log as HTMLElement).style.overflow).toBe('')
+  })
+
+  it('still caps and counts the list on the month, which is an overview', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => session(`s${i}`, 19, 6 + i, 25))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(many))
+
+    renderCalendar()
+    await act(async () => {})
+
+    expect(screen.getByText(/more that day/)).toBeTruthy()
+    const log = screen.getByText('Session s0').closest('.md-stagger') as HTMLElement
+    expect(log.classList.contains('md-scroll')).toBe(false)
+    expect(log.style.overflow).toBe('hidden')
+  })
+
   it('remembers the view for next time', async () => {
     renderCalendar()
     fireEvent.click(screen.getByRole('button', { name: 'Week' }))
