@@ -19,6 +19,7 @@ import {
   List,
   Pause,
   Play,
+  RotateCw,
   Settings,
   Timer,
   X,
@@ -38,6 +39,7 @@ export const MD_ICONS = {
   arrow: ArrowRight,
   prev: ChevronLeft,
   next: ChevronRight,
+  refresh: RotateCw,
 } satisfies Record<string, LucideIcon>
 
 export type MdIconName = keyof typeof MD_ICONS

@@ -463,7 +463,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
               opacity: loading ? 0.5 : 1,
             }}
           >
-            <MdIcon name="next" size={14} strokeWidth={2.4} />
+            <MdIcon name="refresh" size={14} strokeWidth={2.4} />
           </button>
         </div>
 
