@@ -11,6 +11,7 @@ import { PROVIDER_COLOR, isTodoistEnabled } from '@/lib/task-sources'
 import { SWATCHES } from '@/lib/modernist'
 import { Btn, Icon, Sheet } from './sesh-ui'
 import { useShellStatus } from './md/shell-status'
+import { useIsDesktop } from '@/hooks/useIsDesktop'
 
 type TodoistConnection =
   | { kind: 'checking'; message: string }
@@ -372,12 +373,12 @@ function ColorDots({ value, onChange, compact }: { value: string; onChange: (val
           type="button"
           aria-label={`Set colour ${col}`}
           onClick={() => onChange(col)}
-          className="p-0"
+          className="p-0 md-swatch"
+          data-chosen={value === col ? 'true' : 'false'}
           style={{
-            width: compact ? 22 : 30,
-            height: compact ? 22 : 30,
+            width: compact ? 22 : 28,
+            height: compact ? 22 : 28,
             background: col,
-            border: value === col ? '2px solid var(--color-text)' : '2px solid transparent',
           }}
         />
       ))}
@@ -399,62 +400,23 @@ const PANES: { key: Pane; label: string }[] = [
   { key: 'sources', label: 'Sources' },
 ]
 
-const quietStyle = (active: boolean): CSSProperties => ({
-  border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
-  background: active ? 'var(--color-accent)' : 'transparent',
-  color: active ? 'var(--accent-on)' : 'inherit',
-  padding: '6px 10px',
-  cursor: 'pointer',
-  fontFamily: 'var(--font-heading)',
-  fontWeight: 800,
-  fontSize: 10.5,
-  letterSpacing: '.09em',
-  textTransform: 'uppercase',
-})
-
 const PANE_HEAD: CSSProperties = {
-  padding: '12px 18px 6px',
-  fontFamily: 'var(--font-heading)',
-  fontWeight: 800,
-  fontSize: 11,
-  letterSpacing: '.12em',
-  textTransform: 'uppercase',
-  color: 'var(--color-neutral-600)',
+  padding: '16px 18px 6px',
 }
 
-/** A square 52×28 track whose 18px knob moves by flipping the justification. */
+/** A 44×26 pill whose knob slides; the track takes the accent when on. */
 function MdToggle({ on, disabled, onChange, label }: { on: boolean; disabled?: boolean; onChange: (next: boolean) => void; label: string }) {
   return (
     <button
       type="button"
-      className="md-press"
-      aria-pressed={on}
+      className="md-toggle"
+      role="switch"
+      aria-checked={on}
       aria-label={label}
       disabled={disabled}
       onClick={() => !disabled && onChange(!on)}
-      style={{
-        flex: 'none',
-        width: 52,
-        height: 28,
-        padding: 3,
-        cursor: disabled ? 'default' : 'pointer',
-        border: `2px solid ${on ? 'var(--color-accent)' : 'var(--color-divider)'}`,
-        background: on ? 'var(--color-accent)' : 'transparent',
-        display: 'flex',
-        justifyContent: on ? 'flex-end' : 'flex-start',
-        opacity: disabled ? 0.45 : 1,
-        transition: 'background 200ms, border-color 200ms',
-      }}
     >
-      <span
-        style={{
-          display: 'block',
-          width: 18,
-          height: 18,
-          background: on ? 'var(--accent-on)' : 'var(--color-neutral-500)',
-          transition: 'background 200ms',
-        }}
-      />
+      <span />
     </button>
   )
 }
@@ -478,42 +440,25 @@ function MdStepper({
 }) {
   return (
     <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px' }}>
-      <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', border: '2px solid var(--color-divider)' }}>
+      <span style={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{label}</span>
+      <div className="md-stepper">
         <button
           type="button"
-          className="md-press md-lift"
           aria-label={`Decrease ${label}`}
           onClick={() => onChange(Math.max(min, value - step))}
           disabled={value <= min}
-          style={{ width: 34, height: 32, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 17, fontWeight: 700, lineHeight: 1 }}
         >
           −
         </button>
         {/* Keyed on the value so the pop replays on every change. */}
-        <span
-          key={value}
-          className="md-numpop md-num"
-          style={{
-            minWidth: 62,
-            textAlign: 'center',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 800,
-            fontSize: 13,
-            borderLeft: '2px solid var(--color-divider)',
-            borderRight: '2px solid var(--color-divider)',
-            padding: '8px 4px',
-          }}
-        >
+        <span key={value} className="md-numpop md-num">
           {value} {unit}
         </span>
         <button
           type="button"
-          className="md-press md-lift"
           aria-label={`Increase ${label}`}
           onClick={() => onChange(Math.min(max, value + step))}
           disabled={value >= max}
-          style={{ width: 34, height: 32, border: 0, background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: 17, fontWeight: 700, lineHeight: 1 }}
         >
           +
         </button>
@@ -538,8 +483,8 @@ function ToggleRow({
   return (
     <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px' }}>
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 500 }}>{title}</span>
-        <span style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{sub}</span>
+        <span style={{ fontSize: 15, fontWeight: 500 }}>{title}</span>
+        <span className="md-meta">{sub}</span>
       </span>
       <MdToggle on={on} disabled={disabled} onChange={onChange} label={title} />
     </div>
@@ -617,6 +562,7 @@ function PushRow() {
 
 export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void }) {
   const { settings, updateSettings } = useSettings()
+  const phone = !useIsDesktop()
   const todoistOn = isTodoistEnabled(settings)
   const { categories, updateCategory } = useCategories()
   const { reportSub } = useShellStatus()
@@ -817,15 +763,15 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
 
   return (
     <div className="md-screen md-screen-col">
-      <h2 className="md-title" style={{ padding: '12px 18px 8px', fontSize: 24, flex: 'none' }}>Settings</h2>
+      {phone && <h2 className="md-title" style={{ padding: '14px 18px 4px', fontSize: 24, flex: 'none' }}>Settings</h2>}
 
       <div
         style={{
           display: 'flex',
-          gap: 6,
+          gap: 2,
           flexWrap: 'wrap',
-          padding: '9px 18px 12px',
-          borderBottom: '2px solid var(--color-divider)',
+          padding: phone ? '8px 14px 10px' : '14px 14px 10px',
+          borderBottom: '1px solid var(--line)',
           flex: 'none',
         }}
       >
@@ -833,10 +779,10 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
           <button
             key={key}
             type="button"
-            className="md-press"
+            className="md-quiet"
+            data-active={pane === key ? 'true' : 'false'}
             aria-pressed={pane === key}
             onClick={() => setPane(key)}
-            style={quietStyle(pane === key)}
           >
             {label}
           </button>
@@ -846,7 +792,7 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {pane === 'timer' && (
           <div>
-            <div style={PANE_HEAD}>Durations</div>
+            <div className="md-eyebrow" style={PANE_HEAD}>Durations</div>
             <MdStepper label="Focus length" value={settings.focusDuration} onChange={focusDuration => updateSettings({ focusDuration })} />
             <MdStepper label="Short break" value={settings.breakDuration} onChange={breakDuration => updateSettings({ breakDuration })} />
             <MdStepper label="Long break" value={settings.longBreakDuration} onChange={longBreakDuration => updateSettings({ longBreakDuration })} />
@@ -864,26 +810,25 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
 
         {pane === 'alerts' && (
           <div>
-            <div style={PANE_HEAD}>Alerts &amp; appearance</div>
+            <div className="md-eyebrow" style={PANE_HEAD}>Alerts &amp; appearance</div>
             <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px' }}>
-              <span style={{ flex: 'none', fontSize: 14, fontWeight: 500 }}>Your name</span>
+              <span style={{ flex: 'none', fontSize: 15, fontWeight: 500 }}>Your name</span>
               <input
                 value={settings.displayName ?? ''}
                 onChange={event => updateSettings({ displayName: event.target.value })}
                 aria-label="Display name"
                 maxLength={32}
                 placeholder={displayNameOf(settings)}
+                className="md-field"
                 style={{
                   flex: 1,
                   minWidth: 0,
+                  maxWidth: 220,
+                  marginLeft: 'auto',
                   textAlign: 'right',
-                  border: 0,
-                  background: 'transparent',
-                  color: 'inherit',
                   fontFamily: 'var(--font-heading)',
-                  fontWeight: 800,
-                  fontSize: 16,
-                  outline: 'none',
+                  fontWeight: 600,
+                  minHeight: 36,
                 }}
               />
             </div>
@@ -930,37 +875,29 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
 
         {pane === 'colours' && (
           <div>
-            <div style={PANE_HEAD}>Category colours</div>
+            <div className="md-eyebrow" style={PANE_HEAD}>Category colours</div>
             {categories.map(category => (
               <div
                 key={category.id}
                 className="md-hairline"
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 18px' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px' }}
               >
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {category.label}
                 </span>
-                <div style={{ display: 'flex', gap: 5, flex: 'none' }}>
+                <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
                   {SWATCHES.map(hex => {
                     const chosen = category.color.toLowerCase() === hex.toLowerCase()
                     return (
                       <button
                         key={hex}
                         type="button"
-                        className="md-press"
+                        className="md-swatch"
+                        data-chosen={chosen ? 'true' : 'false'}
                         aria-label={`Set ${category.label} to ${hex}`}
                         aria-pressed={chosen}
                         onClick={() => updateCategory(category.id, { color: hex })}
-                        style={{
-                          width: 22,
-                          height: 22,
-                          flex: 'none',
-                          cursor: 'pointer',
-                          background: hex,
-                          border: chosen ? '2px solid var(--color-text)' : '2px solid transparent',
-                          outline: chosen ? '2px solid var(--color-bg)' : 'none',
-                          outlineOffset: -4,
-                        }}
+                        style={{ width: 24, height: 24, background: hex }}
                       />
                     )
                   })}
@@ -969,25 +906,9 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
             ))}
             <button
               type="button"
-              className="md-press md-lift"
+              className="btn btn-quiet btn-md"
               onClick={() => setCatSheet(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                width: '100%',
-                padding: '11px 18px',
-                border: 0,
-                background: 'transparent',
-                color: 'var(--color-neutral-600)',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 11,
-                letterSpacing: '.09em',
-                textTransform: 'uppercase',
-                textAlign: 'left',
-              }}
+              style={{ margin: '10px 12px 0', color: 'var(--accent-base)' }}
             >
               Add or rename categories
             </button>
@@ -996,35 +917,23 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
 
         {pane === 'sources' && (
           <div>
-            <div style={PANE_HEAD}>Task sources</div>
+            <div className="md-eyebrow" style={PANE_HEAD}>Task sources</div>
             {sources.map(source => (
               <div
                 key={source.key}
                 className="md-hairline"
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px' }}
               >
-                <span style={{ width: 9, height: 9, background: source.dot, display: 'block', flex: 'none' }} />
+                <span style={{ width: 8, height: 8, borderRadius: 4, background: source.dot, display: 'block', flex: 'none' }} />
                 <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{source.label}</span>
-                  <span style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{source.sub}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>{source.label}</span>
+                  <span className="md-meta">{source.sub}</span>
                 </span>
                 <button
                   type="button"
-                  className="md-press"
+                  className={source.on ? 'btn btn-tonal btn-sm' : 'btn btn-primary btn-sm'}
                   onClick={source.action}
-                  style={{
-                    flex: 'none',
-                    border: `2px solid ${source.on ? 'var(--color-accent)' : 'var(--color-divider)'}`,
-                    background: 'transparent',
-                    color: source.on ? 'var(--color-accent)' : 'var(--color-neutral-600)',
-                    padding: '7px 11px',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
-                    fontSize: 10.5,
-                    letterSpacing: '.09em',
-                    textTransform: 'uppercase',
-                  }}
+                  style={{ flex: 'none' }}
                 >
                   {source.cta}
                 </button>
@@ -1032,26 +941,13 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
             ))}
             {calConnected && (
               <div className="md-hairline" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 500 }}>Sync recent sessions now</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 500 }}>Sync recent sessions now</span>
                 <button
                   type="button"
-                  className="md-press"
+                  className="btn btn-tonal btn-sm"
                   onClick={manualSync}
                   disabled={manualSyncBusy}
-                  style={{
-                    flex: 'none',
-                    border: '2px solid var(--color-divider)',
-                    background: 'transparent',
-                    color: 'inherit',
-                    padding: '7px 11px',
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
-                    fontSize: 10.5,
-                    letterSpacing: '.09em',
-                    textTransform: 'uppercase',
-                    opacity: manualSyncBusy ? 0.5 : 1,
-                  }}
+                  style={{ flex: 'none' }}
                 >
                   {manualSyncBusy ? 'Syncing…' : 'Sync'}
                 </button>
@@ -1062,9 +958,9 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
                 style={{
                   margin: 0,
                   padding: '10px 18px',
-                  fontSize: 11.5,
+                  fontSize: 13,
                   fontWeight: 600,
-                  color: syncNotice.type === 'success' ? 'var(--good)' : 'var(--color-accent)',
+                  color: syncNotice.type === 'success' ? 'var(--good)' : 'var(--warn)',
                 }}
               >
                 {syncNotice.message}
@@ -1077,68 +973,33 @@ export default function Settings({ onReplayIntro }: { onReplayIntro?: () => void
       <div
         style={{
           marginTop: 'auto',
-          padding: '11px 18px calc(11px + var(--safe-b))',
+          padding: '10px 14px calc(10px + var(--safe-b))',
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 9,
-          borderTop: '2px solid var(--color-divider)',
+          gap: 4,
+          borderTop: '1px solid var(--line)',
           flex: 'none',
         }}
       >
         <button
           type="button"
-          className="md-press"
+          className="btn btn-quiet btn-sm"
           onClick={() => onReplayIntro?.()}
-          style={{
-            border: '2px solid var(--color-divider)',
-            background: 'transparent',
-            color: 'inherit',
-            padding: '9px 13px',
-            cursor: 'pointer',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 800,
-            fontSize: 11,
-            letterSpacing: '.09em',
-            textTransform: 'uppercase',
-          }}
         >
           Replay intro
         </button>
         <button
           type="button"
-          className="md-press"
+          className="btn btn-quiet btn-sm"
           onClick={exportSessions}
-          style={{
-            border: '2px solid var(--color-divider)',
-            background: 'transparent',
-            color: 'inherit',
-            padding: '9px 13px',
-            cursor: 'pointer',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 800,
-            fontSize: 11,
-            letterSpacing: '.09em',
-            textTransform: 'uppercase',
-          }}
         >
           Export sessions
         </button>
         <button
           type="button"
-          className="md-press"
+          className="btn btn-warn btn-sm"
           onClick={() => { window.location.href = '/api/logout' }}
-          style={{
-            border: '2px solid var(--color-accent)',
-            background: 'transparent',
-            color: 'var(--color-accent)',
-            padding: '9px 13px',
-            cursor: 'pointer',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 800,
-            fontSize: 11,
-            letterSpacing: '.09em',
-            textTransform: 'uppercase',
-          }}
+          style={{ marginLeft: 'auto' }}
         >
           Sign out
         </button>
