@@ -16,7 +16,7 @@ export interface TaskRowModel {
   project: string
   due: string
   est: string
-  /** Provider brand colour, drawn as a square — never a circle. */
+  /** Provider brand colour, drawn as a small dot beside the project. */
   dot: string
   selected: boolean
   completing: boolean
@@ -48,28 +48,19 @@ export default function TaskList({
               alignItems: 'baseline',
               justifyContent: 'space-between',
               gap: 8,
-              padding: '14px 14px 6px',
-              // No rule under a group header. The label is already uppercase,
-              // 800 and tracked — a 2px rule under each of four groups made the
-              // list read as four boxed tables rather than one list.
+              padding: '16px 16px 6px',
+              // No rule under a group header: the eyebrow alone separates the
+              // groups, so the list reads as one list rather than four tables.
               position: 'sticky',
               top: 0,
               background: 'var(--color-bg)',
               zIndex: 2,
             }}
           >
-            <span
-              style={{
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 11,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-              }}
-            >
+            <span className="md-eyebrow">
               {group.label}
             </span>
-            <span className="md-num" style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>
+            <span className="md-num md-meta" style={{ letterSpacing: 0 }}>
               {group.total}
             </span>
           </div>
@@ -83,10 +74,10 @@ export default function TaskList({
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
-                gap: 11,
-                padding: '8px 14px 9px',
+                gap: 12,
+                padding: '10px 16px 11px',
                 // Starts at the title, past the checkbox.
-                '--hairline-inset': '45px',
+                '--hairline-inset': '48px',
                 transition: 'background 160ms var(--ease-out)',
               } as CSSProperties}
             >
@@ -100,8 +91,8 @@ export default function TaskList({
                   width: 20,
                   height: 20,
                   marginTop: 1,
-                  border: '2px solid var(--color-neutral-500)',
-                  background: 'transparent',
+                  border: row.completing ? '1.5px solid var(--accent-base)' : '1.5px solid var(--color-text-3)',
+                  background: row.completing ? 'var(--accent-base)' : 'transparent',
                   padding: 0,
                   cursor: 'pointer',
                   display: 'flex',
@@ -112,9 +103,9 @@ export default function TaskList({
               >
                 <MdIcon
                   name="check"
-                  size={14}
-                  strokeWidth={3.4}
-                  color="var(--color-accent)"
+                  size={13}
+                  strokeWidth={2.6}
+                  color="var(--accent-on)"
                   style={{ opacity: row.completing ? 1 : 0 }}
                 />
               </button>
@@ -139,27 +130,25 @@ export default function TaskList({
                   gap: 4,
                 }}
               >
-                <span style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.35, textWrap: 'pretty' }}>
+                <span style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.35, textWrap: 'pretty' }}>
                   {row.title}
                 </span>
                 <span
+                  className="md-meta"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 7,
+                    gap: 6,
                     flexWrap: 'wrap',
-                    fontSize: 10.5,
-                    letterSpacing: '.04em',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-neutral-600)',
+                    fontWeight: 500,
                   }}
                 >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 6, height: 6, background: row.dot, display: 'inline-block' }} />
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 3, background: row.dot, display: 'inline-block' }} />
                     {row.project}
                   </span>
-                  {row.due && <span>{row.due}</span>}
-                  {row.est && <span className="md-num">{row.est}</span>}
+                  {row.due && <span>· {row.due}</span>}
+                  {row.est && <span className="md-num" style={{ letterSpacing: 0 }}>· {row.est}</span>}
                 </span>
               </button>
 
@@ -173,32 +162,18 @@ export default function TaskList({
                   opacity: row.selected ? 1 : 0,
                   transform: 'translateX(4px)',
                   transition: 'opacity 180ms, transform 180ms var(--ease-spring)',
-                  background: 'var(--color-accent)',
-                  color: 'var(--accent-on)',
-                  border: 0,
-                  padding: '5px 9px',
-                  fontFamily: 'var(--font-heading)',
-                  fontWeight: 800,
-                  fontSize: 10,
-                  letterSpacing: '.09em',
-                  cursor: 'pointer',
+                  alignSelf: 'center',
                 }}
               >
-                FOCUS
+                Focus
               </button>
             </div>
           ))}
 
           {group.more && (
             <div
-              style={{
-                padding: '7px 14px 8px',
-                fontSize: 10.5,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-                color: 'var(--color-neutral-600)',
-              }}
+              className="md-meta"
+              style={{ padding: '8px 16px 10px' }}
             >
               {group.more}
             </div>
@@ -210,8 +185,9 @@ export default function TaskList({
         <div
           style={{
             padding: '28px 16px',
-            color: 'var(--color-neutral-600)',
-            fontSize: 12.5,
+            color: 'var(--color-text-2)',
+            fontSize: 14,
+            lineHeight: 1.5,
           }}
         >
           {emptyLabel}

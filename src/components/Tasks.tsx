@@ -274,25 +274,11 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
     phone ? 9 : 15,
   ), [phone, rowFor, sections])
 
-  const quiet = (active: boolean) => ({
-    border: `2px solid ${active ? 'var(--color-accent)' : 'var(--color-divider)'}`,
-    background: active ? 'var(--color-accent)' : 'transparent',
-    color: active ? 'var(--accent-on)' : 'inherit',
-    padding: '6px 10px',
-    cursor: 'pointer',
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 800,
-    fontSize: 10.5,
-    letterSpacing: '.09em',
-    textTransform: 'uppercase' as const,
-  })
-
   // Nothing connected: explain each provider rather than assuming Todoist.
   if (connected.length === 0 && !loading) {
     return (
-      <div className="md-screen md-screen-col" style={{ padding: '18px' }}>
-        <h2 className="md-title" style={{ fontSize: phone ? 24 : 30, marginBottom: 14 }}>Tasks</h2>
-        <div style={{ height: 2, background: 'var(--color-divider)', marginBottom: 18 }} />
+      <div className="md-screen md-screen-col" style={{ padding: phone ? '18px' : '24px 32px' }}>
+        {phone && <h2 className="md-title" style={{ fontSize: 24, marginBottom: 18 }}>Tasks</h2>}
         <span className="md-eyebrow" style={{ marginBottom: 10 }}>
           {authRequired ? 'Task sync needs sign-in' : 'No task source connected'}
         </span>
@@ -305,14 +291,14 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 10,
-                padding: '10px 0',
+                padding: '12px 0',
                 '--hairline-inset': '18px',
               } as CSSProperties}
             >
-              <span style={{ width: 8, height: 8, marginTop: 5, flex: 'none', background: PROVIDER_COLOR[status.provider] }} />
-              <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{PROVIDER_LABEL[status.provider]}</span>
-                <span style={{ fontSize: 11.5, lineHeight: 1.4, color: 'var(--color-neutral-600)' }}>{status.message}</span>
+              <span style={{ width: 8, height: 8, marginTop: 6, flex: 'none', borderRadius: 4, background: PROVIDER_COLOR[status.provider] }} />
+              <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <span style={{ fontSize: 15, fontWeight: 600 }}>{PROVIDER_LABEL[status.provider]}</span>
+                <span style={{ fontSize: 13.5, lineHeight: 1.45, color: 'var(--color-text-2)' }}>{status.message}</span>
               </span>
             </div>
           ))}
@@ -320,26 +306,12 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
         <div style={{ marginTop: 18 }}>
           <button
             type="button"
-            className="md-press"
+            className="btn btn-primary btn-md"
             onClick={authRequired ? () => redirectToLogin() : load}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              border: 0,
-              background: 'var(--color-accent)',
-              color: 'var(--accent-on)',
-              padding: '14px 16px',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-heading)',
-              fontWeight: 800,
-              fontSize: 13,
-              letterSpacing: '.08em',
-              textTransform: 'uppercase',
-            }}
+            style={{ gap: 10 }}
           >
             {authRequired ? 'Sign in' : 'Check connections'}
-            <MdIcon name="arrow" size={18} strokeWidth={2.4} color="var(--accent-on)" />
+            <MdIcon name="arrow" size={17} strokeWidth={2} color="var(--accent-on)" />
           </button>
         </div>
       </div>
@@ -355,7 +327,7 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
           style={{
             flex: 'none',
             width: sidebarPane.width,
-            padding: '14px 0',
+            padding: '12px 10px',
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
@@ -393,27 +365,27 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div
           style={{
-            padding: '12px 16px',
+            padding: phone ? '14px 16px 10px' : '12px 16px 10px',
             display: 'flex',
             flexWrap: 'wrap',
             alignItems: 'center',
-            gap: 8,
+            gap: 4,
             // The composer sits directly below and ends the block itself, so
             // the filters only close it off when there is no composer.
-            borderBottom: canCompose ? 0 : '2px solid var(--color-divider)',
+            borderBottom: canCompose ? 0 : '1px solid var(--line)',
             flex: 'none',
           }}
         >
-          {phone && <h2 className="md-title" style={{ fontSize: 24, width: '100%' }}>Tasks</h2>}
+          {phone && <h2 className="md-title" style={{ fontSize: 24, width: '100%', marginBottom: 8 }}>Tasks</h2>}
 
           {([['today', 'Today'], ['upcoming', 'Upcoming'], ['all', 'All']] as const).map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className="md-press"
+              className="md-quiet"
+              data-active={filter === value ? 'true' : 'false'}
               aria-pressed={filter === value}
               onClick={() => setFilter(value)}
-              style={quiet(filter === value)}
             >
               {label} · {counts[value]}
             </button>
@@ -421,59 +393,44 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
 
           <button
             type="button"
-            className="md-press"
+            className="md-quiet"
+            data-active={allOptions.hideUndated ? 'true' : 'false'}
             aria-pressed={allOptions.hideUndated}
             onClick={() => setAllOptions({ ...allOptions, hideUndated: !allOptions.hideUndated })}
-            style={quiet(allOptions.hideUndated)}
           >
             Dated only
           </button>
 
           <button
             type="button"
-            className="md-press"
+            className="md-quiet"
             onClick={() => setAllOptions({
               ...allOptions,
               sort: SORT_ORDER[(SORT_ORDER.indexOf(allOptions.sort) + 1) % SORT_ORDER.length],
             })}
-            style={quiet(false)}
           >
             Sort · {SORT_LABEL[allOptions.sort]}
           </button>
 
           <button
             type="button"
-            className="md-press md-lift"
+            className="btn btn-icon md-press-sm"
             onClick={load}
             disabled={loading}
             aria-label="Refresh tasks"
-            style={{
-              marginLeft: 'auto',
-              flex: 'none',
-              width: 30,
-              height: 30,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '2px solid var(--color-divider)',
-              background: 'transparent',
-              color: 'inherit',
-              cursor: 'pointer',
-              padding: 0,
-              opacity: loading ? 0.5 : 1,
-            }}
+            style={{ marginLeft: 'auto' }}
           >
-            <MdIcon name="refresh" size={14} strokeWidth={2.4} />
+            <MdIcon name="refresh" size={15} strokeWidth={2} className={loading ? 'md-spin' : undefined} />
           </button>
         </div>
 
         {error && (
-          <div style={{ padding: '8px 16px', color: 'var(--color-accent)', fontSize: 11.5, fontWeight: 600, flex: 'none' }}>
+          <div style={{ padding: '6px 16px 8px', color: 'var(--warn)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
             {error}
           </div>
         )}
         {syncing && !error && (
-          <div style={{ padding: '8px 16px', color: 'var(--color-neutral-600)', fontSize: 11.5, fontWeight: 600, flex: 'none' }}>
+          <div className="md-meta" style={{ padding: '6px 16px 8px', flex: 'none' }}>
             Still catching up with Things — more tasks will appear shortly.
           </div>
         )}
@@ -490,57 +447,33 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
               flex: 'none',
               display: 'flex',
               alignItems: 'center',
-              gap: 12,
-              padding: '11px 16px',
-              borderTop: '2px solid var(--color-divider)',
-              background: 'var(--color-bg)',
+              gap: 10,
+              padding: '10px 16px 12px',
+              borderTop: '1px solid var(--line)',
+              background: 'var(--color-surface)',
             }}
           >
             <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase' }}>
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 14 }}>
                 {selectedTasks.length} {selectedTasks.length === 1 ? 'task' : 'tasks'} selected
               </span>
-              <span style={{ fontSize: 11.5, color: 'var(--color-neutral-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className="md-meta" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {selectedTasks.map(task => task.content).join(' · ')}
               </span>
             </span>
             <button
               type="button"
-              className="md-press"
+              className="btn btn-quiet btn-sm"
               onClick={() => setSelectedKeys([])}
-              style={{
-                flex: 'none',
-                background: 'transparent',
-                border: 0,
-                padding: '4px 0',
-                cursor: 'pointer',
-                color: 'var(--color-neutral-600)',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 10.5,
-                letterSpacing: '.09em',
-                textTransform: 'uppercase',
-              }}
+              style={{ flex: 'none' }}
             >
               Clear
             </button>
             <button
               type="button"
-              className="md-press"
+              className="btn btn-primary btn-md"
               onClick={() => focusOn(selectedTasks)}
-              style={{
-                flex: 'none',
-                border: 0,
-                background: 'var(--color-accent)',
-                color: 'var(--accent-on)',
-                padding: '9px 14px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 11,
-                letterSpacing: '.09em',
-                textTransform: 'uppercase',
-              }}
+              style={{ flex: 'none' }}
             >
               Focus
             </button>
@@ -570,15 +503,16 @@ function SidebarRow({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '8px 14px',
+        gap: 9,
+        padding: '8px 12px',
+        minHeight: 36,
         background: 'transparent',
         border: 0,
         cursor: 'pointer',
-        color: 'inherit',
-        fontFamily: 'inherit',
-        fontSize: 13,
-        fontWeight: 500,
+        color: active ? 'var(--color-text)' : 'var(--color-text-2)',
+        fontFamily: 'var(--font-heading)',
+        fontSize: 13.5,
+        fontWeight: active ? 600 : 500,
         textAlign: 'left',
       }}
     >
@@ -588,13 +522,14 @@ function SidebarRow({
           height: 7,
           flex: 'none',
           display: 'block',
-          background: row.provider ? PROVIDER_COLOR[row.provider] : 'var(--color-neutral-500)',
+          borderRadius: 4,
+          background: row.provider ? PROVIDER_COLOR[row.provider] : 'var(--color-text-3)',
         }}
       />
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {row.label}
       </span>
-      <span className="md-num" style={{ fontSize: 11, color: 'var(--color-neutral-600)' }}>{row.count}</span>
+      <span className="md-num md-meta" style={{ letterSpacing: 0 }}>{row.count}</span>
     </button>
   )
 }

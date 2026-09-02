@@ -52,15 +52,24 @@ export default function TaskComposer({
   }
 
   return (
-    <div style={{ flex: 'none', borderBottom: '2px solid var(--color-divider)' }}>
-      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+    <div className="md-rule-b" style={{ flex: 'none', padding: compact ? '8px 12px' : '10px 16px' }}>
+      <div
+        className="md-field"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '0 4px 0 12px',
+          minHeight: 40,
+        }}
+      >
         <span
           aria-hidden="true"
           style={{
             flex: 'none',
-            width: 8,
-            height: 8,
-            margin: compact ? '14px 0 0 14px' : '15px 0 0 16px',
+            width: 7,
+            height: 7,
+            borderRadius: 4,
             background: PROVIDER_COLOR.things,
           }}
         />
@@ -84,48 +93,32 @@ export default function TaskComposer({
             // 16px or iOS zooms the page when it takes focus.
             fontSize: 16,
             fontWeight: 500,
-            padding: compact ? '9px 12px' : '10px 14px',
+            padding: '8px 0',
             outline: 'none',
+            boxShadow: 'none',
           }}
         />
         {title.trim() && (
           <button
             type="button"
-            className="md-press"
+            className="btn btn-primary btn-sm"
             onClick={() => void submit()}
             disabled={busy}
             aria-label={`Add “${title.trim()}” to ${destination}`}
-            style={{
-              flex: 'none',
-              border: 0,
-              borderLeft: '2px solid var(--color-divider)',
-              background: 'var(--color-accent)',
-              color: 'var(--accent-on)',
-              padding: '0 13px',
-              cursor: busy ? 'default' : 'pointer',
-              opacity: busy ? 0.6 : 1,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-              fontFamily: 'var(--font-heading)',
-              fontWeight: 800,
-              fontSize: 10.5,
-              letterSpacing: '.1em',
-              textTransform: 'uppercase',
-            }}
+            style={{ flex: 'none', gap: 6 }}
           >
             {busy ? 'Adding' : 'Add'}
-            {!busy && <MdIcon name="arrow" size={14} strokeWidth={2.4} color="var(--accent-on)" />}
+            {!busy && <MdIcon name="arrow" size={14} strokeWidth={2.2} color="var(--accent-on)" />}
           </button>
         )}
       </div>
       {error && (
         <div
           style={{
-            padding: compact ? '0 14px 8px 30px' : '0 16px 8px 32px',
-            fontSize: 11,
+            padding: '6px 4px 0',
+            fontSize: 12.5,
             fontWeight: 600,
-            color: 'var(--color-accent)',
+            color: 'var(--warn)',
           }}
         >
           {error}
