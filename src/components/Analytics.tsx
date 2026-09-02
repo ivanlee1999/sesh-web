@@ -111,7 +111,7 @@ export default function Analytics() {
       const from = startOfDay.getTime() + hour * 3600000
       const to = from + 3600000
       let minutes = 0
-      let color = 'var(--color-accent)'
+      let color = 'var(--accent-base)'
       let best = 0
       for (const session of todaySessions) {
         const overlap = Math.min(to, session.startedAt + session.actualMs) - Math.max(from, session.startedAt)
@@ -134,14 +134,7 @@ export default function Analytics() {
     { value: plannedVsActual, label: 'Planned vs actual', accent: false },
   ]
 
-  const sectionHead: CSSProperties = {
-    margin: 0,
-    fontFamily: 'var(--font-heading)',
-    fontWeight: 800,
-    fontSize: 13,
-    letterSpacing: '.1em',
-    textTransform: 'uppercase',
-  }
+  const sectionHead: CSSProperties = { margin: 0 }
 
   return (
     <div className="md-screen md-screen-col" data-testid="insights-screen">
@@ -150,7 +143,7 @@ export default function Analytics() {
       )}
 
       {error && (
-        <div style={{ padding: '10px 18px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
+        <div style={{ padding: '10px 18px', color: 'var(--warn)', fontSize: 13, fontWeight: 500, flex: 'none' }}>
           {error}
         </div>
       )}
@@ -159,11 +152,10 @@ export default function Analytics() {
         style={{
           display: 'grid',
           gridTemplateColumns: phone ? 'repeat(2,1fr)' : 'repeat(4,1fr)',
-          borderTop: '2px solid var(--color-divider)',
           // One rule under the whole strip rather than a border on each tile:
           // the figures are already in a grid, and boxing each one turned four
           // numbers into eight lines.
-          borderBottom: '1px solid var(--color-neutral-300)',
+          borderBottom: '1px solid var(--line)',
           flex: 'none',
         }}
       >
@@ -171,43 +163,35 @@ export default function Analytics() {
           <div
             key={cell.label}
             style={{
-              padding: '11px 16px 12px',
+              padding: '14px 18px 14px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 4,
+              gap: 6,
             }}
           >
             <span
               className="md-num"
               style={{
                 fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
+                fontWeight: 500,
                 fontSize: 30,
-                letterSpacing: '-.03em',
+                letterSpacing: '-.02em',
                 lineHeight: 1,
-                color: cell.accent ? 'var(--color-accent)' : 'inherit',
+                color: cell.accent ? 'var(--accent-base)' : 'var(--color-text)',
               }}
             >
               {cell.value}
             </span>
-            <span
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
-              }}
-            >
+            <span className="md-meta">
               {cell.label}
             </span>
           </div>
         ))}
       </div>
 
-      <div style={{ padding: '12px 18px 6px', display: 'flex', alignItems: 'baseline', gap: 10, flex: 'none' }}>
-        <h3 style={sectionHead}>Last 7 days</h3>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-neutral-600)', fontWeight: 700 }}>
+      <div style={{ padding: '16px 18px 8px', display: 'flex', alignItems: 'baseline', gap: 10, flex: 'none' }}>
+        <h3 className="md-eyebrow" style={sectionHead}>Last 7 days</h3>
+        <span className="md-num md-meta" style={{ marginLeft: 'auto' }}>
           {hoursMinutes(weekTotalMs / 60000)} this week
         </span>
       </div>
@@ -217,10 +201,12 @@ export default function Analytics() {
           padding: '0 18px',
           display: 'flex',
           alignItems: 'flex-end',
-          gap: 8,
+          // Wider gutters on the desktop, so seven bars across a 1280px pane
+          // stay bars rather than becoming one slab with slits in it.
+          gap: phone ? 8 : 22,
           height: phone ? 104 : 150,
           flex: 'none',
-          borderBottom: '2px solid var(--color-divider)',
+          borderBottom: '1px solid var(--line)',
         }}
       >
         {days.map((day, i) => {
@@ -235,20 +221,18 @@ export default function Analytics() {
                 aria-label={`${day.label}: ${hoursMinutes(day.ms / 60000)}`}
                 style={{
                   display: 'block',
-                  background: today ? 'var(--color-accent)' : 'var(--color-neutral-900)',
+                  borderRadius: 2,
+                  background: today ? 'var(--accent-base)' : 'var(--color-text)',
                   height: `${Math.max(2, (day.ms / maxDayMs) * 100)}%`,
-                  opacity: day.ms === 0 ? 0.18 : 1,
+                  opacity: day.ms === 0 ? 0.12 : today ? 1 : 0.7,
                   animationDelay: `${i * 55}ms`,
                 }}
               />
               <span
+                className="md-meta"
                 style={{
                   textAlign: 'center',
-                  fontSize: 10,
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  color: 'var(--color-neutral-600)',
-                  fontWeight: 700,
+                  color: today ? 'var(--accent-base)' : undefined,
                   paddingBottom: 8,
                 }}
               >
@@ -259,41 +243,42 @@ export default function Analytics() {
         })}
       </div>
 
-      <div style={{ padding: '12px 18px 4px', flex: 'none' }}>
-        <h3 style={sectionHead}>Where it went</h3>
+      <div style={{ padding: '16px 18px 6px', flex: 'none' }}>
+        <h3 className="md-eyebrow" style={sectionHead}>Where it went</h3>
       </div>
-      <div style={{ padding: '0 18px 10px', display: 'flex', flexDirection: 'column', gap: 8, flex: 'none' }}>
+      <div style={{ padding: '0 18px 12px', display: 'flex', flexDirection: 'column', gap: 10, flex: 'none' }}>
         {breakdown.length === 0 && (
-          <span style={{ fontSize: 12.5, color: 'var(--color-neutral-600)' }}>No sessions yet this week.</span>
+          <span style={{ fontSize: 14, color: 'var(--color-text-2)' }}>No sessions yet this week.</span>
         )}
         {breakdown.map((row, i) => (
           <div key={row.name} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12.5, fontWeight: 600 }}>
-              <span style={{ width: 8, height: 8, background: row.color, display: 'block' }} />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 500 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: row.color, display: 'block', flex: 'none' }} />
               {row.label}
-              <span className="md-num" style={{ marginLeft: 'auto', color: 'var(--color-neutral-600)', fontSize: 11.5 }}>
+              <span className="md-num md-meta" style={{ marginLeft: 'auto' }}>
                 {hoursMinutes(row.ms / 60000)} · {row.pct}%
               </span>
             </span>
-            <span style={{ height: 8, background: 'var(--color-neutral-200)', display: 'block' }}>
+            <span style={{ height: 6, borderRadius: 2, background: 'var(--fill-2)', display: 'block', overflow: 'hidden' }}>
               <span
                 className="md-track-fill"
-                style={{ display: 'block', height: '100%', width: `${row.pct}%`, background: row.color, animationDelay: `${i * 70}ms` }}
+                style={{ display: 'block', height: '100%', width: `${row.pct}%`, borderRadius: 2, background: row.color, animationDelay: `${i * 70}ms` }}
               />
             </span>
           </div>
         ))}
       </div>
 
-      <div style={{ marginTop: 'auto', padding: '0 18px 16px', display: 'flex', flexDirection: 'column', gap: 7, flex: 'none' }}>
-        <h3 style={sectionHead}>Today, hour by hour</h3>
-        <span style={{ display: 'flex', height: 26, border: '2px solid var(--color-divider)' }}>
+      <div style={{ marginTop: 'auto', padding: '0 18px 16px', display: 'flex', flexDirection: 'column', gap: 8, flex: 'none' }}>
+        <h3 className="md-eyebrow" style={sectionHead}>Today, hour by hour</h3>
+        <span style={{ display: 'flex', height: 24, padding: 3, gap: 2, borderRadius: 'var(--r-sm)', background: 'var(--fill-1)' }}>
           {timeline.map((hour, i) => (
             <span
               key={i}
               style={{
                 display: 'block',
                 flex: 1,
+                borderRadius: 2,
                 background: hour.minutes > 0 ? hour.color : 'transparent',
                 // A ten-minute sitting should still register, so the floor is
                 // well above zero once anything happened at all.
@@ -302,16 +287,7 @@ export default function Analytics() {
             />
           ))}
         </span>
-        <span
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: 10,
-            letterSpacing: '.08em',
-            color: 'var(--color-neutral-600)',
-            fontWeight: 700,
-          }}
-        >
+        <span className="md-num md-meta" style={{ display: 'flex', justifyContent: 'space-between', padding: '0 3px' }}>
           <span>08</span><span>12</span><span>16</span><span>20</span>
         </span>
       </div>

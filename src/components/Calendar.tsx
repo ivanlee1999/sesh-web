@@ -313,7 +313,7 @@ export default function Calendar() {
       const start = from + (HOUR_FROM + i) * 3600000
       const end = start + 3600000
       let minutes = 0
-      let color = 'var(--color-accent)'
+      let color = 'var(--accent-base)'
       let best = 0
       for (const session of daySessions) {
         if (session.type !== 'focus') continue
@@ -332,30 +332,20 @@ export default function Calendar() {
   const navButton = (label: string, dir: number, icon: 'prev' | 'next') => (
     <button
       type="button"
-      className="md-press md-lift"
+      className="btn btn-icon md-press-sm"
       aria-label={label}
       onClick={() => shift(dir)}
-      style={{
-        flex: 'none',
-        width: 26,
-        height: 26,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '2px solid var(--color-divider)',
-        background: 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        padding: 0,
-      }}
     >
-      <MdIcon name={icon} size={13} strokeWidth={2.4} />
+      <MdIcon name={icon} size={15} strokeWidth={2} />
     </button>
   )
+
+  const todayKey = dayKey(new Date())
 
   const monthCell = (date: Date, inMonth: boolean, label: string) => {
     const list = byDay.get(dayKey(date)) ?? []
     const active = dayKey(date) === dayKey(selected)
+    const today = dayKey(date) === todayKey
     const bars = list.slice(0, 4)
     return (
       <button
@@ -372,16 +362,37 @@ export default function Calendar() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 4,
-          padding: '8px 0 7px',
+          padding: '4px 2px',
           cursor: inMonth ? 'pointer' : 'default',
           border: 0,
-          background: active ? 'var(--color-accent)' : 'transparent',
-          color: active ? 'var(--accent-on)' : inMonth ? 'inherit' : 'var(--color-neutral-500)',
+          background: 'transparent',
+          color: inMonth ? 'inherit' : 'var(--color-text-3)',
           fontFamily: 'inherit',
           opacity: inMonth ? 1 : 0.35,
+          minHeight: 0,
         }}
       >
-        <span className="md-num" style={{ fontSize: 12, fontWeight: 600 }}>{label}</span>
+        {/* The selection is a tonal pill behind the numeral; today is the
+            accent, so the two states never fight for the same fill. */}
+        <span
+          className="md-num"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 30,
+            height: 30,
+            borderRadius: 'var(--r-md)',
+            fontSize: 13,
+            fontWeight: today ? 700 : 500,
+            background: active ? 'var(--fill-3)' : 'transparent',
+            color: today ? 'var(--accent-base)' : 'inherit',
+            boxShadow: active && today ? 'inset 0 0 0 1.5px var(--accent-base)' : undefined,
+            transition: 'background 160ms',
+          }}
+        >
+          {label}
+        </span>
         <span style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 14 }}>
           {bars.map((session, k) => (
             <span
@@ -390,7 +401,8 @@ export default function Calendar() {
                 display: 'block',
                 width: 3,
                 height: 4 + k * 3,
-                background: active ? 'var(--accent-on)' : getCategoryMeta(session.category, categories).color,
+                borderRadius: 1.5,
+                background: getCategoryMeta(session.category, categories).color,
               }}
             />
           ))}
@@ -412,21 +424,21 @@ export default function Calendar() {
   return (
     <div className="md-screen md-screen-col" data-testid="calendar-screen">
       {phone && (
-        <h2 className="md-title" style={{ padding: '14px 18px 10px', fontSize: 24, flex: 'none' }}>Calendar</h2>
+        <h2 className="md-title" style={{ padding: '14px 18px 4px', fontSize: 24, flex: 'none' }}>Calendar</h2>
       )}
 
       <div
         style={{
-          padding: '11px 18px 8px',
+          padding: phone ? '10px 14px 8px' : '14px 20px 10px',
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: 6,
           flexWrap: 'wrap',
           flex: 'none',
         }}
       >
         {navButton(`Previous ${view}`, -1, 'prev')}
-        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+        <span className="md-title" style={{ fontSize: 17, minWidth: phone ? 0 : 150, textAlign: 'center', padding: '0 4px' }}>
           {periodLabel}
         </span>
         {navButton(`Next ${view}`, 1, 'next')}
@@ -434,7 +446,7 @@ export default function Calendar() {
           style={{
             marginLeft: 'auto',
             display: 'flex',
-            gap: 6,
+            gap: 2,
           }}
         >
           {VIEWS.map(({ key, label }) => (
@@ -453,24 +465,21 @@ export default function Calendar() {
       </div>
 
       {error && (
-        <div style={{ padding: '0 18px 10px', color: 'var(--color-accent)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
+        <div style={{ padding: '0 18px 10px', color: 'var(--warn)', fontSize: 12.5, fontWeight: 600, flex: 'none' }}>
           {error}
         </div>
       )}
 
       {view === 'month' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', borderBottom: '2px solid var(--color-divider)', flex: 'none' }}>
+        <div className="md-rule-b" style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', flex: 'none', padding: phone ? '0 6px' : '0 12px' }}>
           {DOW.map(label => (
             <span
               key={label}
+              className="md-eyebrow"
               style={{
-                padding: '5px 0',
+                padding: '6px 0 7px',
                 textAlign: 'center',
-                fontSize: 10,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
+                fontSize: 10.5,
               }}
             >
               {label}
@@ -484,13 +493,14 @@ export default function Calendar() {
           style={{
             display: 'grid',
             gridTemplateColumns: `${HOUR_GUTTER}px repeat(7,1fr)`,
-            borderBottom: '2px solid var(--color-divider)',
+            borderBottom: '1px solid var(--line)',
             flex: 'none',
           }}
         >
           <span />
           {weekDays.map(date => {
             const active = dayKey(date) === dayKey(selected)
+            const today = dayKey(date) === todayKey
             return (
               <button
                 key={dayKey(date)}
@@ -503,27 +513,36 @@ export default function Calendar() {
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: 1,
-                  padding: '5px 0 6px',
+                  gap: 2,
+                  padding: '6px 0 7px',
                   border: 0,
-                  background: active ? 'var(--color-accent)' : 'transparent',
-                  color: active ? 'var(--accent-on)' : 'inherit',
+                  background: 'transparent',
+                  color: 'inherit',
                   cursor: 'pointer',
                   fontFamily: 'inherit',
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 10,
-                    letterSpacing: '.1em',
-                    textTransform: 'uppercase',
-                    fontWeight: 700,
-                    color: active ? 'rgba(255,255,255,.85)' : 'var(--color-neutral-600)',
-                  }}
-                >
+                <span className="md-eyebrow" style={{ fontSize: 10, color: today ? 'var(--accent-base)' : undefined }}>
                   {DOW[(date.getDay() + 6) % 7]}
                 </span>
-                <span className="md-num" style={{ fontSize: 13, fontWeight: 700 }}>{date.getDate()}</span>
+                <span
+                  className="md-num"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 28,
+                    height: 28,
+                    borderRadius: 8,
+                    fontSize: 13.5,
+                    fontWeight: today ? 700 : 500,
+                    background: active ? 'var(--fill-3)' : 'transparent',
+                    color: today ? 'var(--accent-base)' : 'inherit',
+                    transition: 'background 160ms',
+                  }}
+                >
+                  {date.getDate()}
+                </span>
               </button>
             )
           })}
@@ -560,7 +579,7 @@ export default function Calendar() {
                   right: 0,
                   top: `${line.top}%`,
                   height: 1,
-                  background: 'var(--color-neutral-300)',
+                  background: 'var(--line)',
                   pointerEvents: 'none',
                 }}
               />
@@ -576,10 +595,10 @@ export default function Calendar() {
                     top: `${line.top}%`,
                     right: 6,
                     transform: 'translateY(-50%)',
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    letterSpacing: '.04em',
-                    color: 'var(--color-neutral-600)',
+                    fontSize: 10.5,
+                    fontWeight: 500,
+                    letterSpacing: 0,
+                    color: 'var(--color-text-3)',
                   }}
                 >
                   {pad2(line.hour)}
@@ -615,6 +634,7 @@ export default function Calendar() {
                       right: 2,
                       top: `${block.top}%`,
                       height: `${block.height}%`,
+                      borderRadius: 3,
                       // A break is rest, not work, so it reads as an outline.
                       background: block.session.type === 'break' ? 'transparent' : block.color,
                       boxShadow: block.session.type === 'break' ? `inset 0 0 0 1.5px ${block.color}` : undefined,
@@ -628,14 +648,15 @@ export default function Calendar() {
         )}
 
         {view === 'day' && (
-          <div style={{ padding: '4px 18px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <span style={{ display: 'flex', height: 26, border: '2px solid var(--color-divider)' }}>
+          <div style={{ padding: '6px 18px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ display: 'flex', gap: 2, height: 26, padding: 3, borderRadius: 'var(--r-sm)', background: 'var(--fill-1)' }}>
               {hours.map((hour, i) => (
                 <span
                   key={i}
                   style={{
                     display: 'block',
                     flex: 1,
+                    borderRadius: 3,
                     background: hour.minutes > 0 ? hour.color : 'transparent',
                     opacity: hour.minutes > 0 ? Math.min(0.9, 0.25 + (hour.minutes / 60) * 0.65) : 0,
                   }}
@@ -643,13 +664,14 @@ export default function Calendar() {
               ))}
             </span>
             <span
+              className="md-num"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                fontSize: 10,
-                letterSpacing: '.08em',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
+                fontSize: 11,
+                letterSpacing: 0,
+                color: 'var(--color-text-3)',
+                fontWeight: 500,
               }}
             >
               <span>{pad2(HOUR_FROM)}</span>
@@ -663,18 +685,18 @@ export default function Calendar() {
 
       <div
         style={{
-          padding: '10px 18px 4px',
+          padding: '12px 18px 4px',
           display: 'flex',
           alignItems: 'baseline',
           gap: 10,
-          borderTop: '2px solid var(--color-divider)',
+          borderTop: '1px solid var(--line)',
           flex: 'none',
         }}
       >
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+        <h3 className="md-title" style={{ margin: 0, fontSize: 15 }}>
           {selected.toLocaleDateString(undefined, { day: 'numeric', month: 'long' })}
         </h3>
-        <span style={{ fontSize: 11, color: 'var(--color-neutral-600)', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+        <span className="md-meta">
           {daySessions.length === 0
             ? 'No sessions'
             : `${daySessions.length} session${daySessions.length === 1 ? '' : 's'} · ${hoursMinutes(minutesOn(selected))}`}
@@ -702,50 +724,33 @@ export default function Calendar() {
                 display: 'flex',
                 alignItems: 'flex-start',
                 gap: 12,
-                padding: '7px 18px',
+                padding: '8px 18px 9px',
                 '--hairline-inset': '77px',
               } as CSSProperties}
             >
               <span
-                className="md-num"
-                style={{ fontSize: 11.5, color: 'var(--color-neutral-600)', paddingTop: 2, minWidth: 44, fontWeight: 600 }}
+                className="md-num md-meta"
+                style={{ paddingTop: 2, minWidth: 44, letterSpacing: 0 }}
               >
                 {time}
               </span>
-              <span style={{ width: 3, alignSelf: 'stretch', background: meta.color, display: 'block' }} />
+              <span style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: meta.color, display: 'block' }} />
               <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                <span style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.3 }}>
                   {session.intention || meta.label}
                 </span>
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    letterSpacing: '.08em',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-neutral-600)',
-                    fontWeight: 700,
-                  }}
-                >
+                <span className="md-meta">
                   {meta.label}{session.type === 'break' ? ' · Break' : ''}
                 </span>
               </span>
-              <span className="md-num" style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 14 }}>
+              <span className="md-num" style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, fontSize: 14 }}>
                 {hoursMinutes(sessionMinutes(session))}
               </span>
             </div>
           )
         })}
         {hidden > 0 && (
-          <div
-            style={{
-              padding: '7px 18px 8px',
-              fontSize: 10.5,
-              letterSpacing: '.1em',
-              textTransform: 'uppercase',
-              fontWeight: 700,
-              color: 'var(--color-neutral-600)',
-            }}
-          >
+          <div className="md-meta" style={{ padding: '8px 18px 10px' }}>
             +{hidden} more that day
           </div>
         )}
