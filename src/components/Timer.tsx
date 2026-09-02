@@ -12,8 +12,7 @@ import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
 import { PROVIDER_COLOR, PROVIDER_LABEL, canCreateTasks, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
-import { capGroups, clockOf, dialColor, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
-import { DEFAULT_ACCENT } from '@/lib/accent'
+import { capGroups, clockOf, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
 import Dial from './Dial'
 import CategoryChips from './md/CategoryChips'
 import TaskList, { type TaskRowModel } from './md/TaskList'
@@ -42,7 +41,9 @@ const QUEUE_BOUNDS = { min: 248, max: 520, fallback: 326 }
  * back from `--accent-on` rather than from white, since the ink flips to dark
  * on the pale end of the palette and a white rule would vanish there.
  */
-const RULE_ON_ACCENT = 'color-mix(in srgb, var(--accent-on) 55%, transparent)'
+const RULE_ON_ACCENT = 'color-mix(in srgb, var(--accent-on) 28%, transparent)'
+/** A tonal fill on the poster: the ink at a whisper, for chips and the task card. */
+const FILL_ON_ACCENT = 'color-mix(in srgb, var(--accent-on) 14%, transparent)'
 
 interface ServerTimerState {
   phase: string
@@ -689,7 +690,9 @@ export default function Timer({
   const overflowSec = Math.max(0, Math.ceil(-remainingMs / 1000))
   const elapsedSec = live ? Math.max(0, Math.floor((totalMs - remainingMs) / 1000)) : 0
   const onDarkGround = live || settings.darkMode
-  const dialCol = dialColor(selectedCategory?.color ?? DEFAULT_ACCENT, onDarkGround)
+  /* The category colour as the accent engine has already drawn it for this
+     ground — the shell points `--accent-base` at the selected category. */
+  const dialCol = 'var(--accent-base)'
   const sessionNo = cycleCount + 1
 
   /*
@@ -1107,10 +1110,12 @@ export default function Timer({
   // The desktop header's subtitle. Reported rather than lifted, so the shell
   // stays a shell.
   useEffect(() => {
+    // The screen already carries the session number and date in its eyebrow,
+    // so the header says only what the screen does not: the planned length.
     reportSub('timer', live
       ? 'Session in progress'
-      : `Session ${pad2(sessionNo)} · ${clockOf(idleDurationMinutes * 60)} planned`)
-  }, [idleDurationMinutes, live, reportSub, sessionNo])
+      : `${clockOf(idleDurationMinutes * 60)} planned`)
+  }, [idleDurationMinutes, live, reportSub])
 
   // ── The queue, capped ──────────────────────────────────────────────────
 
@@ -1176,12 +1181,10 @@ export default function Timer({
       </span>
       <span
         style={{
-          fontSize: Math.max(9, 9.5 * dialScale),
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          color: 'var(--color-neutral-600)',
-          fontWeight: 600,
-          marginTop: 4,
+          fontSize: Math.max(11, 12 * dialScale),
+          color: 'var(--color-text-2)',
+          fontWeight: 500,
+          marginTop: 6,
         }}
       >
         {clockSub}
@@ -1194,8 +1197,7 @@ export default function Timer({
             fontFamily: 'var(--font-heading)',
             fontWeight: 600,
             fontSize: Math.max(12, 13 * dialScale),
-            letterSpacing: '.06em',
-            color: 'var(--color-accent)',
+            color: 'var(--accent-base)',
           }}
         >
           +{clockOf(overflowSec)}
@@ -1221,7 +1223,7 @@ export default function Timer({
           {idle ? (
             <div className="md-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 18, flex: 'none' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span className="md-eyebrow" style={{ fontSize: 10.5 }}>
+                <span className="md-eyebrow">
                   Session {pad2(sessionNo)} · {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
                 </span>
                 <input
@@ -1230,18 +1232,17 @@ export default function Timer({
                   onBlur={() => syncIdleTopic({ intention, category, refs: taskRefs })}
                   placeholder="What are you working on?"
                   aria-label="Session intention"
+                  className="md-underline"
                   style={{
                     width: '100%',
-                    border: 0,
-                    borderBottom: '2px solid var(--color-divider)',
                     background: 'transparent',
                     color: 'inherit',
                     fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
+                    fontWeight: 600,
                     // Never below 16px on a phone, or iOS zooms the page on focus.
-                    fontSize: phone ? 21 : 26,
+                    fontSize: phone ? 22 : 26,
                     letterSpacing: '-.02em',
-                    padding: '0 0 9px',
+                    padding: '0 0 8px',
                     outline: 'none',
                   }}
                 />
@@ -1251,6 +1252,7 @@ export default function Timer({
                 categories={sortedCategories}
                 active={category}
                 phone={phone}
+                dark={onDarkGround}
                 onPick={name => {
                   setCategory(name)
                   setRecentCategories(markCategoryUsed(name))
@@ -1258,47 +1260,31 @@ export default function Timer({
                 }}
               />
 
-              <div style={{ position: 'relative', display: 'flex', border: '2px solid var(--color-divider)' }}>
+              <div className="md-seg" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                 <span
                   aria-hidden="true"
+                  className="md-seg-thumb"
                   style={{
-                    position: 'absolute',
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    width: `${100 / 3}%`,
-                    background: 'var(--color-accent)',
-                    transform: `translateX(${['focus', 'short', 'long'].indexOf(typeKey) * 100}%)`,
-                    transition: 'transform 340ms var(--ease-spring)',
+                    left: `calc(3px + (100% - 6px) * ${['focus', 'short', 'long'].indexOf(typeKey)} / 3)`,
+                    width: 'calc((100% - 6px) / 3)',
                   }}
                 />
                 {(['focus', 'short', 'long'] as TypeKey[]).map(key => (
                   <button
                     key={key}
                     type="button"
-                    className="md-press"
+                    data-active={typeKey === key ? 'true' : 'false'}
                     aria-pressed={typeKey === key}
                     onClick={() => selectType(key)}
                     style={{
-                      flex: 1,
-                      position: 'relative',
-                      zIndex: 1,
-                      border: 0,
-                      background: 'transparent',
-                      color: typeKey === key ? 'var(--accent-on)' : 'inherit',
-                      padding: '9px 6px',
-                      cursor: 'pointer',
-                      fontFamily: 'var(--font-heading)',
-                      fontWeight: 800,
-                      fontSize: 11.5,
-                      letterSpacing: '.07em',
-                      textTransform: 'uppercase',
+                      padding: '7px 10px',
+                      fontSize: 13,
                       textAlign: 'left',
-                      transition: 'color 220ms',
+                      lineHeight: 1.2,
                     }}
                   >
                     {key === 'focus' ? 'Focus' : key === 'short' ? 'Short break' : 'Long break'}
-                    <span style={{ display: 'block', fontSize: 10, fontWeight: 600, letterSpacing: '.06em', opacity: .7, marginTop: 2 }}>
+                    <span className="md-num" style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--color-text-2)', marginTop: 2, letterSpacing: 0 }}>
                       {settings[durationKeyFor(key)]} min
                     </span>
                   </button>
@@ -1307,29 +1293,12 @@ export default function Timer({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span
-                  style={{
-                    fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
-                    fontSize: 11,
-                    letterSpacing: '.14em',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-accent)',
-                  }}
-                >
+              <div className="md-rise" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="md-eyebrow" style={{ color: 'var(--accent-base)' }}>
                   {phaseLabel}
                 </span>
-                <span style={{ height: 2, flex: 1, background: 'var(--color-divider)' }} />
-                <span
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: '.1em',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-neutral-600)',
-                    fontWeight: 700,
-                  }}
-                >
+                <span style={{ height: 1, flex: 1, background: 'var(--line)' }} />
+                <span className="md-meta">
                   {selectedCategory?.label ?? 'Focus'}
                 </span>
               </div>
@@ -1343,6 +1312,7 @@ export default function Timer({
                 onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
                 placeholder={isFocus ? 'Untitled session' : typeLabel}
                 aria-label="Session topic"
+                className="md-rise"
                 style={{
                   width: '100%',
                   margin: 0,
@@ -1350,23 +1320,15 @@ export default function Timer({
                   background: 'transparent',
                   color: 'inherit',
                   fontFamily: 'var(--font-heading)',
-                  fontWeight: 800,
-                  fontSize: phone ? 21 : 26,
-                  lineHeight: 1.08,
+                  fontWeight: 700,
+                  fontSize: phone ? 22 : 26,
+                  lineHeight: 1.12,
                   letterSpacing: '-.02em',
                   padding: 0,
                   outline: 'none',
                 }}
               />
-              <span
-                style={{
-                  fontSize: 11,
-                  letterSpacing: '.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--color-neutral-600)',
-                  fontWeight: 700,
-                }}
-              >
+              <span className="md-meta md-rise">
                 {liveMeta}
               </span>
             </div>
@@ -1406,22 +1368,14 @@ export default function Timer({
 
           {idle ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 'auto', flex: 'none' }}>
-              <div style={{ border: '2px solid var(--color-divider)', display: 'flex', alignItems: 'stretch' }}>
-                <div style={{ flex: 1, minWidth: 0, padding: '11px 13px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: '.12em',
-                      textTransform: 'uppercase',
-                      color: 'var(--color-neutral-600)',
-                      fontWeight: 700,
-                    }}
-                  >
+              <div className="md-card" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 8px 10px 14px' }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span className="md-meta">
                     {taskSlotLabel}
                   </span>
                   <span
                     style={{
-                      fontSize: 13.5,
+                      fontSize: 14.5,
                       fontWeight: 600,
                       lineHeight: 1.3,
                       overflow: 'hidden',
@@ -1435,22 +1389,9 @@ export default function Timer({
                 {phone && tasks.length > 0 && (
                   <button
                     type="button"
-                    className="md-press md-lift"
+                    className="btn btn-tonal btn-sm"
                     onClick={openSheet}
-                    style={{
-                      flex: 'none',
-                      border: 0,
-                      borderLeft: '2px solid var(--color-divider)',
-                      background: 'transparent',
-                      color: 'inherit',
-                      padding: '0 14px',
-                      cursor: 'pointer',
-                      fontFamily: 'var(--font-heading)',
-                      fontWeight: 800,
-                      fontSize: 10.5,
-                      letterSpacing: '.1em',
-                      textTransform: 'uppercase',
-                    }}
+                    style={{ flex: 'none' }}
                   >
                     {taskRefs.length > 0 ? 'Change' : 'Choose'}
                   </button>
@@ -1459,127 +1400,71 @@ export default function Timer({
 
               <button
                 type="button"
-                className="md-press"
+                className="btn btn-primary btn-lg"
                 onClick={() => start()}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  width: '100%',
-                  border: 0,
-                  background: 'var(--color-accent)',
-                  color: 'var(--accent-on)',
-                  padding: 16,
-                  cursor: 'pointer',
-                  fontFamily: 'var(--font-heading)',
-                  fontWeight: 800,
-                  fontSize: 15,
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  textAlign: 'left',
-                }}
+                style={{ width: '100%', minHeight: 52, justifyContent: 'space-between', fontSize: 16 }}
               >
                 Start {typeLabel} · {idleDurationMinutes} min
-                <MdIcon name="arrow" size={20} strokeWidth={2.4} color="var(--accent-on)" style={{ marginLeft: 'auto' }} />
+                <MdIcon name="arrow" size={20} strokeWidth={2} color="var(--accent-on)" />
               </button>
 
-              <span
-                style={{
-                  fontSize: 10.5,
-                  letterSpacing: '.06em',
-                  textTransform: 'uppercase',
-                  color: 'var(--color-neutral-600)',
-                  fontWeight: 700,
-                }}
-              >
-                Ends {endsAtLabel(Date.now(), idleDurationMinutes)} · drag the dial to change length
+              <span className="md-meta" style={{ textAlign: 'center' }}>
+                Ends {endsAtLabel(Date.now(), idleDurationMinutes)} · drag the dial to change the length
               </span>
 
               {taskNotice && (
-                <span style={{ fontSize: 11, color: 'var(--color-accent)', fontWeight: 600 }}>{taskNotice}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--accent-base)', fontWeight: 600, textAlign: 'center' }}>{taskNotice}</span>
               )}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 'auto', flex: 'none' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                marginTop: 'auto',
+                flex: 'none',
+                // Two buttons the width of a 1280px window are a bar, not a
+                // pair; they sit under the dial at the dial's own width.
+                width: '100%',
+                maxWidth: phone ? 'none' : 560,
+                alignSelf: 'center',
+              }}
+            >
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
                   type="button"
-                  className="md-press"
+                  className="btn btn-tonal btn-lg md-rise"
                   aria-label={phase === 'paused' ? 'Resume session' : 'Pause session'}
                   onClick={() => (phase === 'paused' ? resume() : pause())}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 9,
-                    border: '2px solid var(--color-divider)',
-                    background: 'transparent',
-                    color: 'inherit',
-                    padding: 14,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
-                    fontSize: 13,
-                    letterSpacing: '.08em',
-                    textTransform: 'uppercase',
-                  }}
+                  style={{ flex: 1, minHeight: 52, gap: 9 }}
                 >
-                  <MdIcon name={phase === 'paused' ? 'play' : 'pause'} size={16} strokeWidth={2.4} />
+                  <MdIcon name={phase === 'paused' ? 'play' : 'pause'} size={17} strokeWidth={2} />
                   {phase === 'paused' ? 'Resume' : 'Pause'}
                 </button>
+                {/*
+                  * Paper, not more accent. The ground is the category's own
+                  * colour taken all the way down, so an accent fill here would
+                  * be the same hue at a near value and the screen would read
+                  * as one note. Ink-on-ground is the one bright element in the
+                  * room — the thing you can press without thinking.
+                  */}
                 <button
                   type="button"
-                  className="md-press"
+                  className="btn btn-ink btn-lg md-rise"
                   aria-label="Finish session"
                   onClick={() => finish(false)}
-                  style={{
-                    flex: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 9,
-                    border: 0,
-                    /*
-                     * Paper, not more accent. The ground is now the category's
-                     * own colour taken all the way down, so an accent fill
-                     * here would be the same hue at a near value and the
-                     * screen would read as one note. This is the system's
-                     * existing primary — `.sesh-btn-primary` is ink on ground
-                     * — which makes the single pure-white element on the
-                     * screen the one thing you can press without thinking.
-                     */
-                    background: 'var(--color-text)',
-                    color: 'var(--color-bg)',
-                    padding: 14,
-                    cursor: 'pointer',
-                    fontFamily: 'var(--font-heading)',
-                    fontWeight: 800,
-                    fontSize: 13,
-                    letterSpacing: '.08em',
-                    textTransform: 'uppercase',
-                  }}
+                  style={{ flex: 1, minHeight: 52, gap: 9 }}
                 >
-                  <MdIcon name="check" size={16} strokeWidth={2.6} color="var(--color-bg)" />
+                  <MdIcon name="check" size={17} strokeWidth={2.2} color="var(--color-bg)" />
                   Finish
                 </button>
               </div>
               <button
                 type="button"
+                className="btn btn-quiet btn-sm md-rise"
                 onClick={abandon}
-                style={{
-                  alignSelf: 'flex-start',
-                  background: 'transparent',
-                  border: 0,
-                  padding: '4px 0',
-                  cursor: 'pointer',
-                  color: 'var(--color-neutral-600)',
-                  fontSize: 11,
-                  letterSpacing: '.1em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  fontFamily: 'var(--font-heading)',
-                  textDecoration: 'underline',
-                  textUnderlineOffset: 3,
-                }}
+                style={{ alignSelf: 'center' }}
               >
                 Abandon session
               </button>
@@ -1610,19 +1495,19 @@ export default function Timer({
             }}
           >
             <div
+              className="md-rule-b"
               style={{
-                padding: '14px 14px 12px',
+                padding: '16px 16px 12px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 9,
-                borderBottom: '2px solid var(--color-divider)',
+                gap: 10,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 13, letterSpacing: '.1em', textTransform: 'uppercase' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <h3 className="md-title" style={{ margin: 0, fontSize: 15 }}>
                   Queue
                 </h3>
-                <span className="md-num" style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-neutral-600)' }}>
+                <span className="md-meta md-num" style={{ marginLeft: 'auto', letterSpacing: 0 }}>
                   {tasks.length} open
                 </span>
               </div>
@@ -1659,7 +1544,7 @@ export default function Timer({
               position: 'absolute',
               inset: 0,
               border: 0,
-              background: 'color-mix(in srgb, #1b1918 52%, transparent)',
+              background: 'color-mix(in srgb, #161514 56%, transparent)',
               cursor: 'pointer',
             }}
           />
@@ -1670,31 +1555,29 @@ export default function Timer({
               maxHeight: '82%',
               display: 'flex',
               flexDirection: 'column',
-              background: 'var(--color-bg)',
-              borderTop: '2px solid var(--color-text)',
-              boxShadow: 'var(--shadow-lg)',
             }}
           >
+            <span aria-hidden="true" className="md-grabber" />
             <div
+              className="md-rule-b"
               style={{
-                padding: '14px 16px 12px',
+                padding: '8px 16px 12px 20px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
-                borderBottom: '2px solid var(--color-divider)',
               }}
             >
-              <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+              <h3 className="md-title" style={{ margin: 0, fontSize: 17 }}>
                 Choose a task
               </h3>
               <button
                 type="button"
-                className="md-press"
+                className="btn btn-icon md-press-sm"
                 onClick={closeSheet}
                 aria-label="Close task picker"
-                style={{ marginLeft: 'auto', background: 'transparent', border: 0, cursor: 'pointer', color: 'inherit', padding: 2 }}
+                style={{ marginLeft: 'auto' }}
               >
-                <MdIcon name="close" size={18} strokeWidth={2.2} />
+                <MdIcon name="close" size={16} strokeWidth={2} />
               </button>
             </div>
             <div style={{ padding: '10px 16px', display: 'flex', gap: 6 }}>
@@ -1816,6 +1699,13 @@ function Poster({
       { label: 'Back to the dial', next: 'idle' },
     ]
 
+  const onTone = { color: 'var(--accent-on)' }
+  const quietOnAccent: React.CSSProperties = {
+    ...onTone,
+    background: 'transparent',
+    border: `1px solid ${RULE_ON_ACCENT}`,
+  }
+
   return (
     <div
       className="md-poster"
@@ -1826,191 +1716,155 @@ function Poster({
         position: 'absolute',
         inset: 0,
         zIndex: 80,
-        background: 'var(--color-accent)',
+        background: 'var(--accent-base)',
         color: 'var(--accent-on)',
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'center',
         overflow: 'hidden',
-        padding: phone ? 'calc(var(--safe-t) + 20px) 20px calc(var(--safe-b) + 22px)' : '34px 34px 30px',
+        padding: phone ? 'calc(var(--safe-t) + 22px) 22px calc(var(--safe-b) + 22px)' : '40px 40px 36px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 11, flex: 'none' }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--accent-on)" strokeWidth="2.8" strokeLinecap="square" aria-hidden="true">
-          <path className="md-draw" d="M3.5 12.5 9.5 18.5 20.5 5.5" />
-        </svg>
-        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 12, letterSpacing: '.16em', textTransform: 'uppercase' }}>
-          Session logged
-        </span>
-      </div>
-
-      <div style={{ height: 2, background: RULE_ON_ACCENT, margin: '16px 0 18px' }} />
-
-      <span
-        className="md-num"
-        style={{
-          fontFamily: 'var(--font-heading)',
-          fontWeight: 800,
-          fontSize: phone ? 'min(84px, 13vh)' : 'min(112px, 16vh)',
-          letterSpacing: '-.045em',
-          lineHeight: .92,
-        }}
-      >
-        {minutes}
-      </span>
-      <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 13, letterSpacing: '.14em', textTransform: 'uppercase', marginTop: 8 }}>
-        minutes · {categoryLabel}
-      </span>
-
-      {/* What it gets filed as is still open until you dismiss this. The field
-          carries the poster's own ink rather than a box, so it reads as the
-          title it is. */}
-      <input
-        value={intention}
-        onChange={event => onIntentionChange(event.target.value)}
-        placeholder="Untitled session"
-        aria-label="What this session was"
-        style={{
-          width: '100%',
-          marginTop: 16,
-          border: 0,
-          borderBottom: `2px solid ${RULE_ON_ACCENT}`,
-          background: 'transparent',
-          color: 'var(--accent-on)',
-          fontFamily: 'var(--font-heading)',
-          fontWeight: 800,
-          fontSize: phone ? 18 : 21,
-          letterSpacing: '-.02em',
-          padding: '0 0 8px',
-          outline: 'none',
-        }}
-      />
-
-      <div style={{ border: `2px solid ${RULE_ON_ACCENT}`, display: 'flex', alignItems: 'stretch', marginTop: 12 }}>
-        <div style={{ flex: 1, minWidth: 0, padding: '9px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-          <span style={{ fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, opacity: .8 }}>
-            {lead && leadProvider ? `${leadProvider} · ${lead.projectName ?? leadProvider}` : 'No task linked'}
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tasks.length > 0 ? tasks.map(t => t.content).join(' · ') : 'Nothing written back'}
+      <div style={{ width: '100%', maxWidth: phone ? 'none' : 460, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-on)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path className="md-draw" d="M4 12.5 9.5 18 20 6" />
+          </svg>
+          <span className="md-eyebrow" style={{ ...onTone, opacity: .85 }}>
+            Session logged
           </span>
         </div>
-        {canPickTask && (
-          <button
-            type="button"
-            className="md-press"
-            onClick={onPickTask}
-            // The idle slot behind the poster carries the same word, so this
-            // one says which task it means.
-            aria-label={tasks.length > 0 ? 'Change the task this session is filed against' : 'Choose a task for this session'}
-            style={{
-              flex: 'none',
-              border: 0,
-              borderLeft: `2px solid ${RULE_ON_ACCENT}`,
-              background: 'transparent',
-              color: 'var(--accent-on)',
-              padding: '0 13px',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-heading)',
-              fontWeight: 800,
-              fontSize: 10.5,
-              letterSpacing: '.1em',
-              textTransform: 'uppercase',
-            }}
-          >
-            {tasks.length > 0 ? 'Change' : 'Choose'}
-          </button>
-        )}
-      </div>
 
-      <p style={{ margin: '12px 0 0', fontSize: 13.5, lineHeight: 1.45, maxWidth: '34ch', opacity: .92, textWrap: 'pretty' }}>
-        {note}
-      </p>
-      {breakRunning && (
-        <p style={{ margin: '8px 0 0', fontSize: 12.5, letterSpacing: '.02em', fontWeight: 600, opacity: .82 }}>
-          Your break is already running.
-        </p>
-      )}
-
-      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <span style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, opacity: .85 }}>
-          How did it go?
-        </span>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {RATINGS.map(({ label, value }) => (
-            <button
-              key={label}
-              type="button"
-              className="md-press"
-              aria-pressed={rating === value}
-              onClick={() => onRate(value)}
-              style={{
-                flex: 1,
-                border: `2px solid ${RULE_ON_ACCENT}`,
-                background: rating === value ? 'var(--accent-on)' : 'transparent',
-                color: rating === value ? 'var(--color-accent)' : 'var(--accent-on)',
-                padding: '11px 6px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 11,
-                letterSpacing: '.08em',
-                textTransform: 'uppercase',
-                transition: 'background 180ms, color 180ms',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          className="md-press"
-          onClick={() => onDone(leadAction.next)}
+        <span
+          className="md-num"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            border: 0,
-            background: 'var(--accent-on)',
-            color: 'var(--color-accent)',
-            padding: 15,
-            cursor: 'pointer',
             fontFamily: 'var(--font-heading)',
-            fontWeight: 800,
-            fontSize: 14,
-            letterSpacing: '.08em',
-            textTransform: 'uppercase',
-            textAlign: 'left',
+            fontWeight: 500,
+            fontSize: phone ? 'min(96px, 14vh)' : 'min(120px, 17vh)',
+            letterSpacing: '-.04em',
+            lineHeight: .95,
+            marginTop: phone ? 22 : 28,
           }}
         >
-          {leadAction.label}
-          <MdIcon name="arrow" size={19} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />
-        </button>
+          {minutes}
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 500, opacity: .85, marginTop: 4 }}>
+          minutes · {categoryLabel}
+        </span>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          {restActions.map(action => (
+        {/* What it gets filed as is still open until you dismiss this. The field
+            carries the poster's own ink rather than a box, so it reads as the
+            title it is. */}
+        <input
+          value={intention}
+          onChange={event => onIntentionChange(event.target.value)}
+          placeholder="Untitled session"
+          aria-label="What this session was"
+          className="md-on-accent"
+          style={{
+            width: '100%',
+            marginTop: 22,
+            border: 0,
+            borderBottom: `1px solid ${RULE_ON_ACCENT}`,
+            borderRadius: 0,
+            background: 'transparent',
+            color: 'var(--accent-on)',
+            fontFamily: 'var(--font-heading)',
+            fontWeight: 600,
+            fontSize: phone ? 19 : 22,
+            letterSpacing: '-.02em',
+            padding: '0 0 9px',
+            outline: 'none',
+          }}
+        />
+
+        <div style={{ background: FILL_ON_ACCENT, borderRadius: 'var(--r-md)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, padding: '10px 8px 10px 14px' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500, opacity: .8 }}>
+              {lead && leadProvider ? `${leadProvider} · ${lead.projectName ?? leadProvider}` : 'No task linked'}
+            </span>
+            <span style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tasks.length > 0 ? tasks.map(t => t.content).join(' · ') : 'Nothing written back'}
+            </span>
+          </div>
+          {canPickTask && (
             <button
-              key={action.next}
               type="button"
-              className="md-press"
-              onClick={() => onDone(action.next)}
-              style={{
-                flex: 1,
-                border: `2px solid ${RULE_ON_ACCENT}`,
-                background: 'transparent',
-                color: 'var(--accent-on)',
-                padding: '11px 6px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 11,
-                letterSpacing: '.08em',
-                textTransform: 'uppercase',
-              }}
+              className="btn btn-sm"
+              onClick={onPickTask}
+              // The idle slot behind the poster carries the same word, so this
+              // one says which task it means.
+              aria-label={tasks.length > 0 ? 'Change the task this session is filed against' : 'Choose a task for this session'}
+              style={{ flex: 'none', background: FILL_ON_ACCENT, ...onTone }}
             >
-              {action.label}
+              {tasks.length > 0 ? 'Change' : 'Choose'}
             </button>
-          ))}
+          )}
+        </div>
+
+        <p style={{ margin: '14px 0 0', fontSize: 14, lineHeight: 1.5, maxWidth: '38ch', opacity: .88, textWrap: 'pretty' }}>
+          {note}
+        </p>
+        {breakRunning && (
+          <p style={{ margin: '8px 0 0', fontSize: 13.5, fontWeight: 600, opacity: .88 }}>
+            Your break is already running.
+          </p>
+        )}
+
+        <div style={{ marginTop: 'auto', paddingTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span className="md-eyebrow" style={{ ...onTone, opacity: .8 }}>
+            How did it go?
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {RATINGS.map(({ label, value }) => (
+              <button
+                key={label}
+                type="button"
+                className="btn btn-md"
+                aria-pressed={rating === value}
+                onClick={() => onRate(value)}
+                style={{
+                  flex: 1,
+                  background: rating === value ? 'var(--accent-on)' : FILL_ON_ACCENT,
+                  color: rating === value ? 'var(--accent-base)' : 'var(--accent-on)',
+                  transition: 'background 180ms, color 180ms, transform 120ms',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn btn-lg"
+            onClick={() => onDone(leadAction.next)}
+            style={{
+              width: '100%',
+              minHeight: 52,
+              justifyContent: 'space-between',
+              background: 'var(--accent-on)',
+              color: 'var(--accent-base)',
+              fontSize: 16,
+              marginTop: 6,
+            }}
+          >
+            {leadAction.label}
+            <MdIcon name="arrow" size={20} strokeWidth={2} />
+          </button>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            {restActions.map(action => (
+              <button
+                key={action.next}
+                type="button"
+                className="btn btn-md"
+                onClick={() => onDone(action.next)}
+                style={{ flex: 1, ...quietOnAccent }}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

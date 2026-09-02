@@ -87,7 +87,7 @@ export default function Dial({
    * not a bigger one.
    */
   const scale = size / 250
-  const arcW = 4.5 * scale
+  const arcW = 3.5 * scale
   const tickOuter = r - 7
   const interactive = Boolean(onMinutesChange) && !live
 
@@ -140,7 +140,7 @@ export default function Dial({
       fontSize: 9.5 * scale,
       fontVariantNumeric: 'tabular-nums',
       letterSpacing: '.04em',
-      color: passed ? color : 'var(--color-neutral-500)',
+      color: passed ? color : 'var(--color-text-3)',
       opacity: passed ? 0.95 : 0.7,
       transition: 'color 420ms var(--ease-out), opacity 420ms',
     }
@@ -245,8 +245,8 @@ export default function Dial({
           transform: 'rotate(-90deg)',
           overflow: 'visible',
           filter: darkGround
-            ? 'drop-shadow(0 14px 30px rgba(0,0,0,.5))'
-            : 'drop-shadow(0 10px 26px rgba(45,43,43,.16))',
+            ? 'drop-shadow(0 12px 28px rgba(0,0,0,.42))'
+            : 'drop-shadow(0 8px 22px rgba(29,28,27,.10))',
         }}
       >
         <defs>
@@ -270,7 +270,7 @@ export default function Dial({
           fill="none"
           stroke={color}
           strokeWidth={arcW}
-          strokeLinecap="butt"
+          strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={circ * (1 - p)}
           style={{ transition: 'stroke-dashoffset 900ms linear, stroke 320ms var(--ease-out)' }}
