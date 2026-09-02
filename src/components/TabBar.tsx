@@ -35,24 +35,29 @@ export default function TabBar({ activeTab, onChange }: TabBarProps) {
         position: 'relative',
         display: 'grid',
         gridTemplateColumns: 'repeat(5, 1fr)',
-        borderTop: '2px solid var(--color-divider)',
-        paddingBottom: 'calc(var(--safe-b) + 8px)',
+        borderTop: '1px solid var(--line)',
+        paddingBottom: 'calc(var(--safe-b) + 6px)',
         background: 'var(--color-bg)',
       }}
     >
+      {/* A short rounded bar, centred in a fifth of the width; the fifth is
+          what moves, so the bar lands under whichever tab is active. */}
       <span
         aria-hidden="true"
         style={{
           position: 'absolute',
-          top: -2,
+          top: -1,
           left: 0,
-          height: 3,
           width: '20%',
-          background: 'var(--color-accent)',
+          height: 2,
+          display: 'flex',
+          justifyContent: 'center',
           transform: `translateX(${activeIndex * 100}%)`,
-          transition: 'transform 380ms var(--ease-spring)',
+          transition: 'transform 320ms var(--ease-spring)',
         } as CSSProperties}
-      />
+      >
+        <span style={{ width: 24, height: 2, borderRadius: 1, background: 'var(--accent-base)' }} />
+      </span>
       {APP_TABS.map(({ id, label, icon }) => {
         const active = activeTab === id
         return (
@@ -72,20 +77,19 @@ export default function TabBar({ activeTab, onChange }: TabBarProps) {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 4,
-              padding: '11px 0 6px',
+              gap: 3,
+              padding: '9px 0 5px',
               background: 'transparent',
               border: 0,
               cursor: 'pointer',
-              color: 'var(--color-neutral-600)',
+              color: 'var(--color-text-2)',
               fontFamily: 'var(--font-heading)',
-              fontWeight: 800,
-              fontSize: 9.5,
-              letterSpacing: '.08em',
-              textTransform: 'uppercase',
+              fontWeight: 600,
+              fontSize: 10.5,
+              letterSpacing: 0,
             }}
           >
-            <MdIcon name={icon} size={21} strokeWidth={1.9} />
+            <MdIcon name={icon} size={22} strokeWidth={active ? 2 : 1.7} />
             {label}
           </button>
         )

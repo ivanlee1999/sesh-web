@@ -3,22 +3,24 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { MdIcon } from './icons'
 import type { CategoryRecord } from '@/types'
-import { readableInk } from '@/lib/accent'
+import { accentFor } from '@/lib/accent'
 
 const FADE = 'linear-gradient(to right, #000 0, #000 calc(100% - 30px), transparent 100%)'
 
 const CHIP_BASE = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 7,
-  border: '2px solid',
-  padding: '7px 11px',
+  gap: 8,
+  border: '1px solid',
+  borderRadius: 'var(--r-sm)',
+  minHeight: 34,
+  padding: '0 12px 0 10px',
   cursor: 'pointer',
   fontFamily: 'var(--font-heading)',
-  fontWeight: 800,
-  fontSize: 11,
-  letterSpacing: '.07em',
-  textTransform: 'uppercase',
+  fontWeight: 600,
+  fontSize: 13,
+  letterSpacing: 0,
+  whiteSpace: 'nowrap',
 } as const
 
 /**
@@ -45,11 +47,14 @@ export default function CategoryChips({
   active,
   onPick,
   phone,
+  dark = false,
 }: {
   categories: CategoryRecord[]
   active: string
   onPick: (name: string) => void
   phone: boolean
+  /** Which ground the row sits on, so every dot is drawn legibly for it. */
+  dark?: boolean
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null)
   const wrapRef = useRef<HTMLDivElement | null>(null)
@@ -127,25 +132,12 @@ export default function CategoryChips({
   const chevron = (label: string, dir: number, icon: 'prev' | 'next') => (
     <button
       type="button"
-      className="md-press md-lift"
+      className="btn btn-icon md-press-sm"
       onClick={() => nudge(dir)}
       aria-label={label}
-      style={{
-        flex: 'none',
-        width: 26,
-        height: 30,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '2px solid var(--color-divider)',
-        background: 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        padding: 0,
-        transition: 'opacity 180ms',
-      }}
+      style={{ width: 28, height: 34, transition: 'opacity 180ms, background 160ms' }}
     >
-      <MdIcon name={icon} size={13} strokeWidth={2.4} />
+      <MdIcon name={icon} size={14} strokeWidth={2} />
     </button>
   )
 
@@ -174,6 +166,10 @@ export default function CategoryChips({
       >
         {categories.map(category => {
           const isActive = category.name === active
+          // The category's colour as the accent engine draws it on this
+          // ground, so a near-black or a pale category still reads as a dot,
+          // and the active chip is filled with exactly the accent in play.
+          const drawn = accentFor(category.color, dark)
           return (
             <button
               key={category.id}
@@ -184,12 +180,22 @@ export default function CategoryChips({
               onClick={() => onPick(category.name)}
               style={{
                 ...CHIP_BASE,
-                borderColor: isActive ? category.color : 'var(--color-divider)',
-                background: isActive ? category.color : 'transparent',
-                color: isActive ? readableInk(category.color) : 'inherit',
+                borderColor: isActive ? drawn.base : 'var(--line-2)',
+                background: isActive ? drawn.base : 'transparent',
+                color: isActive ? drawn.on : 'var(--color-text)',
+                transition: 'background 160ms, color 160ms, border-color 160ms, transform 120ms var(--ease-out)',
               }}
             >
-              <span style={{ width: 8, height: 8, background: category.color, display: 'block' }} />
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  background: isActive ? drawn.on : drawn.base,
+                  opacity: isActive ? 0.8 : 1,
+                  display: 'block',
+                }}
+              />
               {category.label}
             </button>
           )

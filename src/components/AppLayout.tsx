@@ -197,31 +197,18 @@ export default function AppLayout() {
           <header
             style={{
               flex: 'none',
-              padding: 'calc(var(--safe-t) + 12px) 18px 10px',
+              padding: 'calc(var(--safe-t) + 10px) 18px 9px',
               display: 'flex',
               alignItems: 'center',
               gap: 9,
-              borderBottom: '2px solid var(--color-divider)',
+              borderBottom: '1px solid var(--line)',
             }}
           >
-            <span style={{ width: 15, height: 15, background: 'var(--color-accent)', display: 'block' }} />
-            <strong style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 15, letterSpacing: '-.01em' }}>
+            <strong style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 17, letterSpacing: '-.02em' }}>
               sesh
             </strong>
-            <span
-              style={{
-                marginLeft: 'auto',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 10,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
-              }}
-            >
-              <span style={{ width: 6, height: 6, background: 'var(--color-accent)' }} />
+            <span className="md-meta" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--good)' }} />
               {headStatus}
             </span>
           </header>
@@ -231,41 +218,19 @@ export default function AppLayout() {
           <header
             style={{
               flex: 'none',
-              padding: '20px 26px 14px',
+              padding: '18px 32px 14px',
               display: 'flex',
-              alignItems: 'flex-end',
+              alignItems: 'baseline',
               gap: 14,
-              borderBottom: '2px solid var(--color-divider)',
+              borderBottom: '1px solid var(--line)',
             }}
           >
-            <h1 className="md-title" style={{ fontSize: 30 }}>{TAB_TITLE[activeTab]}</h1>
-            <span
-              style={{
-                fontSize: 11,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
-                paddingBottom: 6,
-              }}
-            >
+            <h1 className="md-title" style={{ fontSize: 24 }}>{TAB_TITLE[activeTab]}</h1>
+            <span className="md-meta" style={{ fontSize: 13 }}>
               {subs[activeTab] ?? TAB_SUB[activeTab]}
             </span>
-            <span
-              style={{
-                marginLeft: 'auto',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                fontSize: 11,
-                letterSpacing: '.1em',
-                textTransform: 'uppercase',
-                color: 'var(--color-neutral-600)',
-                fontWeight: 700,
-                paddingBottom: 6,
-              }}
-            >
-              <span style={{ width: 7, height: 7, background: 'var(--color-accent)' }} />
+            <span className="md-meta" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: 'var(--good)' }} />
               {headStatus}
             </span>
           </header>

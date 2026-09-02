@@ -1,12 +1,11 @@
 'use client'
 
 /**
- * The icon set, as lucide with the system's square cap.
+ * The icon set: lucide, drawn with round caps at a 1.8 stroke.
  *
- * Every icon in this design is drawn with `stroke-linecap: square` and a
- * heavier stroke than lucide's default — rounded caps are the one thing that
- * would make the whole set read as the old iOS language again. Wrapping them
- * once here keeps that from being a per-call-site decision.
+ * The rest of the system has soft corners and hairlines, and a square-capped
+ * icon next to a 10px-radius button reads as borrowed. Wrapping them once here
+ * keeps the cap and the weight from being a per-call-site decision.
  */
 
 import {
@@ -47,7 +46,7 @@ export type MdIconName = keyof typeof MD_ICONS
 export function MdIcon({
   name,
   size = 17,
-  strokeWidth = 1.9,
+  strokeWidth = 1.8,
   color,
   className,
   style,
@@ -65,8 +64,8 @@ export function MdIcon({
       width={size}
       height={size}
       strokeWidth={strokeWidth}
-      strokeLinecap="square"
-      strokeLinejoin="miter"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       color={color}
       className={className}
       style={{ flex: 'none', display: 'block', ...style }}

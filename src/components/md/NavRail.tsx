@@ -34,22 +34,21 @@ export default function NavRail({
       style={{
         flex: 'none',
         width: rail.width,
-        // The border moves to the handle, which is the same 2px rule.
+        // The border moves to the handle, which is the same hairline.
         display: 'flex',
         flexDirection: 'column',
         padding: '20px 0 0',
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 16px 20px' }}>
-        <span style={{ width: 20, height: 20, background: 'var(--color-accent)', display: 'block' }} />
-        <strong style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 19, letterSpacing: '-.02em' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 20px 18px' }}>
+        <strong style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: 19, letterSpacing: '-.02em' }}>
           sesh
         </strong>
       </div>
-      <div style={{ height: 2, background: 'var(--color-divider)' }} />
+      <div style={{ height: 1, background: 'var(--line)', margin: '0 12px' }} />
 
-      <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', padding: '10px 0' }}>
+      <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '12px 10px' }}>
         {APP_TABS.map(({ id, label, icon }) => {
           const active = activeTab === id
           return (
@@ -64,26 +63,26 @@ export default function NavRail({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
-                padding: '10px 16px',
+                gap: 11,
+                minHeight: 40,
+                padding: '0 12px',
                 background: 'transparent',
                 border: 0,
                 cursor: 'pointer',
                 fontFamily: 'var(--font-heading)',
-                fontWeight: 800,
-                fontSize: 12,
-                letterSpacing: '.08em',
-                textTransform: 'uppercase',
-                color: 'inherit',
+                fontWeight: 600,
+                fontSize: 14,
+                letterSpacing: 0,
+                color: active ? 'var(--color-text)' : 'var(--color-text-2)',
                 textAlign: 'left',
               }}
             >
-              <MdIcon name={icon} size={17} strokeWidth={1.9} />
+              <MdIcon name={icon} size={18} strokeWidth={1.8} />
               {label}
               {id === 'tasks' && openTasks !== null && (
                 <span
                   className="md-num"
-                  style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--color-neutral-600)' }}
+                  style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 500, color: 'var(--color-text-2)' }}
                 >
                   {openTasks}
                 </span>
@@ -96,29 +95,20 @@ export default function NavRail({
       <div
         style={{
           marginTop: 'auto',
-          borderTop: '2px solid var(--color-divider)',
-          padding: '12px 16px',
+          borderTop: '1px solid var(--line)',
+          margin: 'auto 12px 0',
+          padding: '14px 8px 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 7,
+          gap: 8,
         }}
       >
-        <span
-          style={{
-            fontSize: 10,
-            letterSpacing: '.1em',
-            textTransform: 'uppercase',
-            color: 'var(--color-neutral-600)',
-            fontWeight: 700,
-          }}
-        >
-          Sources
-        </span>
+        <span className="md-eyebrow">Sources</span>
         {sources.map(({ provider, state }) => (
-          <span key={provider} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5 }}>
-            <span style={{ width: 7, height: 7, background: PROVIDER_COLOR[provider], display: 'block', flex: 'none' }} />
+          <span key={provider} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 500 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 4, background: PROVIDER_COLOR[provider], display: 'block', flex: 'none' }} />
             {PROVIDER_LABEL[provider]}
-            <span style={{ marginLeft: 'auto', color: 'var(--color-neutral-600)' }}>{state}</span>
+            <span style={{ marginLeft: 'auto', color: 'var(--color-text-2)' }}>{state}</span>
           </span>
         ))}
       </div>
