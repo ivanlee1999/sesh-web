@@ -12,11 +12,11 @@
  * whichever the interface is currently on without repeating the maths.
  */
 
-/** The red the interface falls back to when no category has been chosen. */
-export const DEFAULT_ACCENT = '#ec3013'
+/** The brick the interface falls back to when no category has been chosen. */
+export const DEFAULT_ACCENT = '#c0522d'
 
 /** Matches `--color-text` on the light ground. */
-const INK = '#201e1d'
+const INK = '#1d1c1b'
 const PAPER = '#ffffff'
 
 /**
@@ -26,10 +26,20 @@ const PAPER = '#ffffff'
  * yellow and a saturated blue of the same "lightness" do not read the same.
  */
 const DARK_GROUND_MIN_LUMINANCE = 0.28
-const LIGHT_GROUND_MAX_LUMINANCE = 0.5
 
-/** WCAG AA for large text, which is all the type an accent fill ever carries. */
+/**
+ * WCAG AA for large text — the bar a raw colour has to clear for white to be
+ * its ink at all — and for body text, which is what the labels on a themed
+ * accent fill are now: 15px sentence case, not 800-weight capitals.
+ */
 const LARGE_TEXT_CONTRAST = 3
+const BODY_TEXT_CONTRAST = 4.5
+/**
+ * The luminance under which white ink reaches `BODY_TEXT_CONTRAST`. On the
+ * light ground every accent is taken down to this, which also leaves it at
+ * least 3:1 against the paper as a bare mark — a dial arc, a bar, a dot.
+ */
+const LIGHT_GROUND_MAX_LUMINANCE = 1.05 / BODY_TEXT_CONTRAST - 0.05
 
 /**
  * How dark the room is while a session runs.
@@ -123,11 +133,12 @@ function nudge(rgb: Rgb, target: Rgb, ok: (lum: number) => boolean): Rgb {
 }
 
 /**
- * The ink for type sitting on an accent fill.
+ * The ink for type sitting on a raw colour fill.
  *
- * White is the house style and stays unless it actually fails: the type on an
- * accent fill is 800-weight uppercase, so 3:1 is the bar it has to clear. Only
- * the pale end of the palette — a gold, a sand — falls through to dark ink.
+ * White is the house style and stays unless it actually fails: 3:1 is the bar
+ * a colour has to clear for white to be considered at all (see `accentFor`
+ * for the further darkening that takes a themed fill to body-text contrast).
+ * Only the pale end of the palette — a gold, a sand — falls through to dark ink.
  */
 function inkOn(rgb: Rgb): string {
   return contrast(rgb, parseHex(PAPER) as Rgb) >= LARGE_TEXT_CONTRAST ? PAPER : INK
@@ -153,13 +164,24 @@ export function groundFor(color: string): string {
   return toHex(nudge(rgb, [0, 0, 0], lum => lum <= SESSION_GROUND_LUMINANCE))
 }
 
-/** The accent as it should be drawn on one ground. */
+/**
+ * The accent as it should be drawn on one ground.
+ *
+ * Light ground: the colour is taken down until white ink clears body-text
+ * contrast on it — a deep terracotta stays where it is, a gold becomes an
+ * ochre — and the ink is white for every category. One rule, no pale end.
+ *
+ * Dark ground: the colour is lifted until it stands off the room, and at that
+ * brightness dark ink is the one that reads (white cannot reach 4.5:1 on
+ * anything bright enough to show on a near-black ground), so the ink is dark
+ * for every category in dark mode and in the session room.
+ */
 export function accentFor(color: string, dark: boolean): AccentTheme {
   const rgb = parseHex(color) ?? (parseHex(DEFAULT_ACCENT) as Rgb)
   const adjusted = dark
     ? nudge(rgb, parseHex(PAPER) as Rgb, lum => lum >= DARK_GROUND_MIN_LUMINANCE)
     : nudge(rgb, [0, 0, 0], lum => lum <= LIGHT_GROUND_MAX_LUMINANCE)
-  return { base: toHex(adjusted), on: inkOn(adjusted), ground: groundFor(color) }
+  return { base: toHex(adjusted), on: dark ? INK : PAPER, ground: groundFor(color) }
 }
 
 export function accentPair(color: string): AccentPair {
@@ -174,8 +196,8 @@ export function applyAccent(root: HTMLElement, theme: AccentTheme): void {
 }
 
 /** The chrome on the two plain grounds, when no session is tinting one. */
-export const THEME_COLOR_LIGHT = '#f3f2f2'
-export const THEME_COLOR_DARK = '#1b1918'
+export const THEME_COLOR_LIGHT = '#f4f2ef'
+export const THEME_COLOR_DARK = '#161514'
 
 /**
  * Point the browser and PWA chrome at the ground the page is standing on.

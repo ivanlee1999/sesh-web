@@ -20,8 +20,16 @@ function contrast(a: string, b: string): number {
 
 describe('accentFor', () => {
   it('leaves a colour that already reads on its ground alone', () => {
-    expect(accentFor('#6E86B0', false).base).toBe('#6e86b0')
+    expect(accentFor('#3B6FA8', false).base).toBe('#3b6fa8')
     expect(accentFor('#C8943A', true).base).toBe('#c8943a')
+  })
+
+  it('darkens a colour white only just reads on until white clears body text', () => {
+    const light = accentFor('#6E86B0', false)
+    expect(light.on).toBe('#ffffff')
+    expect(contrast(light.base, '#ffffff')).toBeGreaterThanOrEqual(4.5)
+    // Nudged, not replaced: still the same slate blue.
+    expect(luminance(light.base)).toBeGreaterThan(0.15)
   })
 
   it('lifts a near-black category off the focus ground', () => {
@@ -35,37 +43,44 @@ describe('accentFor', () => {
     expect(luminance(light.base)).toBeLessThanOrEqual(0.5)
   })
 
-  it('picks ink that clears 3:1 against the accent it sits on', () => {
-    for (const color of ['#ec3013', '#C8943A', '#7E9476', '#2d2b2b', '#ffe600', '#9b9797']) {
+  it('picks ink that clears 4.5:1 against the accent it sits on, on both grounds', () => {
+    for (const color of ['#ec3013', '#C8943A', '#7E9476', '#2d2b2b', '#ffe600', '#9b9797', '#3b6fa8', '#c4552f']) {
       for (const dark of [false, true]) {
         const theme = accentFor(color, dark)
-        expect(contrast(theme.base, theme.on)).toBeGreaterThanOrEqual(3)
+        expect(contrast(theme.base, theme.on)).toBeGreaterThanOrEqual(4.5)
       }
     }
   })
 
-  it('falls back to the default red rather than emitting a broken colour', () => {
+  it('keeps the accent itself legible as a mark on the ground it is drawn on', () => {
+    for (const color of ['#ec3013', '#C8943A', '#7E9476', '#2d2b2b', '#ffe600', '#9b9797']) {
+      expect(contrast(accentFor(color, false).base, '#f4f2ef')).toBeGreaterThanOrEqual(3)
+      expect(contrast(accentFor(color, true).base, '#161514')).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('falls back to the default brick rather than emitting a broken colour', () => {
     expect(accentFor('not a colour', false).base).toBe(DEFAULT_ACCENT)
     expect(accentFor('', false).base).toBe(DEFAULT_ACCENT)
   })
 
   it('reads three-digit hex', () => {
-    expect(accentFor('#0a5', false).base).toBe('#00aa55')
+    expect(accentFor('#05a', false).base).toBe('#0055aa')
   })
 })
 
 describe('readableInk', () => {
   it('keeps white on the saturated end and flips to ink on the pale end', () => {
     expect(readableInk('#ec3013')).toBe('#ffffff')
-    expect(readableInk('#C8943A')).toBe('#201e1d')
+    expect(readableInk('#C8943A')).toBe('#1d1c1b')
   })
 })
 
 describe('applyAccent', () => {
   it('writes the two variables the whole ramp is mixed from', () => {
     const root = document.createElement('div')
-    applyAccent(root, accentPair('#7E9476').light)
-    expect(root.style.getPropertyValue('--accent-base')).toBe('#7e9476')
+    applyAccent(root, accentPair('#3B6FA8').light)
+    expect(root.style.getPropertyValue('--accent-base')).toBe('#3b6fa8')
     expect(root.style.getPropertyValue('--accent-on')).toBe('#ffffff')
   })
 })

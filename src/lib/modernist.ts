@@ -7,8 +7,8 @@
 
 /** The eight colours offered per category in Settings → Colours. */
 export const SWATCHES = [
-  '#ec3013', '#e08a12', '#3f8f6f', '#3a6ea8',
-  '#8a5fa8', '#c94b39', '#2d2b2b', '#9b9797',
+  '#c0522d', '#c98a1e', '#4f8f6e', '#3b6fa8',
+  '#7a5ea8', '#b8465c', '#2b2927', '#8a857f',
 ] as const
 
 /**

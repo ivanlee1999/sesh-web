@@ -36,39 +36,54 @@
     --tabbar-padding-top: 8px;
     --tabbar-padding-bottom: calc(10px + var(--safe-b));
 
-    /* ---- Color — the Modernist system ----
+    /* ---- Color — paper and ink ----
        `--color-*` are the canonical tokens. The `--bg` / `--ink` family below
        are aliases kept so older component classes inherit the same palette
-       rather than carrying a second, drifting one. */
-    --color-bg: #f3f2f2;
-    --color-surface: #ffffff;
-    --color-text: #201e1d;
-    --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
+       rather than carrying a second, drifting one.
 
-    --color-neutral-100: #f8f4f4;
-    --color-neutral-200: #eae7e7;
-    --color-neutral-300: #d7d3d3;
-    --color-neutral-400: #bab6b6;
-    --color-neutral-500: #9b9797;
-    --color-neutral-600: #7d7979;
-    --color-neutral-700: #605d5d;
-    --color-neutral-800: #444141;
-    --color-neutral-900: #2d2b2b;
+       Three text tones, two lines, two fills. Everything on a paper screen is
+       built from these plus the accent; there is no grey ramp to pick from. */
+    --color-bg: #f4f2ef;
+    --color-surface: #ffffff;
+    --color-surface-2: #ebe8e4;
+    --seg-thumb: var(--color-surface);
+    --color-text: #1d1c1b;
+    --color-text-2: #5d5955;
+    --color-text-3: #6f6a65;
+    --line: rgba(29, 28, 27, .10);
+    --line-2: rgba(29, 28, 27, .18);
+    --fill-1: rgba(29, 28, 27, .05);
+    --fill-2: rgba(29, 28, 27, .08);
+    --fill-3: rgba(29, 28, 27, .12);
+    /* Kept for the few places that still name it; it is a hairline now. */
+    --color-divider: var(--line);
+
+    /* The old neutral ramp, re-pointed at the tones above so nothing that
+       still reads a step lands on a colour outside the system. */
+    --color-neutral-100: #f9f8f6;
+    --color-neutral-200: var(--fill-2);
+    --color-neutral-300: var(--line-2);
+    --color-neutral-400: #a9a49e;
+    --color-neutral-500: var(--color-text-3);
+    --color-neutral-600: var(--color-text-2);
+    --color-neutral-700: var(--color-text-2);
+    --color-neutral-800: #3a3835;
+    --color-neutral-900: var(--color-text);
 
     /* The accent is one colour with a ramp mixed from it, not ten hand-picked
        values. `--accent-base` is the only thing that moves — the timer points
        it at the category in play, and every step below follows — and
        `--accent-on` is the ink that stays legible on an accent fill. Both are
        set from JS (see lib/accent.ts), which is where the legibility of a
-       given colour on a given ground is decided; the values here are the red
+       given colour on a given ground is decided; the values here are the brick
        the interface falls back to before a category is known. */
-    --accent-base: #ec3013;
+    --accent-base: #c0522d;
     --accent-on: #ffffff;
-    --accent-ground: #4d1006;
+    --accent-ground: #170906;
 
     --color-accent: var(--accent-base);
-    --color-accent-100: color-mix(in srgb, var(--accent-base) 6%, #fff);
-    --color-accent-200: color-mix(in srgb, var(--accent-base) 15%, #fff);
+    --color-accent-100: color-mix(in srgb, var(--accent-base) 7%, transparent);
+    --color-accent-200: color-mix(in srgb, var(--accent-base) 15%, transparent);
     --color-accent-300: color-mix(in srgb, var(--accent-base) 30%, #fff);
     --color-accent-400: color-mix(in srgb, var(--accent-base) 54%, #fff);
     --color-accent-500: color-mix(in srgb, var(--accent-base) 80%, #fff);
@@ -80,31 +95,30 @@
     /* Legacy aliases — one palette, two sets of names. */
     --bg: var(--color-bg);
     --surface: var(--color-surface);
-    --surface-2: var(--color-neutral-200);
+    --surface-2: var(--color-surface-2);
     --nav-bg: var(--color-bg);
     --ink: var(--color-text);
-    --ink-2: var(--color-neutral-600);
-    --ink-3: var(--color-neutral-500);
-    --line: var(--color-neutral-300);
-    --line-strong: var(--color-divider);
+    --ink-2: var(--color-text-2);
+    --ink-3: var(--color-text-3);
+    --line-strong: var(--line-2);
     --accent: var(--color-accent);
     --accent-soft: var(--color-accent-200);
     --accent-ink: var(--color-accent-700);
     /* Pinned, not accent-derived: the accent now follows whichever category is
        in play, and an error that turned green with it would stop reading as
        an error. */
-    --warn: #ae1800;
-    --good: #3f8f6f;
+    --warn: #b0260a;
+    --good: #3b8a68;
 
-    /* The system has no rounded corners. The tokens stay so the older
-       component classes resolve, but every one of them is square. */
-    --r-sm: 0px;
-    --r-md: 0px;
-    --r-lg: 0px;
-    --r-pill: 0px;
-    --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
-    --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
-    --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+    /* Corners: soft, not bubbly. Small controls 6, buttons and cards 10,
+       sheets 16. The dial is the only circle. */
+    --r-sm: 6px;
+    --r-md: 10px;
+    --r-lg: 16px;
+    --r-pill: 999px;
+    --shadow-sm: 0 1px 2px rgba(29, 28, 27, .08);
+    --shadow-md: 0 3px 10px rgba(29, 28, 27, .10);
+    --shadow-lg: 0 -12px 40px rgba(29, 28, 27, .22);
     --shadow-lift: var(--shadow-md);
     --font-display: 'Archivo', system-ui, sans-serif;
     --font-heading: 'Archivo', system-ui, sans-serif;
@@ -127,17 +141,21 @@
   :root[data-theme='dark'],
   html.dark,
   [data-focusmode='true'] {
-    --color-bg: #1b1918;
-    --color-surface: #2d2b2b;
-    --color-text: #f3f2f2;
-    --color-divider: rgba(243,242,242,.42);
-    --color-neutral-200: rgba(243,242,242,.09);
-    --color-neutral-300: rgba(243,242,242,.20);
-    --color-neutral-400: rgba(243,242,242,.55);
-    --color-neutral-500: rgba(243,242,242,.45);
-    --color-neutral-600: rgba(243,242,242,.62);
-    --color-neutral-700: rgba(243,242,242,.78);
-    --color-neutral-900: #f3f2f2;
+    --color-bg: #161514;
+    --color-surface: #1f1e1c;
+    --color-surface-2: #2a2826;
+    --seg-thumb: rgba(242, 239, 235, .14);
+    --color-text: #f2efeb;
+    --color-text-2: #a9a49e;
+    --color-text-3: #8f8a84;
+    --line: rgba(242, 239, 235, .10);
+    --line-2: rgba(242, 239, 235, .20);
+    --fill-1: rgba(242, 239, 235, .06);
+    --fill-2: rgba(242, 239, 235, .10);
+    --fill-3: rgba(242, 239, 235, .15);
+    --color-neutral-100: #1b1a19;
+    --color-neutral-400: #8f8a84;
+    --color-neutral-800: #d9d5d0;
     /* `--accent-base` already arrives lifted for this ground, so only the
        steps that change *character* on a dark surface are restated: the two
        fills go translucent so the ground shows through, and the "ink" step
@@ -145,13 +163,16 @@
     --color-accent-100: color-mix(in srgb, var(--accent-base) 13%, transparent);
     --color-accent-200: color-mix(in srgb, var(--accent-base) 24%, transparent);
     --color-accent-700: color-mix(in srgb, var(--accent-base) 62%, #fff);
-    --warn: #ff9783;
+    --warn: #ff9a86;
+    --good: #6fbf98;
 
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-md: 0 3px 10px rgba(0, 0, 0, .4);
     --shadow-lift: 0 12px 32px rgba(0,0,0,.5);
-    --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
+    --shadow-lg: 0 -12px 40px rgba(0,0,0,.55);
   }
 
-  /* The default red, lifted for the dark ground — a stylesheet fallback for a
+  /* The default brick, lifted for the dark ground — a stylesheet fallback for a
      value JS sets, so it is scoped to `:root` and nothing else.
      The block above deliberately matches the app element as well as the root,
      which is right for palette tokens but catastrophic for a fallback: the
@@ -161,7 +182,7 @@
      value belongs in this rule, not that one. */
   :root[data-theme='dark'],
   :root[data-focusmode='true'] {
-    --accent-base: #f1634d;
+    --accent-base: #e2764f;
   }
 
   /* The session ground.
@@ -182,6 +203,10 @@
   :root[data-focusmode='true'],
   [data-focusmode='true'] {
     --color-bg: var(--accent-ground);
+    /* The room is a notch lighter than the dark ground (luminance .02 against
+       .008), and the tertiary ink that clears 5:1 there only makes 4.4:1 here.
+       One step lighter keeps the dial's unpassed numerals over 4.5:1. */
+    --color-text-3: #9b968f;
   }
 
   /* Small phones (iPhone SE and friends) — tighten everything a notch. */
@@ -739,8 +764,8 @@
   justify-content: center;
   gap: 9px;
   border: 0;
-  border-radius: var(--r-pill);
-  letter-spacing: -0.01em;
+  border-radius: var(--r-md);
+  letter-spacing: 0;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
@@ -754,25 +779,24 @@
 .sesh-btn:active { transform: scale(0.965) }
 .sesh-btn:disabled { cursor: default; opacity: .45; transform: none }
 .sesh-btn-full { width: 100% }
-.sesh-btn-sm { padding: 9px 16px; font-size: 14px }
-.sesh-btn-md { padding: 13px 22px; font-size: 16px }
-.sesh-btn-lg { padding: 17px 30px; font-size: 18px }
+.sesh-btn-sm { padding: 8px 14px; font-size: 14px; min-height: 36px }
+.sesh-btn-md { padding: 11px 18px; font-size: 15px; min-height: 44px }
+.sesh-btn-lg { padding: 14px 24px; font-size: 16px; min-height: 48px }
 .sesh-btn-primary { background: var(--ink); color: var(--bg) }
 .sesh-btn-accent { background: var(--accent); color: var(--accent-on) }
 .sesh-btn-soft { background: var(--surface-2); color: var(--ink) }
 .sesh-btn-ghost { background: transparent; color: var(--ink-2) }
 .sesh-btn-danger { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn) }
 .sesh-btn-outline {
-  background: transparent;
+  background: var(--fill-2);
   color: var(--ink);
-  box-shadow: inset 0 0 0 1.5px var(--line-strong);
 }
 
 @media (hover: hover) {
   .sesh-btn-primary:hover:not(:disabled),
   .sesh-btn-accent:hover:not(:disabled) { box-shadow: var(--shadow-lift) }
-  .sesh-btn-soft:hover:not(:disabled) { background: var(--line-strong) }
-  .sesh-btn-outline:hover:not(:disabled) { box-shadow: inset 0 0 0 1.5px var(--ink-3) }
+  .sesh-btn-soft:hover:not(:disabled) { background: var(--fill-3) }
+  .sesh-btn-outline:hover:not(:disabled) { background: var(--fill-3) }
 }
 
 .sesh-chip {
@@ -890,10 +914,10 @@
   max-height: min(86dvh, 760px);
   overflow: auto;
   overscroll-behavior: contain;
-  background: var(--bg);
-  border-radius: 28px 28px 0 0;
-  padding: 14px 22px calc(28px + var(--safe-b));
-  box-shadow: 0 -16px 50px rgba(20,16,10,0.22);
+  background: var(--color-surface);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 14px 20px calc(24px + var(--safe-b));
+  box-shadow: var(--shadow-lg);
   animation: sheetIn var(--dur-4) var(--ease-out) both;
 }
 
@@ -905,7 +929,7 @@
 @media (min-width: 1024px) {
   .sesh-sheet-root { align-items: center }
   .sesh-sheet {
-    border-radius: 24px;
+    border-radius: var(--r-lg);
     max-height: min(80dvh, 720px);
     padding-bottom: 26px;
     animation: popIn var(--dur-3) var(--ease-spring) both;
@@ -915,11 +939,11 @@
 }
 
 .sesh-sheet-grabber {
-  width: 40px;
-  height: 5px;
-  border-radius: 5px;
-  background: var(--line-strong);
-  margin: 0 auto 16px;
+  width: 36px;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line-2);
+  margin: 0 auto 14px;
 }
 
 .sesh-sheet-title {
@@ -1411,10 +1435,11 @@ button.sesh-row:active { background: var(--surface-2) }
 /* ============================================================
    Modernist system — the redesign's own layer.
 
-   Flat, architectural, Archivo throughout, one accent, zero corner radius.
-   The accent is a single colour — red until a category is chosen, then that
-   category's — and every step of it is mixed from `--accent-base`. Rules do the work that shadows used to: 2px `--color-divider`
-   between major sections, 1px `--color-neutral-300` between list rows.
+   Quiet paper: Archivo throughout, one accent, soft corners, hairlines.
+   The accent is a single colour — brick until a category is chosen, then that
+   category's — and every step of it is mixed from `--accent-base`. Hairlines
+   (1px `--line`) do the work that heavy rules and shadows used to; tonal
+   fills (`--fill-2`) do the work that outlines used to.
 
    Nothing scrolls. Every screen is a fixed pane sized to the viewport and
    lists cap themselves and count the remainder, so these classes are built
@@ -1473,18 +1498,19 @@ button.sesh-row:active { background: var(--surface-2) }
 }
 
 /* ---- Rules ---- */
-.md-rule-b { border-bottom: 2px solid var(--color-divider) }
-.md-rule-t { border-top: 2px solid var(--color-divider) }
-.md-hair-b { border-bottom: 1px solid var(--color-neutral-300) }
+.md-rule-b { border-bottom: 1px solid var(--line) }
+.md-rule-t { border-top: 1px solid var(--line) }
+.md-hair-b { border-bottom: 1px solid var(--line) }
 
-/* ---- Type ---- */
+/* ---- Type ----
+   Three voices. The eyebrow is the only place capitals survive. */
 .md-eyebrow {
   font-family: var(--font-heading);
-  font-weight: 800;
+  font-weight: 600;
   font-size: 11px;
-  letter-spacing: .12em;
+  letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--color-neutral-600);
+  color: var(--color-text-2);
 }
 
 .md-title {
@@ -1492,60 +1518,265 @@ button.sesh-row:active { background: var(--surface-2) }
   font-family: var(--font-heading);
   font-weight: 700;
   letter-spacing: -.02em;
-  line-height: 1.06;
+  line-height: 1.08;
 }
 
-.md-num { font-variant-numeric: tabular-nums }
+.md-num { font-variant-numeric: tabular-nums; letter-spacing: -.03em }
+
+.md-meta {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-2);
+  letter-spacing: 0;
+}
 
 /* ---- Press / hover ---- */
 .md-press {
-  transition: transform 120ms var(--ease-out), background 160ms, color 160ms, border-color 160ms, opacity 180ms;
+  transition: transform 120ms var(--ease-out), background 160ms, color 160ms, border-color 160ms, opacity 180ms, box-shadow 160ms;
 }
-.md-press:active { transform: scale(.965) }
-.md-press-sm:active { transform: scale(.92) }
+.md-press:active { transform: scale(.98) }
+.md-press-sm:active { transform: scale(.94) }
 
 @media (hover: hover) {
-  .md-lift:hover { background: var(--color-neutral-200) }
+  .md-lift:hover { background: var(--fill-1) }
 }
 
-/* ---- Buttons ---- */
-.md-btn {
+/* ---- Buttons ----
+   One shape, five roles. Primary is the only accent fill on a paper screen;
+   everything that used to be a 2px outline is a tonal fill now. */
+.md-btn,
+.btn {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  justify-content: center;
+  gap: 8px;
   border: 0;
+  border-radius: var(--r-md);
   background: transparent;
   color: inherit;
   cursor: pointer;
   font-family: var(--font-heading);
-  font-weight: 800;
-  text-transform: uppercase;
-  text-align: left;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: center;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms var(--ease-out), background 160ms, color 160ms, opacity 180ms, box-shadow 160ms;
 }
-.md-btn:disabled { opacity: .45; cursor: default }
+.md-btn:active, .btn:active { transform: scale(.985) }
+.md-btn:disabled, .btn:disabled { opacity: .45; cursor: default; pointer-events: none; transform: none }
 
-.md-btn-solid { background: var(--color-accent); color: var(--accent-on) }
-.md-btn-outline { border: 2px solid var(--color-divider) }
-.md-btn-accent-outline { border: 2px solid var(--color-accent); color: var(--color-accent) }
+.btn-primary, .md-btn-solid { background: var(--accent-base); color: var(--accent-on) }
+.btn-ink { background: var(--color-text); color: var(--color-bg) }
+.btn-tonal, .md-btn-outline { background: var(--fill-2); color: var(--color-text) }
+.btn-quiet { background: transparent; color: var(--color-text-2) }
+.btn-quiet[data-active='true'] { background: var(--fill-2); color: var(--color-text) }
+.btn-warn { background: transparent; color: var(--warn) }
+.md-btn-accent-outline { background: var(--color-accent-100); color: var(--accent-base) }
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  background: var(--fill-2);
+  color: var(--color-text);
+}
+.btn-lg { min-height: 48px; padding: 0 20px; font-size: 15px }
+.btn-md { min-height: 40px; padding: 0 14px; font-size: 14px }
+.btn-sm { min-height: 32px; padding: 0 11px; font-size: 13px }
+
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled), .md-btn-solid:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-base) 88%, var(--color-text)) }
+  .btn-ink:hover:not(:disabled) { opacity: .9 }
+  .btn-tonal:hover:not(:disabled), .md-btn-outline:hover:not(:disabled), .btn-icon:hover:not(:disabled) { background: var(--fill-3) }
+  .btn-quiet:hover:not(:disabled) { background: var(--fill-1); color: var(--color-text) }
+  .btn-quiet[data-active='true']:hover:not(:disabled) { background: var(--fill-3) }
+  .btn-warn:hover:not(:disabled) { background: color-mix(in srgb, var(--warn) 10%, transparent) }
+}
 
 /* Filter / scope chips and the paged-settings tabs all share this shape. */
 .md-quiet {
-  border: 2px solid var(--color-divider);
+  border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
-  color: inherit;
-  padding: 6px 10px;
+  color: var(--color-text-2);
+  padding: 7px 11px;
+  min-height: 32px;
   cursor: pointer;
   font-family: var(--font-heading);
-  font-weight: 800;
-  font-size: 10.5px;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  transition: background 160ms, color 160ms, transform 120ms var(--ease-out);
 }
 .md-quiet[data-active='true'] {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--accent-on);
+  background: var(--fill-2);
+  color: var(--color-text);
 }
+.md-quiet:active { transform: scale(.97) }
+@media (hover: hover) {
+  .md-quiet:hover { background: var(--fill-1); color: var(--color-text) }
+  .md-quiet[data-active='true']:hover { background: var(--fill-3) }
+}
+
+/* ---- Segmented control ----
+   A tonal track with a surface thumb that slides under the active cell. */
+.md-seg {
+  position: relative;
+  display: grid;
+  gap: 0;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+  isolation: isolate;
+}
+.md-seg-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 8px;
+  background: var(--seg-thumb, var(--color-surface));
+  box-shadow: var(--shadow-sm);
+  transition: left 240ms var(--ease-spring), width 240ms var(--ease-spring);
+  z-index: 0;
+}
+.md-seg > button {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--color-text-2);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  transition: color 160ms;
+}
+.md-seg > button[data-active='true'] { color: var(--color-text) }
+
+/* ---- Title field: a hairline that takes the accent while you type ---- */
+.md-underline {
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 0;
+  transition: border-color 160ms;
+}
+.md-app input.md-underline:focus,
+.md-app input.md-underline:focus-visible { outline: none; box-shadow: none; border-bottom-color: var(--accent-base) }
+.md-underline::placeholder { color: var(--color-text-3); font-weight: 500 }
+
+/* ---- Stepper: one tonal group, the number in the middle ---- */
+.md-stepper {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 2px;
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+}
+.md-stepper > button {
+  width: 32px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 140ms, transform 120ms var(--ease-out);
+}
+.md-stepper > button:hover { background: var(--fill-2) }
+.md-stepper > button:active { transform: scale(.92) }
+.md-stepper > button:disabled { opacity: .35; cursor: default; pointer-events: none }
+.md-stepper > span {
+  min-width: 78px;
+  text-align: center;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+/* ---- Colour swatch: a circle, ringed when chosen ---- */
+.md-swatch {
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  /* A hairline inside the disc, so the charcoal swatch still reads as a disc
+     on the dark surface rather than a hole in it. */
+  box-shadow: inset 0 0 0 1px var(--line), 0 0 0 2px transparent;
+  transition: transform 140ms var(--ease-spring), box-shadow 160ms;
+}
+.md-swatch:hover { transform: scale(1.08) }
+.md-swatch:active { transform: scale(.94) }
+.md-swatch[data-chosen='true'] { box-shadow: inset 0 0 0 1px var(--line), 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-text) }
+
+/* ---- Cards and fields ---- */
+.md-card {
+  background: var(--color-surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+[data-dark='true'] .md-card,
+[data-focusmode='true'] .md-card { border-color: transparent }
+
+.md-field {
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  padding: 0 12px;
+  min-height: 40px;
+  outline: none;
+  transition: background 160ms, box-shadow 160ms;
+}
+.md-field:focus,
+.md-field:focus-within { background: var(--color-surface); box-shadow: inset 0 0 0 1.5px var(--accent-base) }
+.md-app .md-field input:focus-visible { outline: none }
+
+/* ---- Toggle ---- */
+.md-toggle {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--fill-3);
+  cursor: pointer;
+  padding: 0;
+  transition: background 200ms var(--ease-out);
+}
+.md-toggle[data-on='true'] { background: var(--accent-base) }
+.md-toggle:disabled { opacity: .45; cursor: default }
+.md-toggle > span {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  transition: left 200ms var(--ease-spring), width 160ms var(--ease-out);
+}
+.md-toggle[data-on='true'] > span { left: 21px }
+.md-toggle:active:not(:disabled) > span { width: 24px }
+.md-toggle[data-on='true']:active:not(:disabled) > span { left: 17px }
 
 /* ---- Horizontal scrollers (category chips) ---- */
 .md-hscroll {
@@ -1571,31 +1802,57 @@ button.sesh-row:active { background: var(--surface-2) }
   overscroll-behavior: contain;
 }
 .md-scroll::-webkit-scrollbar { width: 8px }
-.md-scroll::-webkit-scrollbar-thumb { background: var(--color-neutral-300) }
+.md-scroll::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px }
 
 /* ---- Nav ---- */
+.md-rail-item {
+  border-radius: 8px;
+  transition: background 160ms, color 160ms;
+}
 .md-rail-item[data-active='true'] {
-  background: var(--color-neutral-200);
-  box-shadow: inset 3px 0 0 var(--color-accent);
+  background: var(--fill-2);
+  color: var(--color-text);
+  box-shadow: inset 2px 0 0 var(--accent-base);
 }
 @media (hover: hover) {
-  .md-rail-item:hover { background: var(--color-neutral-200) }
+  .md-rail-item:hover { background: var(--fill-1) }
 }
 
-.md-tab[data-active='true'] { color: var(--color-accent) }
+.md-tab { transition: color 160ms }
+.md-tab[data-active='true'] { color: var(--color-text) }
 
 /* ---- List rows ---- */
+.md-row { transition: background 140ms }
 .md-row[data-selected='true'] {
   background: var(--color-accent-100);
-  box-shadow: inset 3px 0 0 var(--color-accent);
+  box-shadow: inset 2px 0 0 var(--accent-base);
 }
 @media (hover: hover) {
-  .md-row:hover { background: var(--color-neutral-200) }
+  .md-row:hover { background: var(--fill-1) }
   .md-row[data-selected='true']:hover { background: var(--color-accent-200) }
   .md-row:hover .md-row-go { opacity: 1; transform: none }
-  .md-box:hover { border-color: var(--color-accent); background: var(--color-accent-100) }
+  .md-box:hover { border-color: var(--accent-base); background: var(--color-accent-100) }
 }
-.md-box:active { transform: scale(.88) }
+.md-box {
+  border-radius: var(--r-sm);
+  transition: transform 120ms var(--ease-out), background 160ms, border-color 160ms;
+}
+.md-box:active { transform: scale(.9) }
+
+.md-row-go {
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent-base);
+  color: var(--accent-on);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 0 12px;
+  min-height: 28px;
+  cursor: pointer;
+}
 
 /* Completing a task draws the check, then takes the row's height with it. */
 .md-row[data-completing='true'] {
@@ -1610,14 +1867,14 @@ button.sesh-row:active { background: var(--surface-2) }
 
 /* Opacity only. A translate here leaves a residual transform that pushes the
    last row past a clipped pane — the exact bug this design is built to avoid. */
-.md-stagger > * { animation: mdFade 300ms var(--ease-out) both }
+.md-stagger > * { animation: mdFade 280ms var(--ease-out) both }
 @keyframes mdFade { from { opacity: 0 } to { opacity: 1 } }
 .md-stagger > *:nth-child(1) { animation-delay: 0ms }
-.md-stagger > *:nth-child(2) { animation-delay: 45ms }
-.md-stagger > *:nth-child(3) { animation-delay: 90ms }
-.md-stagger > *:nth-child(4) { animation-delay: 135ms }
-.md-stagger > *:nth-child(5) { animation-delay: 180ms }
-.md-stagger > *:nth-child(n+6) { animation-delay: 225ms }
+.md-stagger > *:nth-child(2) { animation-delay: 22ms }
+.md-stagger > *:nth-child(3) { animation-delay: 44ms }
+.md-stagger > *:nth-child(4) { animation-delay: 66ms }
+.md-stagger > *:nth-child(5) { animation-delay: 88ms }
+.md-stagger > *:nth-child(n+6) { animation-delay: 110ms }
 
 /* ---- Dial ---- */
 .md-dial {
@@ -1645,20 +1902,44 @@ button.sesh-row:active { background: var(--surface-2) }
   100% { transform: none }
 }
 
+/* Controls arriving under the dial when a session starts. */
+.md-rise { animation: mdRise 240ms var(--ease-out) both }
+@keyframes mdSpin { to { transform: rotate(360deg) } }
+.md-spin { animation: mdSpin 900ms linear infinite }
+@keyframes mdRise {
+  from { opacity: 0; transform: translateY(8px) }
+  to { opacity: 1; transform: none }
+}
+
 /* ---- Sheet ---- */
 .md-sheet-root { animation: mdFade 220ms ease both }
 .md-sheet-root[data-closing='true'] { animation: mdFadeOut 260ms ease both }
 @keyframes mdFadeOut { from { opacity: 1 } to { opacity: 0 } }
 
-.md-sheet { animation: mdSheetUp 340ms var(--ease-out) both }
+.md-sheet {
+  animation: mdSheetUp 340ms var(--ease-out) both;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  padding-bottom: var(--safe-b);
+}
+.md-grabber {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2);
+  margin: 8px auto 0;
+  flex: none;
+}
 .md-sheet-root[data-closing='true'] .md-sheet { animation: mdSheetDown 260ms var(--ease-in-out) both }
 @keyframes mdSheetUp { from { transform: translateY(102%) } to { transform: none } }
 @keyframes mdSheetDown { from { transform: none } to { transform: translateY(102%) } }
 
 /* ---- Poster ---- */
-.md-poster { animation: mdPosterIn 420ms var(--ease-out) both }
+.md-poster { animation: mdPosterIn 320ms var(--ease-out) both }
 @keyframes mdPosterIn {
-  from { opacity: 0; transform: translateY(18px) scale(.98) }
+  from { opacity: 0; transform: translateY(12px) }
   to { opacity: 1; transform: none }
 }
 
@@ -1673,33 +1954,37 @@ button.sesh-row:active { background: var(--surface-2) }
 .md-bar {
   animation: mdGrowY 620ms var(--ease-out) both;
   transform-origin: bottom;
+  border-radius: 2px 2px 0 0;
 }
 @keyframes mdGrowY { from { transform: scaleY(0) } to { transform: scaleY(1) } }
 
 .md-track-fill {
   animation: mdGrowX 720ms var(--ease-out) both;
   transform-origin: left;
+  border-radius: 2px;
 }
 @keyframes mdGrowX { from { transform: scaleX(0) } to { transform: scaleX(1) } }
 
-.md-app input::placeholder { color: var(--color-neutral-500) }
+.md-app input::placeholder { color: var(--color-text-3) }
+.md-app input.md-on-accent::placeholder { color: color-mix(in srgb, var(--accent-on) 55%, transparent) }
 .md-app input:focus-visible,
-.md-app button:focus-visible {
-  outline: 2px solid var(--color-accent);
+.md-app button:focus-visible,
+.md-app [role='slider']:focus-visible {
+  outline: 2px solid var(--accent-base);
   outline-offset: 2px;
 }
 
 /* ---- Resizable desktop panes ----
-   The handle replaces the 2px rule between two panes rather than sitting on
+   The handle replaces the hairline between two panes rather than sitting on
    top of one, so at rest the layout is exactly as drawn. The grab area is
    widened either side without drawing a thicker line. */
 .md-resize {
   flex: none;
   align-self: stretch;
-  width: 2px;
+  width: 1px;
   position: relative;
   cursor: col-resize;
-  background: var(--color-divider);
+  background: var(--line);
   touch-action: none;
   transition: background 160ms var(--ease-out);
 }
@@ -1707,17 +1992,17 @@ button.sesh-row:active { background: var(--surface-2) }
 .md-resize::after {
   content: '';
   position: absolute;
-  inset: 0 -4px;
+  inset: 0 -5px;
 }
 
 .md-resize:hover,
 .md-resize:focus-visible,
 .md-resize[data-dragging='true'] {
-  background: var(--color-accent);
+  background: var(--accent-base);
   outline: none;
 }
 
-/* A drag leaves the 2px handle on the first pixel of movement, so the cursor
+/* A drag leaves the 1px handle on the first pixel of movement, so the cursor
    and the selection guard have to cover the whole document until it ends. */
 :root[data-resizing='true'],
 :root[data-resizing='true'] * {
@@ -1745,7 +2030,7 @@ button.sesh-row:active { background: var(--surface-2) }
   right: 0;
   bottom: 0;
   height: 1px;
-  background: var(--color-neutral-300);
+  background: var(--line);
 }
 
 /* Nothing below it to separate from. */

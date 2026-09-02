@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#f3f2f2',
+  themeColor: '#f4f2ef',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -53,7 +53,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 document.documentElement.classList.toggle('dark', dark);
                 document.documentElement.dataset.theme = dark ? 'dark' : 'light';
                 document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-                var tc = dark ? '#1b1918' : '#f3f2f2';
+                var tc = dark ? '#161514' : '#f4f2ef';
                 var m = document.querySelector('meta[name="theme-color"]');
                 if (m) m.content = tc;
                 // The accent the last session settled on, already worked out
