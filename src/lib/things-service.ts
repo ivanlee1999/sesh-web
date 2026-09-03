@@ -4,6 +4,7 @@ import { rememberHistoryKey, type ResolvedThingsConfig } from './things-config'
 import {
   ACTION_CREATED,
   ThingsAuthError,
+  ThingsCloudError,
   commitItem,
   completedFields,
   createdTaskFields,
@@ -39,6 +40,9 @@ import {
  * cloud one replays an event log locally, the sidecar one is a REST call — so
  * the branching lives here rather than in five route handlers.
  */
+
+/** Things Cloud's answer to a commit whose ancestor-index is not the head. */
+const CONFLICT_STATUS = 409
 
 /** Re-sync at most this often; task lists are read far more than they change. */
 const SYNC_INTERVAL_MS = 60_000
@@ -162,14 +166,59 @@ function waitAtMost(sync: Promise<SyncOutcome>, ms: number): Promise<SyncOutcome
 /**
  * Brings the local replay up to date, but only if it has gone stale, and only
  * for as long as the caller can afford to wait.
+ *
+ * `force` skips the staleness check. Reads are happy with a list that is a
+ * minute old; writes are not, because the position they commit at has to be
+ * the server's *current* head — see `commitAtHead`.
  */
-async function ensureSynced(config: Extract<ResolvedThingsConfig, { mode: 'cloud' }>, waitMs = READ_WAIT_MS) {
+async function ensureSynced(
+  config: Extract<ResolvedThingsConfig, { mode: 'cloud' }>,
+  waitMs = READ_WAIT_MS,
+  force = false,
+) {
   const state = thingsSyncState()
-  if (state.syncedAt > 0 && Date.now() - state.syncedAt < SYNC_INTERVAL_MS) return
+  if (!force && state.syncedAt > 0 && Date.now() - state.syncedAt < SYNC_INTERVAL_MS) return
 
   const sync = startSync(config)
   const outcome = await waitAtMost(sync, waitMs)
   if (!outcome || !outcome.caughtUp) scheduleCatchUp(config)
+}
+
+/** How many times a write re-reads the head and tries again after a conflict. */
+const COMMIT_ATTEMPTS = 3
+
+/**
+ * Appends one change at the server's current head, re-reading it if the head
+ * moved underneath us.
+ *
+ * Things Cloud does not merge concurrent commits: `ancestor-index` must equal
+ * the head at the moment of the write, and anything else is refused with 409.
+ * A stale index is therefore not "ordered slightly earlier", as this code
+ * previously assumed — it is dropped, which is what turned every completion
+ * into a 502 whenever Things.app had written anything in the last minute. Any
+ * other device touching Things can move the head between our sync and our
+ * commit, so a conflict is expected traffic rather than an error, and the only
+ * correct response is to read the new head and write again.
+ */
+async function commitAtHead(
+  config: Extract<ResolvedThingsConfig, { mode: 'cloud' }>,
+  historyKey: string,
+  uuid: string,
+  kind: string,
+  fields: Record<string, unknown>,
+  action?: number,
+): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    // Forced: the whole point is a head that is current as of right now.
+    await ensureSynced(config, WRITE_WAIT_MS, true)
+    try {
+      await commitItem(config.credentials, historyKey, thingsSyncState().serverIndex, uuid, kind, fields, action)
+      return
+    } catch (err) {
+      const conflict = err instanceof ThingsCloudError && err.status === CONFLICT_STATUS
+      if (!conflict || attempt >= COMMIT_ATTEMPTS) throw err
+    }
+  }
 }
 
 /**
@@ -223,12 +272,7 @@ export async function completeThings(config: ResolvedThingsConfig, uuid: string)
     return
   }
   const historyKey = await historyKeyFor(config)
-  // ancestor-index is the writer's view of the stream head, so pull first —
-  // but only for as long as a write can reasonably wait. Things.app commits
-  // against its own last-known head too; being a little behind orders the
-  // commit slightly earlier, it does not lose it.
-  await ensureSynced(config, WRITE_WAIT_MS)
-  await commitItem(config.credentials, historyKey, thingsSyncState().serverIndex, uuid, 'Task6', completedFields())
+  await commitAtHead(config, historyKey, uuid, 'Task6', completedFields())
   markTaskCompletedLocally(uuid)
 }
 
@@ -250,19 +294,10 @@ export async function createThings(
     return
   }
   const historyKey = await historyKeyFor(config)
-  await ensureSynced(config, WRITE_WAIT_MS)
 
   const uuid = newTaskUuid()
   const fields = createdTaskFields(input.title, input.when, todayStart)
-  await commitItem(
-    config.credentials,
-    historyKey,
-    thingsSyncState().serverIndex,
-    uuid,
-    'Task6',
-    fields,
-    ACTION_CREATED,
-  )
+  await commitAtHead(config, historyKey, uuid, 'Task6', fields, ACTION_CREATED)
   applyItems([{ uuid, kind: 'Task6', action: ACTION_CREATED, payload: fields }])
 }
 
@@ -276,7 +311,10 @@ export async function recordThingsFocus(
     return
   }
   const historyKey = await historyKeyFor(config)
-  await ensureSynced(config, WRITE_WAIT_MS)
+  // Synced before the note is read, not just before the commit: the existing
+  // text is rewritten wholesale, so a stale read would drop whatever another
+  // device has since added to the note.
+  await ensureSynced(config, WRITE_WAIT_MS, true)
 
   // Things has no duration field, so focused time goes on the note. The whole
   // note is rewritten, so it has to be read first or the existing text is lost.
@@ -284,6 +322,6 @@ export async function recordThingsFocus(
   const line = `Focused ${minutes}m via sesh`
   const next = existing.trim() ? `${existing.trimEnd()}\n${line}` : line
 
-  await commitItem(config.credentials, historyKey, thingsSyncState().serverIndex, uuid, 'Task6', noteFields(next))
+  await commitAtHead(config, historyKey, uuid, 'Task6', noteFields(next))
   setTaskNoteLocally(uuid, next)
 }
