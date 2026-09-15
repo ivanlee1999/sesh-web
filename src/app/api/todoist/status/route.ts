@@ -5,7 +5,7 @@ import { validateTodoistAuth } from '@/lib/todoist-auth'
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
-  const auth = validateTodoistAuth(request)
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }

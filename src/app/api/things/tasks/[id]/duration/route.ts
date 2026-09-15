@@ -4,6 +4,7 @@ import { validateTodoistAuth } from '@/lib/todoist-auth'
 import { readThingsConfig } from '@/lib/things-config'
 import { thingsWriteError } from '@/app/api/things/write-error'
 import { recordThingsFocus } from '@/lib/things-service'
+import { withIdempotency } from '@/lib/idempotency'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,8 +12,8 @@ export const dynamic = 'force-dynamic'
  * Things has no duration field, so this records focused time in the task note.
  * Mirrors the Todoist duration route so the client can treat both the same.
  */
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const auth = validateTodoistAuth(request)
+async function handlePost(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }
@@ -36,4 +37,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (err) {
     return thingsWriteError('duration write', id, err)
   }
+}
+
+/**
+ * Wrapped so a client that retries after a lost reply does not apply this
+ * twice — see lib/idempotency. Unkeyed callers are unaffected.
+ */
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  return withIdempotency(request, () => handlePost(request, context))
 }

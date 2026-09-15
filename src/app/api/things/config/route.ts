@@ -28,8 +28,8 @@ export const dynamic = 'force-dynamic'
 /** Connection state must never be answered from a cache. */
 const NO_STORE = { headers: { 'Cache-Control': 'no-store' } }
 
-function guard(request: Request) {
-  const auth = validateTodoistAuth(request)
+async function guard(request: Request) {
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) return NextResponse.json({ error: auth.reason }, { status: 401 })
   if (isRateLimited(getClientIp(request))) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
@@ -38,13 +38,13 @@ function guard(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const blocked = guard(request)
+  const blocked = await guard(request)
   if (blocked) return blocked
   return NextResponse.json(readThingsConfigView(), NO_STORE)
 }
 
 export async function PUT(request: Request) {
-  const blocked = guard(request)
+  const blocked = await guard(request)
   if (blocked) return blocked
 
   let body: unknown
@@ -96,7 +96,7 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const blocked = guard(request)
+  const blocked = await guard(request)
   if (blocked) return blocked
   clearThingsConfig()
   // Falls back to THINGS_API_URL if the deployment still sets one.

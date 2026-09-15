@@ -14,7 +14,7 @@ function normalizePriority(priority: number | undefined): number {
 }
 
 export async function GET(request: Request) {
-  const auth = validateTodoistAuth(request)
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }

@@ -84,28 +84,63 @@ export async function createSessionToken(username: string, config: AppAuthConfig
   return `${payloadEncoded}.${signature}`
 }
 
-export async function validateSessionToken(
+export interface SessionTokenPayload {
+  username: string
+  /** Epoch ms after which the token stops being accepted. */
+  expiresAt: number
+}
+
+/**
+ * The payload of a token that is genuinely ours and still valid, or null.
+ *
+ * Separate from {@link validateSessionToken} because a native client needs the
+ * expiry back to know when to ask for a new one — a browser never had to, its
+ * cookie simply stopped being sent.
+ */
+export async function readSessionToken(
   token: string | undefined,
   config: AppAuthConfig,
-): Promise<boolean> {
-  if (!token) return false
+): Promise<SessionTokenPayload | null> {
+  if (!token) return null
 
   const [payloadEncoded, signature] = token.split('.', 2)
-  if (!payloadEncoded || !signature) return false
+  if (!payloadEncoded || !signature) return null
 
   const expectedSignature = await hmac(payloadEncoded, config.secret)
-  if (!constantTimeEqual(signature, expectedSignature)) return false
+  if (!constantTimeEqual(signature, expectedSignature)) return null
 
   try {
     const payload = base64UrlDecode(payloadEncoded)
     const [username, expiresAtRaw] = payload.split('\t', 2)
     const expiresAt = Number(expiresAtRaw)
-    if (!username || !Number.isFinite(expiresAt)) return false
-    if (!constantTimeEqual(username, config.username)) return false
-    return expiresAt > Date.now()
+    if (!username || !Number.isFinite(expiresAt)) return null
+    if (!constantTimeEqual(username, config.username)) return null
+    if (expiresAt <= Date.now()) return null
+    return { username, expiresAt }
   } catch {
-    return false
+    return null
   }
+}
+
+export async function validateSessionToken(
+  token: string | undefined,
+  config: AppAuthConfig,
+): Promise<boolean> {
+  return (await readSessionToken(token, config)) !== null
+}
+
+/**
+ * The token a native client sends, which has no cookie jar to keep one in.
+ *
+ * The value is exactly the session cookie's: one token format, one validator,
+ * so a phone and a browser cannot drift into different notions of who is
+ * signed in.
+ */
+export function readBearerToken(authorization: string | null | undefined): string | null {
+  if (!authorization) return null
+  const value = authorization.trim()
+  if (!value.toLowerCase().startsWith('bearer ')) return null
+  return value.slice('bearer '.length).trim() || null
 }
 
 export function sanitizeNextPath(next: string | null | undefined): string {

@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server'
 import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
 import { getClientIp, isRateLimited } from '@/lib/todoist-ratelimit'
 import { validateTodoistAuth } from '@/lib/todoist-auth'
+import { withIdempotency } from '@/lib/idempotency'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST(
+async function handlePost(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = validateTodoistAuth(request)
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }
@@ -35,4 +36,12 @@ export async function POST(
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 502 })
   }
+}
+
+/**
+ * Wrapped so a client that retries after a lost reply does not apply this
+ * twice — see lib/idempotency. Unkeyed callers are unaffected.
+ */
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  return withIdempotency(request, () => handlePost(request, context))
 }

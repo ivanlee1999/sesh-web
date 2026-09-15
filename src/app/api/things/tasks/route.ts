@@ -5,6 +5,7 @@ import { dayClock, dayStartUtcSeconds, dueKind, dueLabel, formatDayLabel, readTi
 import { type ThingsTaskRaw } from '@/lib/things'
 import { readThingsConfig } from '@/lib/things-config'
 import { createThings, loadThingsTasks, thingsCatchingUp } from '@/lib/things-service'
+import { withIdempotency } from '@/lib/idempotency'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,7 +39,7 @@ function isDone(task: ThingsTaskRaw): boolean {
 }
 
 export async function GET(request: Request) {
-  const auth = validateTodoistAuth(request)
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }
@@ -108,8 +109,8 @@ function readWhen(value: unknown): When {
   return WHEN_VALUES.includes(value as When) ? value as When : 'inbox'
 }
 
-export async function POST(request: Request) {
-  const auth = validateTodoistAuth(request)
+async function handlePost(request: Request) {
+  const auth = await validateTodoistAuth(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.reason }, { status: 401 })
   }
@@ -142,4 +143,12 @@ export async function POST(request: Request) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 502 })
   }
+}
+
+/**
+ * Wrapped for idempotency: Things does not merge creates, so a retried request
+ * that actually landed the first time would leave two identical to-dos.
+ */
+export async function POST(request: Request) {
+  return withIdempotency(request, () => handlePost(request))
 }

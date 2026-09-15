@@ -5,6 +5,7 @@ import {
   getAppAuthConfig,
   getAppAuthDisableEnv,
   isAppAuthDisabled,
+  readBearerToken,
   sanitizeNextPath,
   validateSessionToken,
 } from '@/lib/app-auth'
@@ -24,6 +25,9 @@ const TODOIST_SECRET = process.env.NEXTAUTH_SECRET || ''
 const PUBLIC_PATH_PREFIXES = [
   '/login',
   '/api/login',
+  // Where a native client trades credentials for a token, so it cannot itself
+  // require one. The route authenticates the exchange on its own.
+  '/api/auth/token',
   '/favicon.ico',
   '/manifest.json',
   '/sw.js',
@@ -141,7 +145,11 @@ export async function middleware(request: NextRequest) {
         return missingConfigResponse(request)
       }
 
+      // A browser carries the cookie; the iOS app carries the same token in an
+      // Authorization header, having no cookie jar of its own.
       const sessionToken = request.cookies.get(APP_SESSION_COOKIE)?.value
+        ?? readBearerToken(request.headers.get('authorization'))
+        ?? undefined
       if (!(await validateSessionToken(sessionToken, authConfig))) {
         return isApiRequest(request) ? unauthorizedApiResponse() : loginRedirect(request)
       }

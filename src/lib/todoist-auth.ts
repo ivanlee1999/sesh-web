@@ -15,6 +15,7 @@
  */
 
 import crypto from 'crypto'
+import { getAppAuthConfig, readBearerToken, validateSessionToken } from '@/lib/app-auth'
 
 const COOKIE_NAME = 'todoist_proxy_auth'
 
@@ -72,12 +73,24 @@ export interface AuthResult {
 /**
  * Validate that the request carries a valid session cookie (all methods) and,
  * for state-changing methods, that the Origin matches the Host.
+ *
+ * The cookie is only ever minted on a page navigation, which is a fine proof
+ * for a browser and an impossible one for a native client: the iOS app never
+ * loads HTML, so it would be locked out of every task route forever. An app
+ * session token in an `Authorization` header is accepted in its place — it is
+ * strictly stronger evidence, being the credential the whole app is gated on
+ * rather than a marker that someone once opened a page.
  */
-export function validateTodoistAuth(request: Request): AuthResult {
+export async function validateTodoistAuth(request: Request): Promise<AuthResult> {
   // 1. Cookie check — proves the caller has loaded the app
   const token = getCookie(request)
   if (!token || !isValidToken(token)) {
-    return { ok: false, reason: 'Missing or invalid session' }
+    const appConfig = getAppAuthConfig(process.env)
+    const bearer = readBearerToken(request.headers.get('authorization'))
+    const bearerOk = !!appConfig && !!bearer && await validateSessionToken(bearer, appConfig)
+    if (!bearerOk) {
+      return { ok: false, reason: 'Missing or invalid session' }
+    }
   }
 
   // 2. Origin / CSRF check for mutations
