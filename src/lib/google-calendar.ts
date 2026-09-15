@@ -116,6 +116,35 @@ async function updateCalendarEvent(accessToken: string, calendarId: string, even
 }
 
 /**
+ * Withdraw the calendar entry for a session that has been deleted.
+ *
+ * Non-fatal and quiet about a 404 or 410: the entry being gone already is the
+ * outcome we wanted. Deleting a session is a deliberate act, and leaving its
+ * hour sitting in the calendar afterwards would be a small lie told every time
+ * someone looked at their week.
+ */
+export async function deleteSessionCalendarEvent(eventId: string): Promise<{ deleted: boolean; error?: string }> {
+  if (!eventId) return { deleted: false }
+
+  try {
+    const tokens = await getValidTokens()
+    if (!tokens) return { deleted: false }
+
+    const calendarId = tokens.calendar_id || ''
+    if (!calendarId) return { deleted: false }
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${tokens.access_token}` } },
+    )
+    if (res.ok || res.status === 404 || res.status === 410) return { deleted: true }
+    return { deleted: false, error: `Calendar delete failed: ${res.status}` }
+  } catch (err) {
+    return { deleted: false, error: String(err) }
+  }
+}
+
+/**
  * Get valid Google OAuth tokens, refreshing the access token if expired.
  * Returns null if not connected.
  */

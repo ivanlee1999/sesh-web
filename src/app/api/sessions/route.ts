@@ -40,7 +40,9 @@ function rowToJson(row: SessionRow) {
 export async function GET() {
   try {
     const db = getDb()
-    const rows = db.prepare('SELECT * FROM sessions ORDER BY started_at DESC').all() as SessionRow[]
+    // Tombstoned rows stay in the table so offline clients can learn they are
+    // gone; they are not part of anybody's history.
+    const rows = db.prepare('SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY started_at DESC').all() as SessionRow[]
     return NextResponse.json(rows.map(rowToJson))
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
@@ -73,7 +75,10 @@ export async function POST(request: Request) {
         category = excluded.category,
         notes = excluded.notes,
         rating = excluded.rating,
-        todoist_task_id = excluded.todoist_task_id
+        todoist_task_id = excluded.todoist_task_id,
+        -- Saving a session again is how the reflection screen writes a rating,
+        -- and it un-deletes: whoever is saving it plainly wants it kept.
+        deleted_at = NULL
     `).run(
       body.id,
       body.intention ?? '',

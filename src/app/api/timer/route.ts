@@ -1,50 +1,16 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
-import { sendPushToAll } from '@/lib/push'
-import { isTodoistConfigured, addTaskDuration } from '@/lib/todoist'
-import { readThingsConfig } from '@/lib/things-config'
-import { recordThingsFocus } from '@/lib/things-service'
-import { decodeTaskRefs } from '@/lib/task-ref'
-import { syncSessionToGoogleCalendar, persistCalendarSyncResult } from '@/lib/google-calendar'
+import { runCompletionSideEffects } from '@/lib/session-complete'
+import { toEpochMs, writeTimerState } from '@/lib/timer-state'
 import {
   checkAndSendOverflowNotifications,
   ensureTimerNotificationScheduler,
   rowToTimerJson,
-  sendDiscordNotification,
   shouldTimerNotificationSchedulerRun,
   stopTimerNotificationScheduler,
   type TimerRow,
 } from '@/lib/timer-notifications'
 export const dynamic = 'force-dynamic'
-
-/**
- * Record focused time against the linked tasks after session completion
- * (non-fatal). A session can be against several, and each stored reference may
- * belong to a different provider — so decode before dispatching, or a Things
- * uuid would go to Todoist and 404 on every session.
- *
- * One task failing must not stop the rest, hence a settled loop rather than a
- * fail-fast Promise.all.
- */
-async function syncTaskDuration(taskRefs: string, actualMs: number) {
-  const minutes = Math.round(actualMs / 60000)
-  if (minutes <= 0) return
-
-  await Promise.all(decodeTaskRefs(taskRefs).map(async ref => {
-    try {
-      if (ref.provider === 'todoist') {
-        if (!isTodoistConfigured()) return
-        await addTaskDuration(ref.id, minutes)
-        return
-      }
-      const conn = readThingsConfig()
-      if (!conn) return
-      await recordThingsFocus(conn, ref.id, minutes)
-    } catch (err) {
-      console.error(`[${ref.provider}] Failed to sync duration:`, err)
-    }
-  }))
-}
 
 
 export async function GET() {
@@ -152,35 +118,15 @@ export async function POST(request: Request) {
 
     stopTimerNotificationScheduler()
 
-    // Send Discord notification on manual finish too
-    if (result.session) {
-      sendDiscordNotification({
-        intention: result.session.intention,
-        sessionType: result.session.type,
-        targetMs: result.session.targetMs,
-        overflowMs: result.session.overflowMs,
-      })
-      await sendPushToAll(
-        'sesh \u2014 session complete',
-        result.session.intention || `${result.session.type} session finished`
+    // Announcements, task write-back and the calendar entry, outside the
+    // transaction and none of them fatal \u2014 shared with the sync route so a
+    // session finished offline lands exactly the same way.
+    const { calendar } = result.session
+      ? await runCompletionSideEffects(
+        { ...result.session, todoistTaskId: result.todoistTaskId },
+        { isNew: true },
       )
-    }
-
-    // Todoist sync outside transaction, non-fatal
-    if (result.todoistTaskId && result.session) {
-      void syncTaskDuration(result.todoistTaskId, result.session.actualMs)
-    }
-
-    // Google Calendar sync, non-fatal
-    let calendar: { synced: boolean; skipped?: string; eventId?: string; error?: string } | undefined
-    if (result.session) {
-      calendar = await syncSessionToGoogleCalendar({
-        ...result.session,
-        googleEventId: '',
-        isSynced: false,
-      })
-      if (calendar) persistCalendarSyncResult(result.session.id, calendar)
-    }
+      : { calendar: undefined }
 
     return NextResponse.json({
       completed: true,
@@ -193,73 +139,11 @@ export async function POST(request: Request) {
   }
 }
 
-/** Coerce a value to epoch-ms number, handling ISO strings from legacy/Raycast clients */
-function toEpochMs(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
-    const n = Number(value)
-    if (Number.isFinite(n)) return n
-    const t = Date.parse(value)
-    if (Number.isFinite(t)) return t
-  }
-  return null
-}
-
 export async function PUT(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
-    const now = Date.now()
-
-    // Normalize timestamps — Raycast may send ISO strings or numbers
-    body.startedAt = body.startedAt != null ? toEpochMs(body.startedAt) : null
-    body.pausedAt = body.pausedAt != null ? toEpochMs(body.pausedAt) : null
-
-    // Coerce all numeric fields — clients may send strings (e.g. from form inputs)
-    body.targetMs = Number(body.targetMs) || 0
-    body.remainingMs = Number(body.remainingMs) || 0
-    body.overflowMs = Number(body.overflowMs) || 0
-
-    // Validate that the category exists in the categories table.
-    // If the provided category is missing or invalid, fall back to the
-    // default category (is_default=1) or the first available one.
-    let resolvedCategory: string = body.category ?? ''
-    if (resolvedCategory) {
-      const catRow = db.prepare('SELECT name FROM categories WHERE name = ?').get(resolvedCategory) as { name: string } | undefined
-      if (!catRow) resolvedCategory = ''
-    }
-    if (!resolvedCategory) {
-      const defaultCat = db.prepare('SELECT name FROM categories WHERE is_default = 1 LIMIT 1').get() as { name: string } | undefined
-        ?? db.prepare('SELECT name FROM categories ORDER BY sort_order LIMIT 1').get() as { name: string } | undefined
-      resolvedCategory = defaultCat?.name ?? ''
-    }
-
-    // Reset notification_count when starting a new session or going idle
-    const resetNotifications = (body.phase === 'running' && (body.overflowMs ?? 0) === 0 && (body.remainingMs ?? 0) > 0)
-      || body.phase === 'idle'
-    db.prepare(`
-      UPDATE timer_state SET
-        phase = ?, session_type = ?, intention = ?, category = ?,
-        target_ms = ?, remaining_ms = ?, overflow_ms = ?,
-        started_at = ?, paused_at = ?, updated_at = ?, todoist_task_id = ?,
-        notification_count = CASE WHEN ? THEN 0 ELSE notification_count END
-      WHERE id = 1
-    `).run(
-      body.phase ?? 'idle',
-      body.sessionType ?? 'focus',
-      body.intention ?? '',
-      resolvedCategory,
-      body.targetMs ?? 0,
-      body.remainingMs ?? 0,
-      body.overflowMs ?? 0,
-      body.startedAt ?? null,
-      body.pausedAt ?? null,
-      now,
-      body.todoistTaskId ?? null,
-      resetNotifications ? 1 : 0,
-    )
-    const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
+    const row = writeTimerState(db, body, typeof body.deviceId === 'string' ? body.deviceId : '')
     if (shouldTimerNotificationSchedulerRun(row)) {
       ensureTimerNotificationScheduler()
     } else {

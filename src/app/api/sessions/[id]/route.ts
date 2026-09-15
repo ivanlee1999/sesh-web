@@ -47,7 +47,7 @@ export async function PATCH(
 ) {
   try {
     const db = getDb()
-    const existing = db.prepare('SELECT * FROM sessions WHERE id = ?').get(params.id) as SessionRow | undefined
+    const existing = db.prepare('SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL').get(params.id) as SessionRow | undefined
     if (!existing) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
@@ -88,13 +88,23 @@ export async function PATCH(
   }
 }
 
+/**
+ * Deletion is a tombstone, not a `DELETE`.
+ *
+ * A row that simply vanished was invisible to anything not watching at the
+ * time: a phone that had been offline for a day would pull the session list,
+ * not find the deletion in it, and keep showing a session its owner had thrown
+ * away — with no way to ever learn otherwise. The row stays, marked, until
+ * every client has seen the mark.
+ */
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } },
 ) {
   try {
     const db = getDb()
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(params.id)
+    db.prepare('UPDATE sessions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+      .run(Date.now(), params.id)
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })

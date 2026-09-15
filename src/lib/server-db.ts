@@ -113,7 +113,12 @@ function ensureColumn(d: Database.Database, table: string, column: string, ddl: 
   }
 }
 
-function initSchema(d: Database.Database) {
+/**
+ * Exported so tests can build the real schema in memory. Every table, column,
+ * trigger and backfill the app relies on is created here, idempotently, so a
+ * test database and the live one cannot drift apart.
+ */
+export function initSchema(d: Database.Database) {
   d.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
@@ -283,6 +288,150 @@ function initSchema(d: Database.Database) {
   }
 
   migrateLegacyDefaultCategories(d)
+  initSyncSchema(d)
+}
+
+/** Epoch milliseconds, as SQL — the unit every timestamp in this schema is in. */
+const NOW_MS = "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)"
+
+/**
+ * The columns an offline client needs to sync against, and the triggers that
+ * maintain them.
+ *
+ * Two different clocks, because they answer different questions:
+ *
+ *  - `seq` is a single monotonic counter across the database, handed out by
+ *    `sync_meta`. It is what a client pulls against ("everything after 1240"),
+ *    and it is a counter rather than a timestamp because two writes in the
+ *    same millisecond are ordinary and a client's clock is not to be trusted.
+ *  - `updated_at` is epoch ms and decides *conflicts*: the later edit of the
+ *    same field wins.
+ *
+ * They are maintained by trigger rather than by each route because the writes
+ * that must be tracked are scattered — the category rename cascades into
+ * `sessions`, the timer's completion inserts one, the calendar writer stamps
+ * event ids onto rows nobody edited. A route added later gets this for free;
+ * one that forgets would otherwise leave a phone silently stale.
+ *
+ * The distinction the `CASE` draws matters: a write that only touches
+ * bookkeeping columns (`google_event_id`, `is_synced`) advances `seq`, so
+ * clients still learn about it, but leaves `updated_at` where it was. Bumping
+ * it would date a calendar sync as a fresh edit and let it beat — and discard —
+ * a genuine edit made on a phone ten seconds earlier while it was offline.
+ */
+function initSyncSchema(d: Database.Database) {
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS sync_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      seq INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO sync_meta (id, seq) VALUES (1, 0);
+
+    /*
+     * Applied client operations, keyed by the id the client generated. A phone
+     * that pushes an op and loses the response replays it; without this the
+     * replay would write the session a second time, or add the same minutes
+     * again. The stored result is replayed back instead.
+     */
+    CREATE TABLE IF NOT EXISTS sync_ops (
+      op_id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL,
+      result TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sync_ops_created_at ON sync_ops(created_at);
+
+    /* The same idea for the task routes, which are commands to Todoist and
+     * Things rather than rows: see lib/idempotency. */
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      key TEXT PRIMARY KEY,
+      status INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_idempotency_keys_created_at ON idempotency_keys(created_at);
+  `)
+
+  for (const table of ['sessions', 'categories'] as const) {
+    ensureColumn(d, table, 'seq', 'seq INTEGER NOT NULL DEFAULT 0')
+    ensureColumn(d, table, 'updated_at', 'updated_at INTEGER NOT NULL DEFAULT 0')
+    ensureColumn(d, table, 'deleted_at', 'deleted_at INTEGER')
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_seq ON ${table}(seq)`)
+  }
+  ensureColumn(d, 'settings', 'seq', 'seq INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(d, 'settings', 'updated_at', 'updated_at INTEGER NOT NULL DEFAULT 0')
+  d.exec('CREATE INDEX IF NOT EXISTS idx_settings_seq ON settings(seq)')
+
+  // Which device is running the timer, so a client can tell "mine, still
+  // going" from "started on the laptop" instead of silently adopting it.
+  ensureColumn(d, 'timer_state', 'device_id', "device_id TEXT NOT NULL DEFAULT ''")
+
+  /*
+   * Dropped and recreated rather than IF NOT EXISTS: a trigger is code, and an
+   * edit to the definitions below has to reach a database that already has the
+   * old one, which IF NOT EXISTS would quietly decline to do.
+   */
+  const trackedTables: Array<{ table: string; userFields: string }> = [
+    {
+      table: 'sessions',
+      userFields: `NEW.intention <> OLD.intention OR NEW.category <> OLD.category
+        OR NEW.notes <> OLD.notes OR NEW.rating <> OLD.rating
+        OR COALESCE(NEW.todoist_task_id, '') <> COALESCE(OLD.todoist_task_id, '')
+        OR COALESCE(NEW.deleted_at, 0) <> COALESCE(OLD.deleted_at, 0)`,
+    },
+    {
+      table: 'categories',
+      userFields: `NEW.name <> OLD.name OR NEW.label <> OLD.label OR NEW.color <> OLD.color
+        OR NEW.sort_order <> OLD.sort_order OR NEW.is_default <> OLD.is_default
+        OR COALESCE(NEW.deleted_at, 0) <> COALESCE(OLD.deleted_at, 0)`,
+    },
+    { table: 'settings', userFields: 'NEW.value <> OLD.value' },
+  ]
+
+  for (const { table, userFields } of trackedTables) {
+    d.exec(`
+      DROP TRIGGER IF EXISTS trg_${table}_seq_ins;
+      DROP TRIGGER IF EXISTS trg_${table}_seq_upd;
+
+      CREATE TRIGGER trg_${table}_seq_ins AFTER INSERT ON ${table}
+      BEGIN
+        UPDATE sync_meta SET seq = seq + 1 WHERE id = 1;
+        UPDATE ${table} SET
+          seq = (SELECT seq FROM sync_meta WHERE id = 1),
+          updated_at = CASE WHEN NEW.updated_at > 0 THEN NEW.updated_at ELSE ${NOW_MS} END
+        WHERE rowid = NEW.rowid;
+      END;
+
+      CREATE TRIGGER trg_${table}_seq_upd AFTER UPDATE ON ${table}
+      -- The trigger's own write below changes seq, so this guard keeps it from
+      -- re-entering if recursive triggers are ever switched on.
+      WHEN NEW.seq = OLD.seq
+      BEGIN
+        UPDATE sync_meta SET seq = seq + 1 WHERE id = 1;
+        UPDATE ${table} SET
+          seq = (SELECT seq FROM sync_meta WHERE id = 1),
+          updated_at = CASE
+            WHEN NEW.updated_at <> OLD.updated_at THEN NEW.updated_at
+            WHEN ${userFields} THEN ${NOW_MS}
+            ELSE OLD.updated_at
+          END
+        WHERE rowid = NEW.rowid;
+      END;
+    `)
+  }
+
+  /*
+   * Backfill, once. `seq = 0` means a row predates this schema (or was seeded
+   * above), and the update itself is what assigns the seq, through the trigger.
+   * A session's best-known edit time is when it ended; there is no better
+   * record, and it keeps freshly-synced history in a plausible order.
+   */
+  d.exec(`
+    UPDATE sessions SET updated_at = MAX(ended_at, started_at, 1) WHERE seq = 0;
+    UPDATE categories SET updated_at = ${NOW_MS} WHERE seq = 0;
+    UPDATE settings SET updated_at = ${NOW_MS} WHERE seq = 0;
+  `)
 }
 
 function migrateLegacyDefaultCategories(d: Database.Database) {

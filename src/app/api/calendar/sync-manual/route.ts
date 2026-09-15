@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     let rows: SessionRow[]
 
     if (sessionId) {
-      const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as SessionRow | undefined
+      const row = db.prepare('SELECT * FROM sessions WHERE id = ? AND deleted_at IS NULL').get(sessionId) as SessionRow | undefined
       if (!row) {
         return NextResponse.json({ ok: false, error: 'Session not found' }, { status: 404 })
       }
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     } else {
       rows = db.prepare(`
         SELECT * FROM sessions
-        WHERE is_synced = 0
+        WHERE is_synced = 0 AND deleted_at IS NULL
         ORDER BY started_at DESC
         LIMIT ?
       `).all(limit) as SessionRow[]

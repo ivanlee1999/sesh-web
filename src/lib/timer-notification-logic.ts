@@ -12,6 +12,8 @@ export interface TimerRow {
   updated_at: number
   todoist_task_id: string | null
   notification_count: number
+  /** Which device last wrote this row, so a client can tell its own timer from another's. */
+  device_id?: string
 }
 
 export interface OverflowNotification {

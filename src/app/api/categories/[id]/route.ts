@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { slugifyLabel } from '@/lib/categories'
+import {
+  deleteCategory,
+  findCategoryById,
+  findCategoryByName,
+  liveSessionCountForCategory,
+  renameCategory,
+  rowToCategoryJson,
+} from '@/lib/categories-server'
 
 export async function PUT(
   request: Request,
@@ -11,10 +19,7 @@ export async function PUT(
     const body = await request.json()
     const db = getDb()
 
-    const existing = db.prepare('SELECT * FROM categories WHERE id = ?').get(id) as {
-      id: string; name: string; label: string; color: string; sort_order: number; is_default: number
-    } | undefined
-
+    const existing = findCategoryById(db, id)
     if (!existing) {
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
@@ -27,30 +32,12 @@ export async function PUT(
       return NextResponse.json({ error: 'Invalid label' }, { status: 400 })
     }
 
-    const collision = db.prepare('SELECT id FROM categories WHERE name = ? AND id != ?').get(name, id)
-    if (collision) {
+    if (findCategoryByName(db, name, id)) {
       return NextResponse.json({ error: 'A category with this name already exists' }, { status: 409 })
     }
 
-    const oldName = existing.name
-
-    db.transaction(() => {
-      db.prepare('UPDATE categories SET name = ?, label = ?, color = ? WHERE id = ?').run(name, label, color, id)
-
-      if (oldName !== name) {
-        db.prepare('UPDATE sessions SET category = ? WHERE category = ?').run(name, oldName)
-        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run(name, Date.now(), oldName)
-      }
-    })()
-
-    return NextResponse.json({
-      id,
-      name,
-      label,
-      color,
-      sortOrder: existing.sort_order,
-      isDefault: existing.is_default === 1,
-    })
+    const updated = renameCategory(db, existing, { name, label, color })
+    return NextResponse.json(rowToCategoryJson(updated))
   } catch {
     return NextResponse.json({ error: 'Failed to update category' }, { status: 500 })
   }
@@ -64,16 +51,14 @@ export async function DELETE(
     const { id } = await params
     const db = getDb()
 
-    const existing = db.prepare('SELECT * FROM categories WHERE id = ?').get(id) as {
-      id: string; name: string; is_default: number
-    } | undefined
-
+    const existing = findCategoryById(db, id)
     if (!existing) {
       return NextResponse.json({ error: 'Category not found' }, { status: 404 })
     }
 
-    // Check if any sessions reference this category
-    const sessionCount = (db.prepare('SELECT COUNT(*) as count FROM sessions WHERE category = ?').get(existing.name) as { count: number }).count
+    // A category with history behind it is refused, not deleted: those sessions
+    // reference it by slug and would lose their colour and their name.
+    const sessionCount = liveSessionCountForCategory(db, existing.name)
     if (sessionCount > 0) {
       return NextResponse.json(
         { error: 'Category is in use', sessionCount },
@@ -81,20 +66,7 @@ export async function DELETE(
       )
     }
 
-    const timerRef = db.prepare('SELECT id FROM timer_state WHERE category = ?').get(existing.name) as { id: number } | undefined
-
-    db.transaction(() => {
-      if (timerRef) {
-        // Fall back to first remaining category, or empty string if none remain
-        const fallback = db.prepare(
-          'SELECT name FROM categories WHERE id != ? ORDER BY sort_order LIMIT 1'
-        ).get(id) as { name: string } | undefined
-        const fallbackName = fallback?.name ?? ''
-        db.prepare('UPDATE timer_state SET category = ?, updated_at = ? WHERE category = ?').run(fallbackName, Date.now(), existing.name)
-      }
-      db.prepare('DELETE FROM categories WHERE id = ?').run(id)
-    })()
-
+    deleteCategory(db, existing)
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })
