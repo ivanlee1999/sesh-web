@@ -5,6 +5,7 @@ import {
   deleteCategory,
   findCategoryById,
   findCategoryByName,
+  freeCategorySlug,
   liveSessionCountForCategory,
   renameCategory,
   rowToCategoryJson,
@@ -35,6 +36,10 @@ export async function PUT(
     if (findCategoryByName(db, name, id)) {
       return NextResponse.json({ error: 'A category with this name already exists' }, { status: 409 })
     }
+
+    // A deleted category may still be sitting on this slug where nobody can
+    // see it; UNIQUE(name) would turn that into a 500.
+    freeCategorySlug(db, name, id)
 
     const updated = renameCategory(db, existing, { name, label, color })
     return NextResponse.json(rowToCategoryJson(updated))

@@ -46,6 +46,31 @@ export function findCategoryByName(db: Database.Database, name: string, exceptId
 }
 
 /**
+ * Move a *deleted* category out of the way of a slug somebody wants to use.
+ *
+ * Tombstones keep their name, and `name` is UNIQUE — which means a slug stays
+ * occupied by a category nobody can see. Renaming a live category onto it, or
+ * a phone creating one offline under a fresh id, passes every visible check
+ * and then hits the constraint: a 500 from the web app, a rejected op from
+ * sync, and no way for the person to clear it because the row holding the name
+ * is invisible to them.
+ *
+ * The tombstone is renamed rather than removed. It still has to exist for
+ * other devices to learn that the category is gone; it just does not need to
+ * keep the name while being gone. Sessions never point at it — a category with
+ * history behind it cannot be deleted in the first place.
+ */
+export function freeCategorySlug(db: Database.Database, name: string, exceptId?: string): void {
+  const blocking = exceptId
+    ? db.prepare('SELECT * FROM categories WHERE name = ? AND id != ? AND deleted_at IS NOT NULL').get(name, exceptId) as CategoryRow | undefined
+    : db.prepare('SELECT * FROM categories WHERE name = ? AND deleted_at IS NOT NULL').get(name) as CategoryRow | undefined
+  if (!blocking) return
+
+  db.prepare('UPDATE categories SET name = ? WHERE id = ?')
+    .run(`${name}-deleted-${blocking.id.slice(0, 8)}`, blocking.id)
+}
+
+/**
  * Rename and restyle a category, carrying everything that points at it.
  *
  * `sessions.category` and `timer_state.category` store the *slug*, not the id,

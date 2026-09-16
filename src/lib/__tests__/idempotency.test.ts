@@ -101,3 +101,53 @@ describe('withIdempotency', () => {
     expect(calls).toBe(2)
   })
 })
+
+describe('two retries of the same key at once', () => {
+  it('only lets one of them do the work', async () => {
+    // The case this whole file exists for. The handler awaits somebody else's
+    // API, so two retries overlap easily — a phone giving up waiting and
+    // asking again. Before the claim was staked up front, both passed the
+    // check and both added the minutes.
+    let started = 0
+    // Initialised to a no-op rather than null, so the type stays callable:
+    // the executor runs synchronously, so it is always the real resolver by
+    // the time anything uses it.
+    let release: () => void = () => {}
+    const gate = new Promise<void>(resolve => { release = resolve })
+
+    const handler = async () => {
+      started += 1
+      await gate
+      return NextResponse.json({ ok: true, total_minutes: 25 })
+    }
+
+    const first = withIdempotency(request('op-race'), handler)
+    const second = await withIdempotency(request('op-race'), handler)
+
+    // The second caller is told it is already happening rather than doing it.
+    expect(second.status).toBe(409)
+    expect(second.headers.get('Idempotent-Replay')).toBe('in-progress')
+    expect(started).toBe(1)
+
+    release()
+    expect((await first).status).toBe(200)
+
+    // Once it has finished, the answer is replayed rather than recomputed.
+    const third = await withIdempotency(request('op-race'), handler)
+    expect(started).toBe(1)
+    expect(await third.json()).toEqual({ ok: true, total_minutes: 25 })
+  })
+
+  it('does not pin the key when the handler throws', async () => {
+    const boom = async (): Promise<NextResponse> => { throw new Error('upstream exploded') }
+    await expect(withIdempotency(request('op-throw'), boom)).rejects.toThrow('upstream exploded')
+
+    // A thrown request must leave the key free, or one blow-up would block
+    // that operation for a week.
+    let calls = 0
+    const ok = async () => { calls += 1; return NextResponse.json({ ok: true }) }
+    const retry = await withIdempotency(request('op-throw'), ok)
+    expect(retry.status).toBe(200)
+    expect(calls).toBe(1)
+  })
+})

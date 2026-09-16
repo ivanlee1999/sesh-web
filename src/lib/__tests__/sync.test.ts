@@ -269,7 +269,9 @@ describe('session.upsert and session.delete', () => {
   })
 
   it('tombstones rather than removes, so other devices can find out', () => {
-    const id = insertSession(db)
+    // The stamp has to be at least as new as the row it deletes, or it loses
+    // to the edit already there — see the deletion-ordering tests below.
+    const id = insertSession(db, { updatedAt: 6_000 })
     applyOps(db, [op('session.delete', { id, deletedAt: 7_000 })], 'phone')
 
     const row = sessionRow(id)!
@@ -430,5 +432,90 @@ describe('numbers arriving from a client', () => {
       id: 'manual-43', category: 'deep', startedAt: 1, endedAt: 2, updatedAt: 1_700_000_000_000,
     })], 'phone')
     expect(sessionRow('manual-43')!.updated_at).toBe(1_700_000_000_000)
+  })
+})
+
+describe('a deletion does not win merely by being a deletion', () => {
+  it('refuses a delete older than the edit already on the server', () => {
+    // The phone deleted this at 10:00 while offline; the laptop renamed it at
+    // 10:05. Honouring the older delete would take away the newer intention.
+    const id = insertSession(db, { updatedAt: 10_005 })
+    const { results } = applyOps(db, [op('session.delete', { id, deletedAt: 10_000 })], 'phone')
+
+    expect(results[0].status).toBe('stale')
+    expect(sessionRow(id)!.deleted_at).toBeNull()
+  })
+
+  it('still applies a delete newer than the server copy', () => {
+    const id = insertSession(db, { updatedAt: 10_000 })
+    const { results } = applyOps(db, [op('session.delete', { id, deletedAt: 10_005 })], 'phone')
+
+    expect(results[0].status).toBe('applied')
+    expect(sessionRow(id)!.deleted_at).toBe(10_005)
+  })
+
+  it('applies the same rule to categories', () => {
+    const writing = categoryNamed(db, 'writing')!
+    db.prepare('UPDATE categories SET updated_at = ? WHERE id = ?').run(20_000, writing.id)
+
+    const stale = applyOps(db, [op('category.delete', { id: writing.id, deletedAt: 10_000 })], 'phone')
+    expect(stale.results[0].status).toBe('stale')
+    expect(categoryNamed(db, 'writing')?.deleted_at).toBeNull()
+
+    const fresh = applyOps(db, [op('category.delete', { id: writing.id, deletedAt: 30_000 })], 'phone')
+    expect(fresh.results[0].status).toBe('applied')
+  })
+})
+
+describe('a deleted category does not sit on its slug forever', () => {
+  it('lets another category be renamed onto a tombstoned slug', () => {
+    /*
+     * The name column is UNIQUE and a tombstone keeps its name, so the slug
+     * stayed occupied by a row nobody could see — every visible check passed
+     * and SQLite then threw, which the person had no way to clear.
+     */
+    const writing = categoryNamed(db, 'writing')!
+    applyOps(db, [op('category.delete', { id: writing.id, deletedAt: Date.now() })], 'phone')
+
+    const study = categoryNamed(db, 'study')!
+    const { results } = applyOps(db, [op('category.upsert', {
+      id: study.id, name: 'writing', label: 'Writing', color: '#6E86B0', updatedAt: Date.now(),
+    })], 'phone')
+
+    expect(results[0].status).toBe('applied')
+    expect(categoryNamed(db, 'writing')?.id).toBe(study.id)
+    // The tombstone survives — other devices still have to learn of the delete.
+    const moved = db.prepare('SELECT name FROM categories WHERE id = ?').get(writing.id) as { name: string }
+    expect(moved.name).toMatch(/^writing-deleted-/)
+  })
+
+  it('lets a phone create a category under a slug that was deleted', () => {
+    const writing = categoryNamed(db, 'writing')!
+    applyOps(db, [op('category.delete', { id: writing.id, deletedAt: Date.now() })], 'phone')
+
+    const { results } = applyOps(db, [op('category.upsert', {
+      id: crypto.randomUUID(), name: 'writing', label: 'Writing', color: '#000000', updatedAt: Date.now(),
+    })], 'phone')
+
+    expect(results[0].status).toBe('applied')
+  })
+})
+
+describe('an op arriving twice at once', () => {
+  it('is claimed inside the transaction, so it cannot be applied twice', () => {
+    const payload = {
+      id: 'manual-77', intention: 'Once only', category: 'deep', type: 'focus',
+      startedAt: 77, endedAt: 1_500_077, targetMs: 1_500_000, actualMs: 1_500_000, updatedAt: 5_000,
+    }
+    // Both copies in one batch is the closest a single process gets to two
+    // requests racing, and it must still produce one session and one effect.
+    const { results, effects } = applyOps(db, [
+      op('session.complete', payload, 'race-1'),
+      op('session.complete', payload, 'race-1'),
+    ], 'phone')
+
+    expect(results.map(r => r.status)).toEqual(['applied', 'duplicate'])
+    expect(effects).toHaveLength(1)
+    expect((db.prepare('SELECT COUNT(*) c FROM sessions').get() as { c: number }).c).toBe(1)
   })
 })

@@ -6,6 +6,7 @@ import {
   deleteCategory,
   findCategoryById,
   findCategoryByName,
+  freeCategorySlug,
   liveSessionCountForCategory,
   renameCategory,
   rowToCategoryJson,
@@ -30,10 +31,14 @@ import { resolveTimerCategory, writeTimerState } from '@/lib/timer-state'
  *    returns the first attempt's answer instead of doing the work twice.
  *  - **`seq` orders the world.** A single counter, so a client's cursor is a
  *    precise place in a queue rather than a guess about clocks.
- *  - **`updated_at` settles disputes.** The later edit of a field wins. Timings
- *    are not a field anyone edits: they are set by whoever ran the session and
- *    never revised, so the two devices cannot disagree about them in the first
- *    place.
+ *  - **`updated_at` settles disputes, a row at a time.** The later edit wins the
+ *    whole editable set — title, category, notes, rating, task links — not
+ *    field by field. That is a deliberate simplification and it has a cost: a
+ *    note added on a phone at 10:00 and a rating given on the laptop at 10:01
+ *    will not merge, and the note is dropped when the phone syncs. Doing
+ *    better needs a timestamp per field, which is worth having and is not here
+ *    yet. Timings are outside the argument entirely: they are set by whoever
+ *    ran the session and never revised.
  */
 
 export type OpStatus = 'applied' | 'duplicate' | 'stale' | 'rejected'
@@ -289,21 +294,29 @@ export function applyOps(db: Database.Database, ops: SyncOp[], deviceId: string)
       continue
     }
 
-    const seen = priorResult(db, op.opId)
-    if (seen) {
-      // Already done, possibly by this very request before the reply was lost.
-      results.push({ ...seen, opId: op.opId, status: 'duplicate' })
-      continue
-    }
-
     try {
+      /*
+       * The replay check belongs inside the transaction, not before it.
+       * Checking first and writing afterwards leaves a window: the same op
+       * arriving twice at once — a client retrying while its first attempt is
+       * still in flight — could pass the check twice and be applied twice,
+       * which for a completion means two calendar events and two helpings of
+       * minutes written back to a task.
+       */
       const applied = db.transaction(() => {
+        const seen = priorResult(db, op.opId)
+        if (seen) {
+          return { result: { ...seen, opId: op.opId, status: 'duplicate' as OpStatus }, effect: undefined }
+        }
         const outcome = applyOne(db, op, deviceId)
         recordOp(db, op, deviceId, outcome.result)
         return outcome
       })()
+
       results.push(applied.result)
-      if (applied.effect) effects.push(applied.effect)
+      // A replayed op has already had its effects; running them again is the
+      // very thing the record exists to prevent.
+      if (applied.effect && applied.result.status !== 'duplicate') effects.push(applied.effect)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       console.error(`[sync] op ${op.kind} (${op.opId}) failed:`, message)
@@ -496,6 +509,19 @@ function applySessionDelete(db: Database.Database, op: SyncOp, payload: Record<s
   }
 
   const deletedAt = stampOf(payload, 'deletedAt')
+
+  /*
+   * A deletion is an edit like any other, and does not get to win by being a
+   * deletion. Someone who renamed this session on the laptop after the phone
+   * deleted it — while the phone was still offline — expressed the more recent
+   * intention, and honouring the older delete would quietly take their session
+   * away. This is the same rule `Merge.decide` applies on the client; the two
+   * ends have to agree or a row would flip depending on who spoke last.
+   */
+  if (existing.updated_at > deletedAt) {
+    return { result: { opId: op.opId, status: 'stale' } }
+  }
+
   db.prepare('UPDATE sessions SET deleted_at = ?, updated_at = ? WHERE id = ?').run(deletedAt, deletedAt, id)
 
   return {
@@ -556,6 +582,10 @@ function applyCategoryUpsert(db: Database.Database, op: SyncOp, payload: Record<
     }
   }
 
+  // Nothing live holds this slug, but a tombstone might, and the constraint
+  // does not care that it is invisible.
+  freeCategorySlug(db, name, id)
+
   if (existing) {
     if (existing.updated_at > updatedAt) {
       return { result: { opId: op.opId, status: 'stale' } }
@@ -589,6 +619,13 @@ function applyCategoryDelete(db: Database.Database, op: SyncOp, payload: Record<
 
   const existing = findCategoryById(db, id)
   if (!existing) return { result: { opId: op.opId, status: 'applied' } }
+
+  // Same rule as a session deletion: a rename or recolour that happened after
+  // this delete was queued is the newer intention and keeps the category.
+  const deletedAt = stampOf(payload, 'deletedAt')
+  if (existing.updated_at > deletedAt) {
+    return { result: { opId: op.opId, status: 'stale' } }
+  }
 
   const sessionCount = liveSessionCountForCategory(db, existing.name)
   if (sessionCount > 0) {

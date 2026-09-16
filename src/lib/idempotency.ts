@@ -34,30 +34,66 @@ export async function withIdempotency(
   }
 
   const db = getDb()
-  const existing = db.prepare('SELECT status, body FROM idempotency_keys WHERE key = ?').get(key) as
-    { status: number; body: string } | undefined
 
-  if (existing) {
-    return new NextResponse(existing.body, {
-      status: existing.status,
-      headers: { 'Content-Type': 'application/json', 'Idempotent-Replay': 'true' },
-    })
+  /*
+   * The claim is staked before the work, not after it.
+   *
+   * Checking for a stored result and only writing one afterwards leaves the
+   * whole duration of the request open: this handler awaits somebody else's
+   * API, so two retries of the same key overlap easily — exactly what happens
+   * when a phone gives up waiting and asks again. Both would pass an
+   * empty check and both would add the minutes.
+   *
+   * `INSERT OR IGNORE` decides it instead. The row is the claim; whoever wins
+   * it does the work, and everyone else is looking at a claim that is either
+   * finished (replay it) or still running (say so, and let them retry).
+   */
+  const claimed = db.prepare(
+    'INSERT OR IGNORE INTO idempotency_keys (key, status, body, created_at) VALUES (?, 0, \'\', ?)',
+  ).run(key, Date.now())
+
+  if (claimed.changes === 0) {
+    const existing = db.prepare('SELECT status, body FROM idempotency_keys WHERE key = ?').get(key) as
+      { status: number; body: string } | undefined
+
+    if (existing && existing.status > 0) {
+      return new NextResponse(existing.body, {
+        status: existing.status,
+        headers: { 'Content-Type': 'application/json', 'Idempotent-Replay': 'true' },
+      })
+    }
+
+    // Claimed but unfinished: the first attempt is still out there. Saying so
+    // is honest, and 409 is something a queue already knows how to retry.
+    return NextResponse.json(
+      { error: 'That request is already in progress' },
+      { status: 409, headers: { 'Idempotent-Replay': 'in-progress' } },
+    )
   }
 
-  const response = await handler()
+  let response: NextResponse
+  try {
+    response = await handler()
+  } catch (err) {
+    // Release the claim, or one thrown request would pin this key for a week.
+    db.prepare('DELETE FROM idempotency_keys WHERE key = ?').run(key)
+    throw err
+  }
 
   if (response.status >= 200 && response.status < 300) {
     try {
       const body = await response.clone().text()
-      db.prepare(
-        'INSERT OR REPLACE INTO idempotency_keys (key, status, body, created_at) VALUES (?, ?, ?, ?)',
-      ).run(key, response.status, body, Date.now())
+      db.prepare('UPDATE idempotency_keys SET status = ?, body = ? WHERE key = ?')
+        .run(response.status, body, key)
     } catch (err) {
       // The work is done either way; failing to remember it only costs a
       // possible repeat, which is better than failing the request now.
       console.error('[idempotency] failed to store result:', err)
     }
-    db.prepare('DELETE FROM idempotency_keys WHERE created_at < ?').run(Date.now() - KEY_RETENTION_MS)
+    db.prepare('DELETE FROM idempotency_keys WHERE created_at < ? AND status > 0').run(Date.now() - KEY_RETENTION_MS)
+  } else {
+    // A failure is worth retrying, so it must not hold the key.
+    db.prepare('DELETE FROM idempotency_keys WHERE key = ?').run(key)
   }
 
   return response
