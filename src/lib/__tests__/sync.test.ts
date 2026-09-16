@@ -397,3 +397,38 @@ describe('batch behaviour', () => {
     expect(db.prepare("SELECT COUNT(*) c FROM sync_ops WHERE op_id = 'old-op'").get()).toEqual({ c: 0 })
   })
 })
+
+describe('numbers arriving from a client', () => {
+  it('rounds a fractional timestamp rather than storing it', () => {
+    /*
+     * Found by running the real iOS client against the real server. A client
+     * sent `Date.now()` through a float path; SQLite kept the column as a REAL
+     * because the value was not losslessly an integer, and every client that
+     * pulled that row afterwards received `1789517179528.8936`. A stricter
+     * client then refused to decode the entire page it arrived in.
+     */
+    applyOps(db, [op('session.complete', {
+      id: 'manual-42', category: 'deep', type: 'focus',
+      targetMs: 900000.7, actualMs: 900000.4, overflowMs: 0.2,
+      startedAt: 42, endedAt: 900042, rating: 4.6,
+      updatedAt: 1_789_517_179_528.8936,
+    })], 'phone')
+
+    const row = sessionRow('manual-42')!
+    expect(Number.isInteger(row.updated_at)).toBe(true)
+    expect(row.updated_at).toBe(1_789_517_179_529)
+    expect(row.target_ms).toBe(900001)
+    expect(row.actual_ms).toBe(900000)
+    expect(row.rating).toBe(5)
+
+    const stored = db.prepare("SELECT typeof(updated_at) AS t FROM sessions WHERE id = 'manual-42'").get() as { t: string }
+    expect(stored.t).toBe('integer')
+  })
+
+  it('keeps a whole timestamp exactly as sent', () => {
+    applyOps(db, [op('session.complete', {
+      id: 'manual-43', category: 'deep', startedAt: 1, endedAt: 2, updatedAt: 1_700_000_000_000,
+    })], 'phone')
+    expect(sessionRow('manual-43')!.updated_at).toBe(1_700_000_000_000)
+  })
+})

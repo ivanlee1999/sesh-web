@@ -135,9 +135,22 @@ function sessionRowToJson(row: SessionRow): SessionJson {
   }
 }
 
+/**
+ * Every number in this schema is a whole one — milliseconds, counts, ratings —
+ * and it is rounded here rather than trusted.
+ *
+ * A client that sends `Date.now()` through a float path can hand over
+ * `1789517179528.8936`. SQLite has no opinion about that: the column says
+ * INTEGER, but the value is not losslessly an integer, so it is kept as a
+ * REAL — and from then on *every* client pulling that row receives a
+ * fractional timestamp. A stricter client then refuses to decode the page it
+ * arrives in, losing every row beside it, not just the odd one.
+ *
+ * One client's sloppiness must not become everyone's data.
+ */
 function num(value: unknown, fallback = 0): number {
   const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
+  return Number.isFinite(n) ? Math.round(n) : fallback
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -145,7 +158,7 @@ function str(value: unknown, fallback = ''): string {
 }
 
 function clampRating(value: unknown): number {
-  return Math.max(0, Math.min(5, Number(value) || 0))
+  return Math.max(0, Math.min(5, Math.round(Number(value)) || 0))
 }
 
 /** The client's stated edit time, or now if it did not say. */
