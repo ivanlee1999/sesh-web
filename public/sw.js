@@ -1,5 +1,5 @@
 // ── Offline cache ────────────────────────────────────────────────────────
-const CACHE_NAME = 'sesh-v7'
+const CACHE_NAME = 'sesh-v8'
 const API_CACHE_NAME = 'sesh-api-v7'
 
 // Static assets to precache on install.
@@ -42,7 +42,10 @@ self.addEventListener('fetch', event => {
     return
   }
 
-  // ── API GET requests: stale-while-revalidate ──
+  // ── API GET requests: network first, cache only when offline ──
+  // Not stale-while-revalidate: that answers every read with the *previous*
+  // response, so a to-do edited in Things showed up one fetch late and a
+  // reload looked like the only fix. The cache is for offline, not for speed.
   if (url.pathname.startsWith('/api/')) {
     // Skip background timer checks — those shouldn't be cached
     if (url.searchParams.has('background')) return
@@ -58,18 +61,15 @@ self.addEventListener('fetch', event => {
 
     event.respondWith(
       caches.open(API_CACHE_NAME).then(async cache => {
-        const cached = await cache.match(event.request)
-        const fetchPromise = fetch(event.request)
-          .then(res => {
-            if (res.ok) {
-              cache.put(event.request, res.clone())
-            }
-            return res
-          })
-          .catch(() => cached)
-
-        // Return cached response immediately if available, otherwise wait
-        return cached || fetchPromise
+        try {
+          const res = await fetch(event.request)
+          if (res.ok) cache.put(event.request, res.clone())
+          return res
+        } catch (err) {
+          const cached = await cache.match(event.request)
+          if (cached) return cached
+          throw err
+        }
       })
     )
     return

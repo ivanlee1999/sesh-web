@@ -8,6 +8,7 @@ import { useCategories } from '@/context/CategoriesContext'
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { useFitSquare } from '@/hooks/useFitSquare'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
+import { useRefreshWhileVisible } from '@/hooks/useRefreshWhileVisible'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
 import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getSessionQueue, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
@@ -332,6 +333,8 @@ export default function Timer({
     if (!settingsLoaded) return
     void refreshTasks()
   }, [refreshTasks, settingsLoaded])
+
+  useRefreshWhileVisible(refreshTasks, { enabled: settingsLoaded })
 
   useEffect(() => {
     if (categories.length === 0) return

@@ -36,6 +36,7 @@ import TaskList, { type TaskRowModel } from './md/TaskList'
 import TaskComposer from './md/TaskComposer'
 import ResizeHandle from './md/ResizeHandle'
 import { usePaneWidth } from '@/hooks/usePaneWidth'
+import { useRefreshWhileVisible } from '@/hooks/useRefreshWhileVisible'
 import { MdIcon } from './md/icons'
 import { useShellStatus } from './md/shell-status'
 
@@ -152,6 +153,9 @@ export default function Tasks({ onFocusTask }: { onFocusTask: (payload: PendingF
   }, [providers, settingsLoaded])
 
   useEffect(() => { load() }, [load])
+
+  // Edits made in Things or Todoist themselves only reach this list if it asks again.
+  useRefreshWhileVisible(load, { enabled: settingsLoaded })
 
   /**
    * A newly connected Things account has years of history to replay, and the

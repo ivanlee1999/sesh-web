@@ -44,8 +44,13 @@ import {
 /** Things Cloud's answer to a commit whose ancestor-index is not the head. */
 const CONFLICT_STATUS = 409
 
-/** Re-sync at most this often; task lists are read far more than they change. */
-const SYNC_INTERVAL_MS = 60_000
+/**
+ * Re-sync at most this often. Short, because the client now re-reads the list
+ * whenever someone comes back to sesh — usually straight from editing it in
+ * Things.app — and a minute-old replay would hand them the list from before
+ * the edit. A caught-up sync is a single small request, so this is cheap.
+ */
+const SYNC_INTERVAL_MS = 10_000
 
 /**
  * How long a request will wait on Things before answering with what has already
