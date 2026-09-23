@@ -8,6 +8,8 @@ let timerApiState: Record<string, unknown>
 let visibilityStateValue: DocumentVisibilityState = 'visible'
 /** Whether the fake Todoist is configured — off by default, as it is on a bare install. */
 let todoistConfigured = false
+/** What GET /api/sessions returns: the history the intention field suggests from. */
+let pastSessions: unknown[] = []
 const updateSettings = vi.fn()
 
 vi.mock('@/context/SettingsContext', () => ({
@@ -106,6 +108,7 @@ beforeEach(() => {
   timerApiState = timerState()
   visibilityStateValue = 'visible'
   todoistConfigured = false
+  pastSessions = []
   vi.useRealTimers()
   vi.clearAllMocks()
   updateSettings.mockReset()
@@ -130,8 +133,11 @@ beforeEach(() => {
     value: undefined,
   })
 
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : (input as Request).url
+    if (url === '/api/sessions' && (!init?.method || init.method === 'GET')) {
+      return new Response(JSON.stringify(pastSessions), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
     if (url.includes('/api/timer')) {
       return new Response(JSON.stringify(timerApiState), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
@@ -802,6 +808,70 @@ describe('Timer', () => {
     expect(screen.getByText('24:30')).toBeTruthy()
   })
 
+  describe('typing several items into the intention', () => {
+    const lastPut = () => {
+      const puts = vi.mocked(globalThis.fetch).mock.calls.filter(([input, init]) => {
+        const url = typeof input === 'string' ? input : (input as Request).url
+        return url === '/api/timer' && init?.method === 'PUT'
+      })
+      return String(puts[puts.length - 1]?.[1]?.body ?? '')
+    }
+
+    it('files each Enter as its own item and keeps the field open for the next', async () => {
+      render(<Timer />)
+      const field = await screen.findByLabelText('Session intention') as HTMLInputElement
+
+      fireEvent.change(field, { target: { value: 'Write tests' } })
+      fireEvent.keyDown(field, { key: 'Enter' })
+      fireEvent.change(field, { target: { value: 'Review PR' } })
+      fireEvent.keyDown(field, { key: 'Enter' })
+
+      expect(field.value).toBe('')
+      expect(screen.getByRole('button', { name: 'Remove Write tests from the intention' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Remove Review PR from the intention' })).toBeTruthy()
+
+      fireEvent.blur(field)
+      await waitFor(() => expect(lastPut()).toContain('"intention":"Write tests · Review PR"'))
+    })
+
+    it('takes the last item back to edit on Backspace in an empty field', async () => {
+      render(<Timer />)
+      const field = await screen.findByLabelText('Session intention') as HTMLInputElement
+
+      fireEvent.change(field, { target: { value: 'Write tests' } })
+      fireEvent.keyDown(field, { key: 'Enter' })
+      fireEvent.keyDown(field, { key: 'Backspace' })
+
+      expect(field.value).toBe('Write tests')
+      expect(screen.queryByRole('button', { name: 'Remove Write tests from the intention' })).toBeNull()
+    })
+
+    it('suggests past items, most used first, and adds the one picked', async () => {
+      const now = Date.now()
+      pastSessions = [
+        { intention: 'Review PR · Inbox zero', startedAt: now - 3_600_000 },
+        { intention: 'Review PR', startedAt: now - 86_400_000 },
+        { intention: 'Read papers', startedAt: now - 2 * 86_400_000 },
+      ]
+      render(<Timer />)
+      const field = await screen.findByLabelText('Session intention') as HTMLInputElement
+      await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([input]) => input === '/api/sessions')).toBe(true))
+
+      fireEvent.focus(field)
+      fireEvent.change(field, { target: { value: 're' } })
+      const options = await screen.findAllByRole('option')
+      expect(options.map(option => option.textContent)).toEqual(['Review PR', 'Read papers'])
+
+      fireEvent.keyDown(field, { key: 'ArrowDown' })
+      fireEvent.keyDown(field, { key: 'Enter' })
+      expect(screen.getByRole('button', { name: 'Remove Review PR from the intention' })).toBeTruthy()
+
+      // Already chosen, so no longer offered.
+      fireEvent.change(field, { target: { value: 're' } })
+      expect((await screen.findAllByRole('option')).map(option => option.textContent)).toEqual(['Read papers'])
+    })
+  })
+
   it('rewrites the focus topic in place on the running screen', async () => {
     render(<Timer />)
 
@@ -815,7 +885,9 @@ describe('Timer', () => {
     fireEvent.change(topic, { target: { value: 'Read the spec' } })
     fireEvent.blur(topic)
 
-    expect(topic.value).toBe('Read the spec')
+    // What was typed is filed as an item once the field lets go.
+    expect(topic.value).toBe('')
+    expect(screen.getByRole('button', { name: 'Remove Read the spec from the intention' })).toBeTruthy()
     await waitFor(() => {
       const put = vi.mocked(globalThis.fetch).mock.calls.find(([input, init]) => {
         const url = typeof input === 'string' ? input : (input as Request).url
@@ -891,8 +963,9 @@ describe('Timer', () => {
       await pickBothTasks()
       fireEvent.click(screen.getByLabelText('Close task picker'))
 
-      const field = await screen.findByLabelText('Session intention')
-      expect((field as HTMLInputElement).value).toBe('Draft memo · Book the room')
+      await screen.findByLabelText('Session intention')
+      expect(screen.getByRole('button', { name: 'Remove Draft memo from the intention' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Remove Book the room from the intention' })).toBeTruthy()
     })
 
     it('starts the session against both tasks', async () => {
@@ -918,8 +991,9 @@ describe('Timer', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'Remove Draft memo from the session' }))
 
-      const field = await screen.findByLabelText('Session intention')
-      await waitFor(() => expect((field as HTMLInputElement).value).toBe('Book the room'))
+      await screen.findByLabelText('Session intention')
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove Draft memo from the intention' })).toBeNull())
+      expect(screen.getByRole('button', { name: 'Remove Book the room from the intention' })).toBeTruthy()
     })
 
     const posted = (path: string) => vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => {

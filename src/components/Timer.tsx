@@ -9,7 +9,7 @@ import { useScreenWakeLock } from '@/hooks/useScreenWakeLock'
 import { useFitSquare } from '@/hooks/useFitSquare'
 import { useIsDesktop } from '@/hooks/useIsDesktop'
 import { ensurePushSubscription, isInstalledPwa } from '@/lib/push-client'
-import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
+import { clearTimerState, enqueueFocusTime, enqueueSession, getPomodoroCycleCount, getSessionQueue, getRecentCategoryNames, incrementPomodoroCycle, loadTimerState, markCategoryUsed, saveTimerState, type QueuedSession } from '@/lib/local-store'
 import { decodeTaskRefs, encodeTaskRef, encodeTaskRefs, splitTaskRefs } from '@/lib/task-ref'
 import { PROVIDER_COLOR, PROVIDER_LABEL, canCreateTasks, completeTask as completeProviderTask, enabledProviders, flushFocusTimeQueue, loadProviderStatuses, loadTasks, recordFocusTime, refsForProviders } from '@/lib/task-sources'
 import { capGroups, clockOf, endsAtLabel, pad2, type CappedGroup } from '@/lib/modernist'
@@ -17,6 +17,8 @@ import Dial from './Dial'
 import CategoryChips from './md/CategoryChips'
 import TaskList, { type TaskRowModel } from './md/TaskList'
 import TaskComposer from './md/TaskComposer'
+import IntentionInput from './md/IntentionInput'
+import { rankIntentionHistory, type IntentionHistoryEntry, type RankedItem } from '@/lib/intention-items'
 import ResizeHandle from './md/ResizeHandle'
 import { usePaneWidth } from '@/hooks/usePaneWidth'
 import { MdIcon } from './md/icons'
@@ -262,6 +264,36 @@ export default function Timer({
     setRecentCategories(getRecentCategoryNames())
     setCycleCount(getPomodoroCycleCount())
   }, [])
+
+  /**
+   * Every item typed into past intentions, best first, for the intention
+   * field to offer. Read again each time the idle screen comes back, so the
+   * session just logged is already in it; sessions still queued offline count
+   * too. A failed read just means no suggestions.
+   */
+  const [intentionHistory, setIntentionHistory] = useState<RankedItem[]>([])
+  const onIdleScreen = idle && !draft
+  useEffect(() => {
+    if (!onIdleScreen) return
+    let cancelled = false
+    void (async () => {
+      const entries: IntentionHistoryEntry[] = getSessionQueue()
+        .map(session => ({ intention: session.intention, startedAt: session.startedAt }))
+      try {
+        const res = await fetch('/api/sessions')
+        const rows: unknown = res.ok ? await res.json() : []
+        if (Array.isArray(rows)) {
+          for (const row of rows) {
+            if (row && typeof row.intention === 'string' && row.intention) {
+              entries.push({ intention: row.intention, startedAt: Number(row.startedAt) || 0 })
+            }
+          }
+        }
+      } catch {}
+      if (!cancelled) setIntentionHistory(rankIntentionHistory(entries))
+    })()
+    return () => { cancelled = true }
+  }, [onIdleScreen])
 
   /**
    * The open tasks, held here rather than in the picker: the idle screen also
@@ -1226,24 +1258,22 @@ export default function Timer({
                 <span className="md-eyebrow">
                   Session {pad2(sessionNo)} · {new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}
                 </span>
-                <input
+                <IntentionInput
                   value={intention}
-                  onChange={event => setIntention(event.target.value)}
-                  onBlur={() => syncIdleTopic({ intention, category, refs: taskRefs })}
+                  onChange={setIntention}
+                  onCommit={next => syncIdleTopic({ intention: next, category, refs: taskRefs })}
+                  history={intentionHistory}
                   placeholder="What are you working on?"
-                  aria-label="Session intention"
+                  ariaLabel="Session intention"
                   className="md-underline"
-                  style={{
-                    width: '100%',
-                    background: 'transparent',
-                    color: 'inherit',
+                  chipFontSize={phone ? 16 : 17}
+                  style={{ width: '100%', padding: '0 0 8px', zIndex: 3 }}
+                  inputStyle={{
                     fontFamily: 'var(--font-heading)',
                     fontWeight: 600,
                     // Never below 16px on a phone, or iOS zooms the page on focus.
                     fontSize: phone ? 22 : 26,
                     letterSpacing: '-.02em',
-                    padding: '0 0 8px',
-                    outline: 'none',
                   }}
                 />
               </div>
@@ -1305,27 +1335,23 @@ export default function Timer({
               {/* Styled as the design's title line, but editable: rewriting
                   what you are working on mid-session is worth keeping, and a
                   borderless field looks identical to the text it replaces. */}
-              <input
+              <IntentionInput
                 value={intention}
-                onChange={event => setIntention(event.target.value)}
-                onBlur={event => changeRunningTopic(event.target.value)}
-                onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
+                onChange={setIntention}
+                onCommit={changeRunningTopic}
+                onEnterEmpty={() => (document.activeElement as HTMLElement | null)?.blur()}
+                history={intentionHistory}
                 placeholder={isFocus ? 'Untitled session' : typeLabel}
-                aria-label="Session topic"
+                ariaLabel="Session topic"
                 className="md-rise"
-                style={{
-                  width: '100%',
-                  margin: 0,
-                  border: 0,
-                  background: 'transparent',
-                  color: 'inherit',
+                chipFontSize={phone ? 16 : 17}
+                style={{ width: '100%', zIndex: 3 }}
+                inputStyle={{
                   fontFamily: 'var(--font-heading)',
                   fontWeight: 700,
                   fontSize: phone ? 22 : 26,
                   lineHeight: 1.12,
                   letterSpacing: '-.02em',
-                  padding: 0,
-                  outline: 'none',
                 }}
               />
               <span className="md-meta md-rise">
@@ -1597,6 +1623,7 @@ export default function Timer({
           categoryLabel={categoryByName(categories, draft.category)?.label ?? 'Focus'}
           intention={draft.intention}
           onIntentionChange={next => setDraft(prev => (prev ? { ...prev, intention: next } : prev))}
+          intentionHistory={intentionHistory}
           tasks={draftTasks}
           canPickTask={tasks.length > 0}
           onPickTask={openSheet}
@@ -1639,6 +1666,7 @@ function Poster({
   categoryLabel,
   intention,
   onIntentionChange,
+  intentionHistory,
   tasks,
   canPickTask,
   onPickTask,
@@ -1655,6 +1683,7 @@ function Poster({
   /** Editable: what the session ends up filed as is decided here, not before. */
   intention: string
   onIntentionChange: (next: string) => void
+  intentionHistory: readonly RankedItem[]
   tasks: ExternalTask[]
   canPickTask: boolean
   onPickTask: () => void
@@ -1755,26 +1784,27 @@ function Poster({
         {/* What it gets filed as is still open until you dismiss this. The field
             carries the poster's own ink rather than a box, so it reads as the
             title it is. */}
-        <input
+        <IntentionInput
           value={intention}
-          onChange={event => onIntentionChange(event.target.value)}
+          onChange={onIntentionChange}
+          history={intentionHistory}
           placeholder="Untitled session"
-          aria-label="What this session was"
-          className="md-on-accent"
+          ariaLabel="What this session was"
+          inputClassName="md-on-accent"
+          chipFontSize={phone ? 15 : 16}
           style={{
             width: '100%',
             marginTop: 22,
-            border: 0,
             borderBottom: `1px solid ${RULE_ON_ACCENT}`,
-            borderRadius: 0,
-            background: 'transparent',
             color: 'var(--accent-on)',
+            padding: '0 0 9px',
+            zIndex: 3,
+          }}
+          inputStyle={{
             fontFamily: 'var(--font-heading)',
             fontWeight: 600,
             fontSize: phone ? 19 : 22,
             letterSpacing: '-.02em',
-            padding: '0 0 9px',
-            outline: 'none',
           }}
         />
 

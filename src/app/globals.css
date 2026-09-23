@@ -1667,6 +1667,8 @@ button.sesh-row:active { background: var(--surface-2) }
 }
 .md-app input.md-underline:focus,
 .md-app input.md-underline:focus-visible { outline: none; box-shadow: none; border-bottom-color: var(--accent-base) }
+/* The intention field is a row of items around its input: the row takes the rule. */
+.md-app div.md-underline:focus-within { border-bottom-color: var(--accent-base) }
 .md-underline::placeholder { color: var(--color-text-3); font-weight: 500 }
 
 /* ---- Stepper: one tonal group, the number in the middle ---- */
