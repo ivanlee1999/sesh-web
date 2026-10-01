@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { runCompletionSideEffects } from '@/lib/session-complete'
-import { toEpochMs, writeTimerState } from '@/lib/timer-state'
+import { resolveTimerCategory, toEpochMs, writeTimerState } from '@/lib/timer-state'
 import {
   checkAndSendOverflowNotifications,
   ensureTimerNotificationScheduler,
@@ -63,7 +63,8 @@ export async function POST(request: Request) {
         return { completed: false, alreadyDone: true, row: row ?? null }
       }
 
-      const endedAt = Date.now()
+      const endedAt = row.phase === 'paused' && row.paused_at ? row.paused_at : Date.now()
+      const category = resolveTimerCategory(db, body.category ?? row.category)
       const actualMs = endedAt - row.started_at
       const overflowMs = Math.max(0, actualMs - row.target_ms)
       // Deterministic ID keyed by started_at — same namespace as auto-complete
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
       insertSession.run(
         sessionId,
         body.intention ?? row.intention,
-        row.category,
+        category,
         row.session_type,
         row.target_ms,
         actualMs,
@@ -87,18 +88,18 @@ export async function POST(request: Request) {
         endedAt,
         body.notes ?? '',
         Math.max(0, Math.min(5, Number(body.rating) || 0)),
-        row.todoist_task_id,
+        body.todoistTaskId === undefined ? row.todoist_task_id : body.todoistTaskId,
       )
 
       return {
         completed: true,
         alreadyDone: false,
         row: selectTimer.get() as TimerRow,
-        todoistTaskId: row.todoist_task_id,
+        todoistTaskId: body.todoistTaskId === undefined ? row.todoist_task_id : body.todoistTaskId,
         session: {
           id: sessionId,
           intention: body.intention ?? row.intention,
-          category: row.category,
+          category,
           type: row.session_type,
           targetMs: row.target_ms,
           actualMs,

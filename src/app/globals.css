@@ -2039,3 +2039,21 @@ button.sesh-row:active { background: var(--surface-2) }
 .md-hairline:last-child::after {
   content: none;
 }
+
+/* A calm workspace around the colorful timer, with a separate task queue. */
+.sesh-focus-stage {
+  background: radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--accent-base) 9%, transparent), transparent 68%);
+}
+.md-dial:focus-visible {
+  outline: 3px solid var(--accent-base);
+  outline-offset: 8px;
+  border-radius: 50%;
+}
+.md-poster textarea::placeholder { color: inherit; opacity: .65 }
+@media (min-width: 1024px) {
+  .sesh-focus-layout { padding: 20px; gap: 12px }
+  .sesh-focus-stage { border: 1px solid var(--line-2); border-radius: 24px }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-dial *, .md-poster { animation: none !important; transition: none !important }
+}
