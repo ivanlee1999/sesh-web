@@ -1,5 +1,6 @@
 'use client'
 
+import { SharedTimerQueue, type SharedTimerSnapshot } from '@/lib/shared-timer-client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { resolveProvider, type Category, type CategoryRecord, type ExternalTask, type SessionType } from '@/types'
@@ -239,6 +240,20 @@ export default function Timer({
   const [completingKey, setCompletingKey] = useState<string | null>(null)
   const [taskNotice, setTaskNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<ReflectionDraft | null>(null)
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const timerWriteRef = useRef<Promise<void>>(Promise.resolve())
+  const sharedTimerQueue = useRef<SharedTimerQueue | null>(null)
+  if (!sharedTimerQueue.current) sharedTimerQueue.current = new SharedTimerQueue()
+  const [timerSyncNotice, setTimerSyncNotice] = useState<string | null>(null)
+  const countedSessionRef = useRef(0)
+  const reflectionNeedsCompletionRef = useRef(false)
+  const reflectionOpenRef = useRef(false)
+  const reflectionBaselineRef = useRef<{ expectedUpdatedAt: number; expectedStartedAt: number | null } | null>(null)
+  const reflectionConflictRef = useRef(false)
+  const [reflectionConflict, setReflectionConflict] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [rating, setRating] = useState<number | null>(null)
   const [cycleCount, setCycleCount] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -251,6 +266,8 @@ export default function Timer({
    * against nothing would drop the linked tasks on a blur that changed nothing.
    */
   const syncedIntentionRef = useRef('')
+  const appliedTimerVersionRef = useRef(-1)
+  const controlSessionStartRef = useRef<number | null>(null)
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
@@ -370,16 +387,6 @@ export default function Timer({
     clearPendingFocus?.()
   }, [byName, clearPendingFocus, pendingFocus, settings.focusDuration])
 
-  const syncToServer = useCallback(async (body: Record<string, unknown>) => {
-    try {
-      await fetch('/api/timer', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-    } catch {}
-  }, [])
-
   const postSwMessage = useCallback(async (type: 'TIMER_STARTED' | 'TIMER_STOPPED') => {
     if (!('serviceWorker' in navigator)) return
     try {
@@ -389,7 +396,10 @@ export default function Timer({
   }, [])
 
   const applyRemote = useCallback((raw: ServerTimerState) => {
+    if (reflectionOpenRef.current) return
     const data = normalizeTimerState(raw)
+    appliedTimerVersionRef.current = data.updatedAt
+    controlSessionStartRef.current = data.startedAt
     if (data.phase === 'running' && data.startedAt) {
       const elapsed = Date.now() - data.updatedAt
       const nextRemaining = data.remainingMs - elapsed
@@ -423,17 +433,45 @@ export default function Timer({
       setPhase('idle')
       if (data.category) setCategory(data.category as Category)
       if (data.intention) setIntention(data.intention)
-      setSessionType('focus')
-      setTypeKey('focus')
-      setTargetMs(settings.focusDuration * 60000)
-      setRemainingMs(settings.focusDuration * 60000)
+      setIntention(data.intention)
+      setSessionType(data.sessionType as SessionType)
+      setTypeKey(data.sessionType === 'focus' ? 'focus' : data.targetMs === settings.longBreakDuration * 60000 ? 'long' : 'short')
+      setTargetMs(data.targetMs || settings.focusDuration * 60000)
+      setRemainingMs(data.remainingMs || data.targetMs || settings.focusDuration * 60000)
       setStartedAt(0)
+      setTaskRefs(refsForProviders(data.todoistTaskId, providers))
     }
   }, [providers, settings.focusDuration, settings.longBreakDuration])
 
+  sharedTimerQueue.current.onSnapshot = (data, unchanged) => {
+    if (unchanged && appliedTimerVersionRef.current === data.updatedAt) {
+      // Reconcile wall-clock countdown after a suspended tab, without replacing
+      // the intention a person is editing with identical server text.
+      if (!reflectionOpenRef.current && data.phase === 'running')
+        setRemainingMs(Number(data.remainingMs) - (Date.now() - data.updatedAt))
+      return
+    }
+    if (reflectionOpenRef.current && reflectionNeedsCompletionRef.current && !reflectionConflictRef.current && !reflectionBaselineRef.current)
+      reflectionBaselineRef.current = { expectedUpdatedAt: data.updatedAt, expectedStartedAt: data.startedAt }
+    applyRemote(data as unknown as ServerTimerState)
+  }
+  sharedTimerQueue.current.onConflict = () => {
+    if (reflectionOpenRef.current) { reflectionConflictRef.current = true; setReflectionConflict(true) }
+  }
+  sharedTimerQueue.current.onNotice = setTimerSyncNotice
+
+  const syncToServer = useCallback((body: Record<string, unknown>) => {
+    const actionSessionStart = 'actionSessionStart' in body ? body.actionSessionStart : controlSessionStartRef.current
+    timerWriteRef.current = sharedTimerQueue.current!.enqueue({ ...body, actionSessionStart })
+    controlSessionStartRef.current = typeof body.startedAt === 'number' ? body.startedAt : null
+    return timerWriteRef.current
+  }, [])
+
   const restoreLocal = useCallback(() => {
+    if (reflectionOpenRef.current) return
     const local = loadTimerState()
     if (!local) return
+    controlSessionStartRef.current = local.startedAt
     setSessionType(local.sessionType as SessionType)
     setIntention(local.intention)
     syncedIntentionRef.current = local.intention
@@ -453,15 +491,30 @@ export default function Timer({
   }, [providers])
 
   const refreshTimerFromServer = useCallback(() => {
-    fetch('/api/timer')
+    const queue = sharedTimerQueue.current!
+    // Commit against the version being edited. Polling may not replace text
+    // under the keyboard or silently authorize it against a newer sitting.
+    if (document.activeElement?.closest('.sesh-timer-topic')) return
+    if (queue.hasPending) {
+      void queue.flush()
+      return
+    }
+    const revision = queue.revision
+    fetch('/api/timer', { cache: 'no-store' })
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) applyRemote(data); else restoreLocal() })
-      .catch(restoreLocal)
-  }, [applyRemote, restoreLocal])
+      .then(data => {
+        // A GET begun before a local action cannot roll its optimistic UI back.
+        if (queue.hasPending || queue.revision !== revision || document.activeElement?.closest('.sesh-timer-topic')) return
+        if (data) queue.accept(data as SharedTimerSnapshot)
+        else restoreLocal()
+      })
+      .catch(() => { if (!queue.hasPending) restoreLocal() })
+  }, [restoreLocal])
 
   useEffect(() => {
+    if (sharedTimerQueue.current!.hasPending) restoreLocal()
     refreshTimerFromServer()
-  }, [refreshTimerFromServer])
+  }, [refreshTimerFromServer, restoreLocal])
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -473,9 +526,15 @@ export default function Timer({
 
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pageshow', handlePageShow)
+    window.addEventListener('online', handlePageShow)
+    const poll = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshTimerFromServer()
+    }, 3000)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pageshow', handlePageShow)
+      window.removeEventListener('online', handlePageShow)
+      clearInterval(poll)
     }
   }, [refreshTimerFromServer])
 
@@ -828,9 +887,11 @@ export default function Timer({
     postSwMessage('TIMER_STARTED')
   }, [category, intention, phase, postSwMessage, sessionType, settings.breakDuration, settings.focusDuration, settings.keepScreenAwake, settings.longBreakDuration, syncToServer, targetMs, taskRefs, wakeLock])
 
-  const pause = () => {
+  const pause = useCallback(() => {
+    if (phase === 'paused') return
     setPhase('paused')
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase: 'paused',
       sessionType,
       intention,
@@ -843,12 +904,13 @@ export default function Timer({
       todoistTaskId: taskRefValue,
     })
     postSwMessage('TIMER_STOPPED')
-  }
+  }, [category, intention, phase, postSwMessage, remainingMs, sessionType, startedAt, syncToServer, targetMs, taskRefValue])
 
   const resume = () => {
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     setPhase('running')
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase: 'running',
       sessionType,
       intention,
@@ -876,6 +938,7 @@ export default function Timer({
     setIntention(nextIntention)
     setTaskRefs([])
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase,
       sessionType,
       intention: nextIntention,
@@ -890,6 +953,7 @@ export default function Timer({
   }, [category, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs])
 
   const idleServerState = useCallback(() => ({
+    actionSessionStart: startedAt || null,
     phase: 'idle',
     sessionType: 'focus',
     intention: '',
@@ -900,7 +964,7 @@ export default function Timer({
     startedAt: null,
     pausedAt: null,
     todoistTaskId: null,
-  }), [category, settings.focusDuration])
+  }), [category, settings.focusDuration, startedAt])
 
   const returnToIdle = useCallback(() => {
     setPhase('idle')
@@ -966,12 +1030,20 @@ export default function Timer({
       finishingRef.current = false
       return
     }
+    reflectionOpenRef.current = true
+    reflectionNeedsCompletionRef.current = !settings.autoStartBreak
+    reflectionBaselineRef.current = null
+    reflectionConflictRef.current = false
+    setReflectionConflict(false)
+    setSaveError(null)
     setDraft(nextDraft)
+    if (countedSessionRef.current !== nextDraft.startedAt) setNotes('')
     setRating(null)
 
     // The cycle advances when the focus session ends, not when its rating is
     // saved — the break that follows needs to know whether it is a long one.
-    const nextCount = incrementPomodoroCycle()
+    const nextCount = countedSessionRef.current === nextDraft.startedAt ? cycleCount : incrementPomodoroCycle()
+    countedSessionRef.current = nextDraft.startedAt
     setCycleCount(nextCount)
 
     if (settings.soundEnabled) playChime(880)
@@ -1001,12 +1073,10 @@ export default function Timer({
       return
     }
 
+    pause()
     setPhase('reflect')
-    clearTimerState()
-    syncToServer(idleServerState())
-    postSwMessage('TIMER_STOPPED')
     finishingRef.current = false
-  }, [category, idleServerState, makeDraft, postSwMessage, returnToIdle, sessionType, settings.autoStartBreak, settings.autoStartFocus, settings.breakDuration, settings.longBreakDuration, settings.sessionsBeforeLongBreak, settings.soundEnabled, start, syncToServer])
+  }, [category, idleServerState, makeDraft, postSwMessage, returnToIdle, sessionType, settings.autoStartBreak, settings.autoStartFocus, settings.breakDuration, settings.longBreakDuration, settings.sessionsBeforeLongBreak, settings.soundEnabled, start, syncToServer, pause, cycleCount])
 
   /**
    * End the sitting without recording it. Distinct from Finish: abandoning
@@ -1084,32 +1154,81 @@ export default function Timer({
   }
 
   const saveSession = async (ratingValue: number) => {
-    if (!draft) return
-    const session = { ...draft, notes: '', rating: ratingValue }
+    if (!draft || savingRef.current) return false
+    savingRef.current = true
+    setSaving(true)
+    const keepCurrentTimer = reflectionConflict
+    const needsCompletion = reflectionNeedsCompletionRef.current && !keepCurrentTimer
+    const session = { ...draft, notes, rating: ratingValue }
     try {
-      const res = await fetch('/api/sessions', {
+      await timerWriteRef.current
+      // The pending pause may conflict while Save awaits its receipt. That
+      // response is not authorization to finish the winning timer.
+      if (reflectionConflictRef.current && !keepCurrentTimer) {
+        setSaveError('Session changed on another device. Save your reflection to the journal without changing the current timer.')
+        savingRef.current = false; setSaving(false)
+        return false
+      }
+      if (sharedTimerQueue.current!.hasPending) throw new Error('Session changes are still pending')
+      const completion = needsCompletion ? await fetch('/api/timer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...session, ...(reflectionBaselineRef.current ?? sharedTimerQueue.current!.precondition()) }),
+      }) : null
+      if (completion?.status === 409) {
+        reflectionConflictRef.current = true
+        setReflectionConflict(true)
+        setSaveError('Session changed on another device. Your reflection is kept. Save it to the journal without changing the current timer.')
+        savingRef.current = false
+        setSaving(false)
+        return false
+      }
+      if (completion && !completion.ok) throw new Error('Failed to finish session')
+      const result = completion ? await completion.json() : null
+      if (result?.timer) sharedTimerQueue.current!.accept(result.timer)
+      const res = result?.completed ? completion! : await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(session),
       })
       if (!res.ok) throw new Error('Failed to save session')
-      void syncTasksAfterSession(draft.todoistTaskId, draft.actualMs)
+      if (!needsCompletion || result?.completed === undefined) void syncTasksAfterSession(draft.todoistTaskId, draft.actualMs)
     } catch {
+      if (needsCompletion) {
+        savingRef.current = false
+        setSaving(false)
+        setSaveError('Could not finish the session. Your notes are still here — retry when connected.')
+        return false
+      }
       const offline: QueuedSession = { ...session, queuedAt: Date.now() }
       enqueueSession(offline)
     }
 
+    if (needsCompletion) {
+      clearTimerState()
+      postSwMessage('TIMER_STOPPED')
+    }
+    reflectionOpenRef.current = false
+    reflectionNeedsCompletionRef.current = false
+    reflectionBaselineRef.current = null
+    reflectionConflictRef.current = false
+    setReflectionConflict(false)
     setDraft(null)
     setRating(null)
+    savingRef.current = false
+    setSaving(false)
 
     // The break is already running underneath: clearing the draft just puts the
     // poster away, leaving the rest exactly where it had got to.
-    if (live) return
+    if (keepCurrentTimer) { refreshTimerFromServer(); return true }
+    if (!needsCompletion) return true
 
+    controlSessionStartRef.current = null
     setIntention('')
     setTaskRefs([])
     setStartedAt(0)
     returnToIdle()
+    return true
   }
 
   // ── Derived copy ───────────────────────────────────────────────────────
@@ -1243,8 +1362,9 @@ export default function Timer({
 
   return (
     <>
-      <div className="md-screen">
+      <div className="md-screen sesh-focus-layout">
         <div
+          className="sesh-focus-stage"
           style={{
             flex: 1,
             minWidth: 0,
@@ -1268,7 +1388,7 @@ export default function Timer({
                   history={intentionHistory}
                   placeholder="What are you working on?"
                   ariaLabel="Session intention"
-                  className="md-underline"
+                  className="md-underline sesh-timer-topic"
                   chipFontSize={phone ? 16 : 17}
                   style={{ width: '100%', padding: '0 0 8px', zIndex: 3 }}
                   inputStyle={{
@@ -1346,7 +1466,7 @@ export default function Timer({
                 history={intentionHistory}
                 placeholder={isFocus ? 'Untitled session' : typeLabel}
                 ariaLabel="Session topic"
-                className="md-rise"
+                className="md-rise sesh-timer-topic"
                 chipFontSize={phone ? 16 : 17}
                 style={{ width: '100%', zIndex: 3 }}
                 inputStyle={{
@@ -1620,8 +1740,21 @@ export default function Timer({
         </div>,
       )}
 
+      {timerSyncNotice && overlay(
+        <div role="status" aria-live="polite" style={{ position: 'absolute', zIndex: 500, left: 16, right: 16, bottom: 'calc(12px + var(--safe-b))', padding: '10px 14px', borderRadius: 12, background: 'var(--surface)', color: 'var(--ink)', boxShadow: '0 4px 18px #0002', fontSize: 13 }}>
+          {timerSyncNotice}
+        </div>,
+      )}
+
       {draft && overlay(
         <Poster
+          error={saveError}
+          sharedConflict={reflectionConflict}
+          active={!sheet}
+          notes={notes}
+          onNotesChange={setNotes}
+          saving={saving}
+          onBack={reflectionNeedsCompletionRef.current && !reflectionConflict ? () => { reflectionOpenRef.current = false; setDraft(null); setPhase('paused') } : undefined}
           minutes={Math.max(1, Math.round(draft.actualMs / 60000))}
           categoryLabel={categoryByName(categories, draft.category)?.label ?? 'Focus'}
           intention={draft.intention}
@@ -1641,7 +1774,8 @@ export default function Timer({
             // decides where the person lands afterwards. Saving first means a
             // break started here replaces the finished sitting cleanly rather
             // than racing the write that records it.
-            void saveSession(rating ?? 0).then(() => {
+            void saveSession(rating ?? 0).then(saved => {
+              if (!saved) return
               if (next === 'break') start('break', '', category, [], nextBreakMinutes)
               if (next === 'focus') start('focus', '', category, [])
             })
@@ -1665,6 +1799,7 @@ const RATINGS: { label: string; value: number }[] = [
  * gating it.
  */
 function Poster({
+  error, sharedConflict, active, notes, onNotesChange, saving, onBack,
   minutes,
   categoryLabel,
   intention,
@@ -1681,6 +1816,13 @@ function Poster({
   onRate,
   onDone,
 }: {
+  error: string | null
+  sharedConflict: boolean
+  active: boolean
+  notes: string
+  onNotesChange: (value: string) => void
+  saving: boolean
+  onBack?: () => void
   minutes: number
   categoryLabel: string
   /** Editable: what the session ends up filed as is decided here, not before. */
@@ -1700,12 +1842,33 @@ function Poster({
   onRate: (value: number) => void
   onDone: (next: PosterNext) => void
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const backRef = useRef(onBack)
+  backRef.current = onBack
+  const busyRef = useRef(saving)
+  busyRef.current = saving
+  useEffect(() => {
+    if (!active) return
+    const previous = document.activeElement as HTMLElement | null
+    const root = dialogRef.current
+    root?.querySelector<HTMLElement>('input, button, textarea')?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && backRef.current && !busyRef.current) { event.preventDefault(); backRef.current(); return }
+      if (event.key !== 'Tab' || !root) return
+      const items = Array.from(root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex="0"]'))
+      const first = items[0], last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    root?.addEventListener('keydown', keydown)
+    return () => { root?.removeEventListener('keydown', keydown); previous?.focus() }
+  }, [active])
   const lead = tasks[0] ?? null
   const leadProvider = lead ? PROVIDER_LABEL[resolveProvider(lead)] : null
   const others = tasks.length - 1
   const note = lead && leadProvider
-    ? `+${minutes} min written back to “${lead.content}”${others > 0 ? ` and ${others} more` : ''} in ${leadProvider}.${mirrorsToCalendar ? ' Mirrored to Google Calendar.' : ''}`
-    : `Logged to ${categoryLabel}. No task linked, so nothing was written back.`
+    ? `+${minutes} min will be recorded against “${lead.content}”${others > 0 ? ` and ${others} more` : ''} in ${leadProvider}.${mirrorsToCalendar ? ' Calendar sync is enabled.' : ''}`
+    : `Save to ${categoryLabel}. Choose a task below to record its focused time, or save without a task.`
 
   /*
    * Where to go next, said out loud.
@@ -1720,7 +1883,9 @@ function Poster({
    * offer because it is already happening, so the lead becomes getting out of
    * its way.
    */
-  const [leadAction, ...restActions]: { label: string; next: PosterNext }[] = breakRunning
+  const [leadAction, ...restActions]: { label: string; next: PosterNext }[] = sharedConflict
+    ? [{ label: 'Save journal only · keep current timer', next: 'idle' }]
+    : breakRunning
     ? [
       { label: 'Back to the dial', next: 'idle' },
       { label: 'Skip to next focus', next: 'focus' },
@@ -1740,10 +1905,12 @@ function Poster({
 
   return (
     <div
+      ref={dialogRef}
       className="md-poster"
       role="dialog"
       aria-modal="true"
-      aria-label="Session logged"
+      aria-label="Complete session"
+      aria-busy={saving}
       style={{
         position: 'absolute',
         inset: 0,
@@ -1753,17 +1920,17 @@ function Poster({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        overflow: 'hidden',
+        overflowY: 'auto',
         padding: phone ? 'calc(var(--safe-t) + 22px) 22px calc(var(--safe-b) + 22px)' : '40px 40px 36px',
       }}
     >
-      <div style={{ width: '100%', maxWidth: phone ? 'none' : 460, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <fieldset disabled={saving} style={{ border: 0, margin: 0, padding: 0, width: '100%', maxWidth: phone ? 'none' : 560, flex: 1, minHeight: 'min-content', display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 'none' }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-on)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path className="md-draw" d="M4 12.5 9.5 18 20 6" />
           </svg>
           <span className="md-eyebrow" style={{ ...onTone, opacity: .85 }}>
-            Session logged
+            Complete session
           </span>
         </div>
 
@@ -1844,6 +2011,14 @@ function Poster({
           </p>
         )}
 
+        <label style={{ display: 'grid', gap: 8, marginTop: 18, fontSize: 14, fontWeight: 600 }}>
+          Session notes
+          <textarea value={notes} onChange={event => onNotesChange(event.target.value)}
+            placeholder="What moved forward? What is next?" rows={3} disabled={saving}
+            style={{ width: '100%', resize: 'vertical', padding: 12, borderRadius: 12, border: `1px solid ${RULE_ON_ACCENT}`, background: FILL_ON_ACCENT, color: 'inherit', font: 'inherit' }} />
+        </label>
+        {error && <p role="alert" style={{ fontSize: 14 }}>{error}</p>}
+        {onBack && <button type="button" className="btn btn-sm" disabled={saving} onClick={onBack} style={{ ...quietOnAccent, marginTop: 12 }}>Back to session</button>}
         <div style={{ marginTop: 'auto', paddingTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span className="md-eyebrow" style={{ ...onTone, opacity: .8 }}>
             How did it go?
@@ -1870,6 +2045,7 @@ function Poster({
           <button
             type="button"
             className="btn btn-lg"
+            disabled={saving}
             onClick={() => onDone(leadAction.next)}
             style={{
               width: '100%',
@@ -1881,7 +2057,7 @@ function Poster({
               marginTop: 6,
             }}
           >
-            {leadAction.label}
+            {saving ? 'Saving…' : leadAction.label}
             <MdIcon name="arrow" size={20} strokeWidth={2} />
           </button>
 
@@ -1891,6 +2067,7 @@ function Poster({
                 key={action.next}
                 type="button"
                 className="btn btn-md"
+                disabled={saving}
                 onClick={() => onDone(action.next)}
                 style={{ flex: 1, ...quietOnAccent }}
               >
@@ -1899,7 +2076,7 @@ function Poster({
             ))}
           </div>
         </div>
-      </div>
+      </fieldset>
     </div>
   )
 }

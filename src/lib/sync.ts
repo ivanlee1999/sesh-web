@@ -12,7 +12,7 @@ import {
   rowToCategoryJson,
 } from '@/lib/categories-server'
 import type { CompletedSession } from '@/lib/session-complete'
-import { resolveTimerCategory, writeTimerState } from '@/lib/timer-state'
+import { resolveTimerCategory, timerGuardMatches, validateGuardedTimer, validateTimerPrecondition, writeTimerState } from '@/lib/timer-state'
 
 /**
  * The replication protocol the iOS app speaks.
@@ -61,6 +61,11 @@ export interface OpResult {
   category?: CategoryJson
   /** Why a category could not be deleted. */
   sessionCount?: number
+  timerUpdatedAt?: number
+  timerStartedAt?: number | null
+  timerConflict?: boolean
+  /** History-only recovery observes current timer metadata but cannot authorize a write to it. */
+  timerChainAllowed?: boolean
 }
 
 export interface SessionJson {
@@ -338,27 +343,50 @@ function applyOne(db: Database.Database, op: SyncOp, deviceId: string): OneOutco
   const payload = (op.payload ?? {}) as Record<string, unknown>
 
   switch (op.kind) {
-    case 'session.complete': return applySessionComplete(db, op, payload)
+    case 'session.complete': return applySessionComplete(db, op, payload, deviceId)
     case 'session.upsert': return applySessionUpsert(db, op, payload)
     case 'session.delete': return applySessionDelete(db, op, payload)
     case 'category.upsert': return applyCategoryUpsert(db, op, payload)
     case 'category.delete': return applyCategoryDelete(db, op, payload)
     case 'settings.set': return applySettingsSet(db, op, payload)
-    case 'timer.mirror':
-      writeTimerState(db, payload, deviceId)
-      return { result: { opId: op.opId, status: 'applied' } }
+    case 'timer.mirror': {
+      try { validateGuardedTimer(payload) } catch (error) {
+        return { result: { opId: op.opId, status: 'rejected', error: (error as Error).message, timerConflict: true } }
+      }
+      if (!timerGuardMatches(db, payload, deviceId)) {
+        return { result: { opId: op.opId, status: 'stale', timerConflict: true, ...timerVersion(db) } }
+      }
+      const row = writeTimerState(db, payload, deviceId)
+      return { result: { opId: op.opId, status: 'applied', timerUpdatedAt: row.updated_at, timerStartedAt: row.started_at } }
+    }
     default:
       return { result: { opId: op.opId, status: 'rejected', error: `Unknown op kind: ${op.kind}` } }
   }
 }
 
-function applySessionComplete(db: Database.Database, op: SyncOp, payload: Record<string, unknown>): OneOutcome {
+function timerVersion(db: Database.Database): Pick<OpResult, 'timerUpdatedAt' | 'timerStartedAt'> {
+  const row = db.prepare('SELECT updated_at, started_at FROM timer_state WHERE id = 1').get() as
+    { updated_at: number; started_at: number | null }
+  return { timerUpdatedAt: row.updated_at, timerStartedAt: row.started_at }
+}
+
+function applySessionComplete(db: Database.Database, op: SyncOp, payload: Record<string, unknown>, deviceId: string): OneOutcome {
+  const journalOnly = payload.journalOnly === true
+  try { if (!journalOnly) validateTimerPrecondition(payload) } catch (error) {
+    return { result: { opId: op.opId, status: 'rejected', error: (error as Error).message, timerConflict: true } }
+  }
+  if (!journalOnly && !timerGuardMatches(db, payload, deviceId)) {
+    return { result: { opId: op.opId, status: 'stale', timerConflict: true, ...timerVersion(db) } }
+  }
   const id = str(payload.id)
   const startedAt = num(payload.startedAt)
   if (!id || !startedAt) {
     return { result: { opId: op.opId, status: 'rejected', error: 'A session needs an id and a start' } }
   }
 
+  if (journalOnly && id !== `manual-${startedAt}`) {
+    return { result: { opId: op.opId, status: 'rejected', error: 'Recovered work needs its canonical session identity' } }
+  }
   const existing = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined
   const updatedAt = stampOf(payload)
 
@@ -394,7 +422,7 @@ function applySessionComplete(db: Database.Database, op: SyncOp, payload: Record
   if (existing && existing.updated_at > updatedAt) {
     // The server's copy is newer. The completion itself is not in dispute —
     // only the fields a person edits — so the row stands as it is.
-    return { result: { opId: op.opId, status: 'stale' } }
+    return { result: { opId: op.opId, status: 'stale', ...timerVersion(db), ...(journalOnly ? { timerChainAllowed: false } : {}) } }
   }
 
   db.prepare(`
@@ -417,21 +445,21 @@ function applySessionComplete(db: Database.Database, op: SyncOp, payload: Record
   )
 
   /*
-   * If the shared timer is still showing this session, retire it. The phone ran
-   * this one on its own clock and may never have mirrored it, so this is a
-   * best-effort tidy-up rather than the compare-and-swap the timer route does —
-   * the session row is the durable record either way.
+   * A guarded completion retires only the sitting it completed, leaving an
+   * already-started break alone. Legacy clients retain the same best-effort
+   * tidy-up. Explicit journal-only recovery writes history, never this timer;
+   * its receipt is observational and cannot authorize a dependent timer write.
    */
-  db.prepare(`
+  if (!journalOnly) db.prepare(`
     UPDATE timer_state
     SET phase = 'idle', intention = '', remaining_ms = target_ms, overflow_ms = 0,
-        started_at = NULL, paused_at = NULL, updated_at = ?, todoist_task_id = NULL,
+        started_at = NULL, paused_at = NULL, updated_at = MAX(?, updated_at + 1), todoist_task_id = NULL,
         notification_count = 0
     WHERE id = 1 AND started_at = ?
   `).run(Date.now(), startedAt)
 
   return {
-    result: { opId: op.opId, status: 'applied', ...(remapped ? { category: rowToCategoryJson(remapped) } : {}) },
+    result: { opId: op.opId, status: 'applied', ...timerVersion(db), ...(journalOnly ? { timerChainAllowed: false } : {}), ...(remapped ? { category: rowToCategoryJson(remapped) } : {}) },
     effect: { kind: 'completed', session, isNew: !existing },
   }
 }

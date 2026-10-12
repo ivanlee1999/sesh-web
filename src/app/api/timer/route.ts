@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/server-db'
 import { runCompletionSideEffects } from '@/lib/session-complete'
-import { toEpochMs, writeTimerState } from '@/lib/timer-state'
+import { applyOps } from '@/lib/sync'
+import { InvalidTimerState, resolveTimerCategory, timerGuardMatches, toEpochMs, validateGuardedTimer, validateTimerPrecondition, writeTimerState } from '@/lib/timer-state'
 import {
   checkAndSendOverflowNotifications,
   ensureTimerNotificationScheduler,
@@ -19,7 +20,7 @@ export async function GET() {
     if (shouldTimerNotificationSchedulerRun(result.row)) {
       ensureTimerNotificationScheduler()
     }
-    return NextResponse.json(rowToTimerJson(result.row))
+    return NextResponse.json({ ...rowToTimerJson(result.row), timerProtocolVersion: 2 }, { headers: { 'Cache-Control': 'no-store' } })
   } catch {
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
@@ -34,6 +35,8 @@ export async function POST(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
+    validateTimerPrecondition(body)
+    const deviceId = typeof body.deviceId === 'string' ? body.deviceId : ''
     const startedAt: number | null = toEpochMs(body.startedAt)
 
     if (!startedAt) {
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
     const resetTimer = db.prepare(`
       UPDATE timer_state
       SET phase = 'idle', intention = '', remaining_ms = target_ms,
-          overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = ?,
+          overflow_ms = 0, started_at = NULL, paused_at = NULL, updated_at = MAX(?, updated_at + 1),
           todoist_task_id = NULL, notification_count = 0
       WHERE id = 1 AND started_at = ?
     `)
@@ -58,12 +61,16 @@ export async function POST(request: Request) {
 
     const result = db.transaction(() => {
       const row = selectTimer.get() as TimerRow | undefined
+      if (!timerGuardMatches(db, body, deviceId)) {
+        return { completed: false, timerConflict: true, row: row ?? null }
+      }
       if (!row || !row.started_at || row.started_at !== startedAt) {
         // Timer already completed by another caller (auto-complete or another client)
         return { completed: false, alreadyDone: true, row: row ?? null }
       }
 
-      const endedAt = Date.now()
+      const endedAt = row.phase === 'paused' && row.paused_at ? row.paused_at : Date.now()
+      const category = resolveTimerCategory(db, body.category ?? row.category)
       const actualMs = endedAt - row.started_at
       const overflowMs = Math.max(0, actualMs - row.target_ms)
       // Deterministic ID keyed by started_at — same namespace as auto-complete
@@ -78,7 +85,7 @@ export async function POST(request: Request) {
       insertSession.run(
         sessionId,
         body.intention ?? row.intention,
-        row.category,
+        category,
         row.session_type,
         row.target_ms,
         actualMs,
@@ -87,18 +94,18 @@ export async function POST(request: Request) {
         endedAt,
         body.notes ?? '',
         Math.max(0, Math.min(5, Number(body.rating) || 0)),
-        row.todoist_task_id,
+        body.todoistTaskId === undefined ? row.todoist_task_id : body.todoistTaskId,
       )
 
       return {
         completed: true,
         alreadyDone: false,
         row: selectTimer.get() as TimerRow,
-        todoistTaskId: row.todoist_task_id,
+        todoistTaskId: body.todoistTaskId === undefined ? row.todoist_task_id : body.todoistTaskId,
         session: {
           id: sessionId,
           intention: body.intention ?? row.intention,
-          category: row.category,
+          category,
           type: row.session_type,
           targetMs: row.target_ms,
           actualMs,
@@ -112,6 +119,9 @@ export async function POST(request: Request) {
     })()
 
     if (!result.completed) {
+      if ('timerConflict' in result && result.timerConflict) {
+        return NextResponse.json({ timerConflict: true, timer: result.row ? rowToTimerJson(result.row) : null }, { status: 409 })
+      }
       // Return 200 with completed: false — the session was already saved by another path
       return NextResponse.json({ completed: false })
     }
@@ -134,7 +144,8 @@ export async function POST(request: Request) {
       session: result.session,
       calendar,
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof InvalidTimerState) return NextResponse.json({ error: error.message }, { status: 400 })
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
 }
@@ -143,14 +154,40 @@ export async function PUT(request: Request) {
   try {
     const db = getDb()
     const body = await request.json()
-    const row = writeTimerState(db, body, typeof body.deviceId === 'string' ? body.deviceId : '')
+    validateGuardedTimer(body)
+    const deviceId = typeof body.deviceId === 'string' ? body.deviceId : ''
+    // Web retries use the same transactional receipts as native sync clients.
+    if (body.opId !== undefined) {
+      if (typeof body.opId !== 'string' || !body.opId || body.opId.length > 128 || deviceId.length > 64)
+        throw new InvalidTimerState('Invalid timer operation identity')
+      const result = applyOps(db, [{ opId: body.opId, kind: 'timer.mirror', payload: body }], deviceId).results[0]
+      const row = db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow
+      if (result.timerConflict) {
+        return NextResponse.json({ timerConflict: true, timer: rowToTimerJson(row), result }, { status: result.status === 'rejected' ? 400 : 409 })
+      }
+      if (result.status === 'rejected') return NextResponse.json({ error: 'Timer write was not committed' }, { status: 503 })
+      if (shouldTimerNotificationSchedulerRun(row)) ensureTimerNotificationScheduler()
+      else stopTimerNotificationScheduler()
+      return NextResponse.json({ ...rowToTimerJson(row), result, timerProtocolVersion: 2 })
+    }
+    const outcome = db.transaction(() => {
+      if (!timerGuardMatches(db, body, deviceId)) {
+        return { conflict: true, row: db.prepare('SELECT * FROM timer_state WHERE id = 1').get() as TimerRow }
+      }
+      return { conflict: false, row: writeTimerState(db, body, deviceId) }
+    })()
+    if (outcome.conflict) {
+      return NextResponse.json({ timerConflict: true, timer: rowToTimerJson(outcome.row) }, { status: 409 })
+    }
+    const row = outcome.row
     if (shouldTimerNotificationSchedulerRun(row)) {
       ensureTimerNotificationScheduler()
     } else {
       stopTimerNotificationScheduler()
     }
     return NextResponse.json(rowToTimerJson(row))
-  } catch {
+  } catch (error) {
+    if (error instanceof InvalidTimerState) return NextResponse.json({ error: error.message }, { status: 400 })
     return NextResponse.json({ error: 'DB error' }, { status: 500 })
   }
 }

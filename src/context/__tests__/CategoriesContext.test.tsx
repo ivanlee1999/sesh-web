@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 
 // Mock local-store
 const mockCacheCategories = vi.fn()
-const mockGetCachedCategories = vi.fn<[], unknown[] | null>(() => null)
+const mockGetCachedCategories = vi.fn<() => unknown[] | null>(() => null)
 
 vi.mock('@/lib/local-store', () => ({
   cacheCategories: (...args: unknown[]) => mockCacheCategories(...args),

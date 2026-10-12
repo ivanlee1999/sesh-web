@@ -9,7 +9,8 @@ import {
 } from '@/lib/app-auth'
 import { describe, expect, it } from 'vitest'
 
-const env = {
+const env: NodeJS.ProcessEnv = {
+  NODE_ENV: 'test',
   APP_AUTH_USERNAME: 'ivan',
   APP_AUTH_PASSWORD: 'secret-pass',
   NEXTAUTH_SECRET: 'top-secret-signing-key',
@@ -27,6 +28,7 @@ describe('app-auth', () => {
   it('supports legacy basic auth env names as fallback', () => {
     expect(
       getAppAuthConfig({
+        NODE_ENV: 'test',
         BASIC_AUTH_USERNAME: 'legacy-user',
         BASIC_AUTH_PASSWORD: 'legacy-pass',
         NEXTAUTH_SECRET: 'legacy-secret',
