@@ -44,7 +44,7 @@ describe('focus-time queue', () => {
 describe('flushFocusTimeQueue', () => {
   it('replays each entry to its own provider and empties the queue', async () => {
     queue('t1', 'things:A1')
-    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await flushFocusTimeQueue()
@@ -58,7 +58,7 @@ describe('flushFocusTimeQueue', () => {
 
   it('sends the minutes that were queued', async () => {
     enqueueFocusTime({ taskRef: 't1', minutes: 26.4, queuedAt: 0 })
-    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
 
     await flushFocusTimeQueue()

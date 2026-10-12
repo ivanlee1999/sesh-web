@@ -56,6 +56,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       results,
+      timerProtocolVersion: 2,
       changes: pull.changes,
       cursor: pull.cursor,
       hasMore: pull.hasMore,

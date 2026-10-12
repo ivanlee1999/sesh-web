@@ -110,6 +110,7 @@ beforeEach(() => {
   todoistConfigured = false
   pastSessions = []
   vi.useRealTimers()
+  localStorage.clear()
   vi.clearAllMocks()
   updateSettings.mockReset()
   vi.mocked(localStore.getRecentCategoryNames).mockReturnValue([])
@@ -139,6 +140,9 @@ beforeEach(() => {
       return new Response(JSON.stringify(pastSessions), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     if (url.includes('/api/timer')) {
+      if (init?.method === 'PUT') {
+        timerApiState = { ...timerApiState, ...JSON.parse(String(init.body)), updatedAt: Date.now() }
+      }
       return new Response(JSON.stringify(timerApiState), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     if (url.includes('/api/analytics')) {
@@ -1166,5 +1170,59 @@ describe('reflection safety and keyboard controls', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not finish')
     expect(screen.getByLabelText('Session notes')).toHaveValue('Keep this note')
     expect(localStore.enqueueSession).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('shared live timer synchronization', () => {
+  it('polls a changed remote session while visible and retains its identity', async () => {
+    vi.useFakeTimers()
+    const base = new Date('2026-06-15T14:00:00.000Z')
+    vi.setSystemTime(base)
+    timerApiState = timerState()
+    render(<Timer />)
+    await act(async () => { await flushPromises() })
+    timerApiState = timerState({ phase: 'running', startedAt: base.getTime(), updatedAt: base.getTime() + 1, intention: 'Mac fixture' })
+    await act(async () => { vi.advanceTimersByTime(3000); await flushPromises() })
+    expect(screen.getByText('Mac fixture')).toBeTruthy()
+    expect(screen.getByLabelText('Pause session')).toBeTruthy()
+    expect(localStore.saveTimerState).toHaveBeenLastCalledWith(expect.objectContaining({ startedAt: base.getTime() }))
+  })
+  it('does not replace a half-typed intention while the field owns keyboard focus', async () => {
+    vi.useFakeTimers()
+    render(<Timer />)
+    await act(async () => { await flushPromises() })
+    const field = screen.getByLabelText('Session intention')
+    act(() => { field.focus(); fireEvent.change(field, { target: { value: 'Draft still being typed' } }) })
+    await act(async () => { vi.advanceTimersByTime(3000); await flushPromises() })
+    expect(field).toHaveValue('Draft still being typed')
+  })
+  it('a conflict received while Save awaits pause never completes the winning session', async () => {
+    const original = vi.mocked(globalThis.fetch).getMockImplementation()!
+    let releasePause!: (response: Response) => void
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (input === '/api/timer' && init?.method === 'PUT' && JSON.parse(String(init.body)).phase === 'paused')
+        return new Promise(resolve => { releasePause = resolve })
+      return original(input, init)
+    })
+    render(<Timer />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    await waitFor(() => expect(vi.mocked(globalThis.fetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true))
+    // Let the successful start receipt settle before Finish queues pause.
+    await act(async () => { await flushPromises() })
+    fireEvent.click(screen.getByLabelText('Finish session'))
+    fireEvent.change(await screen.findByLabelText('Session notes'), { target: { value: 'Preserve my reflection' } })
+    fireEvent.click(screen.getByRole('button', { name: /Back to the dial/ }))
+    const winner = { ...timerApiState, phase: 'running', updatedAt: Number(timerApiState.updatedAt) + 1000 }
+    timerApiState = winner
+    await act(async () => { releasePause(new Response(JSON.stringify({ timerConflict: true, timer: winner }), { status: 409 })); await flushPromises() })
+    expect(await screen.findByRole('button', { name: 'Save journal only · keep current timer' })).toBeTruthy()
+    expect(screen.getByLabelText('Session notes')).toHaveValue('Preserve my reflection')
+    expect(vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => input === '/api/timer' && init?.method === 'POST')).toBe(false)
+    expect(vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => input === '/api/sessions' && init?.method === 'POST')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Save journal only · keep current timer' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Complete session' })).toBeNull())
+    expect(await screen.findByLabelText('Pause session')).toBeTruthy()
+    expect(vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => input === '/api/timer' && init?.method === 'POST')).toBe(false)
   })
 })
