@@ -51,6 +51,8 @@ export interface TimerStateInput {
   expectedUpdatedAt?: unknown
   expectedStartedAt?: unknown
   afterTimerOpId?: unknown
+  /** Sitting visible when the action was created, including idle (null). */
+  actionSessionStart?: unknown
   /** Instant remainingMs was measured, rather than request arrival. */
   recordedAt?: unknown
 }
@@ -58,7 +60,7 @@ export interface TimerStateInput {
 export class InvalidTimerState extends Error {}
 
 export function hasTimerGuard(body: TimerStateInput): boolean {
-  return 'expectedUpdatedAt' in body || 'expectedStartedAt' in body || 'afterTimerOpId' in body
+  return 'expectedUpdatedAt' in body || 'expectedStartedAt' in body || 'afterTimerOpId' in body || 'actionSessionStart' in body
 }
 
 /** Legacy callers keep their coercion; protocol 2 must send a complete baseline. */
@@ -79,6 +81,8 @@ export function validateGuardedTimer(body: TimerStateInput): void {
   validateTimerPrecondition(body)
   const whole = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value)
   const timestamp = (value: unknown) => value === null || (whole(value) && (value as number) > 0)
+  if ('actionSessionStart' in body && !timestamp(body.actionSessionStart))
+    throw new InvalidTimerState('Invalid action session identity')
   if (!['idle', 'running', 'paused'].includes(String(body.phase)) || !['focus', 'break'].includes(String(body.sessionType)))
     throw new InvalidTimerState('Invalid timer phase or type')
   if (!whole(body.targetMs) || (body.targetMs as number) < 0 || (body.targetMs as number) > 24 * 60 * 60 * 1000 ||
@@ -97,8 +101,8 @@ export function validateGuardedTimer(body: TimerStateInput): void {
 /** Caller must run check and write in the same transaction. */
 export function timerGuardMatches(db: Database.Database, body: TimerStateInput, deviceId: string): boolean {
   if (!hasTimerGuard(body)) return true
-  const row = db.prepare('SELECT updated_at, started_at FROM timer_state WHERE id = 1').get() as
-    { updated_at: number; started_at: number | null }
+  const row = db.prepare('SELECT phase, updated_at, started_at FROM timer_state WHERE id = 1').get() as
+    { phase: string; updated_at: number; started_at: number | null }
   let expectedUpdatedAt = body.expectedUpdatedAt
   let expectedStartedAt = body.expectedStartedAt
   if (body.afterTimerOpId !== undefined) {
@@ -111,6 +115,12 @@ export function timerGuardMatches(db: Database.Database, body: TimerStateInput, 
     if (!['applied', 'stale'].includes(result.status) || result.timerConflict || result.timerChainAllowed === false || result.timerUpdatedAt === undefined) return false
     expectedUpdatedAt = result.timerUpdatedAt
     expectedStartedAt = result.timerStartedAt
+  }
+  // Causal receipts order writes, but cannot turn an action on A into an
+  // action on a newer B. An already-retired idle result is a harmless replay.
+  if (body.phase !== undefined && 'actionSessionStart' in body && row.started_at !== body.actionSessionStart) {
+    const alreadyIdle = row.phase === 'idle' && row.started_at === null && body.phase === 'idle' && body.startedAt === null
+    if (!alreadyIdle) return false
   }
   // A stale active snapshot must never resurrect a sitting older than the winner.
   if (body.phase !== undefined && body.phase !== 'idle' && row.started_at !== null &&

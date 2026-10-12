@@ -267,6 +267,7 @@ export default function Timer({
    */
   const syncedIntentionRef = useRef('')
   const appliedTimerVersionRef = useRef(-1)
+  const controlSessionStartRef = useRef<number | null>(null)
 
   const wakeLock = useScreenWakeLock(settings.keepScreenAwake && phase === 'running')
 
@@ -398,6 +399,7 @@ export default function Timer({
     if (reflectionOpenRef.current) return
     const data = normalizeTimerState(raw)
     appliedTimerVersionRef.current = data.updatedAt
+    controlSessionStartRef.current = data.startedAt
     if (data.phase === 'running' && data.startedAt) {
       const elapsed = Date.now() - data.updatedAt
       const nextRemaining = data.remainingMs - elapsed
@@ -459,7 +461,9 @@ export default function Timer({
   sharedTimerQueue.current.onNotice = setTimerSyncNotice
 
   const syncToServer = useCallback((body: Record<string, unknown>) => {
-    timerWriteRef.current = sharedTimerQueue.current!.enqueue(body)
+    const actionSessionStart = 'actionSessionStart' in body ? body.actionSessionStart : controlSessionStartRef.current
+    timerWriteRef.current = sharedTimerQueue.current!.enqueue({ ...body, actionSessionStart })
+    controlSessionStartRef.current = typeof body.startedAt === 'number' ? body.startedAt : null
     return timerWriteRef.current
   }, [])
 
@@ -467,6 +471,7 @@ export default function Timer({
     if (reflectionOpenRef.current) return
     const local = loadTimerState()
     if (!local) return
+    controlSessionStartRef.current = local.startedAt
     setSessionType(local.sessionType as SessionType)
     setIntention(local.intention)
     syncedIntentionRef.current = local.intention
@@ -886,6 +891,7 @@ export default function Timer({
     if (phase === 'paused') return
     setPhase('paused')
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase: 'paused',
       sessionType,
       intention,
@@ -904,6 +910,7 @@ export default function Timer({
     if (settings.keepScreenAwake) void wakeLock.request({ allowWhileInactive: true })
     setPhase('running')
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase: 'running',
       sessionType,
       intention,
@@ -931,6 +938,7 @@ export default function Timer({
     setIntention(nextIntention)
     setTaskRefs([])
     syncToServer({
+      actionSessionStart: startedAt || null,
       phase,
       sessionType,
       intention: nextIntention,
@@ -945,6 +953,7 @@ export default function Timer({
   }, [category, phase, remainingMs, sessionType, startedAt, syncToServer, targetMs])
 
   const idleServerState = useCallback(() => ({
+    actionSessionStart: startedAt || null,
     phase: 'idle',
     sessionType: 'focus',
     intention: '',
@@ -955,7 +964,7 @@ export default function Timer({
     startedAt: null,
     pausedAt: null,
     todoistTaskId: null,
-  }), [category, settings.focusDuration])
+  }), [category, settings.focusDuration, startedAt])
 
   const returnToIdle = useCallback(() => {
     setPhase('idle')
@@ -1214,6 +1223,7 @@ export default function Timer({
     if (keepCurrentTimer) { refreshTimerFromServer(); return true }
     if (!needsCompletion) return true
 
+    controlSessionStartRef.current = null
     setIntention('')
     setTaskRefs([])
     setStartedAt(0)

@@ -1226,3 +1226,21 @@ describe('shared live timer synchronization', () => {
     expect(vi.mocked(globalThis.fetch).mock.calls.some(([input, init]) => input === '/api/timer' && init?.method === 'POST')).toBe(false)
   })
 })
+
+describe('timer action source identity', () => {
+  it('captures idle before Start and the original sitting before pause, resume and abandon', async () => {
+    render(<Timer />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Start Focus/ }))
+    await act(async () => { await flushPromises() })
+    fireEvent.click(screen.getByLabelText('Pause session'))
+    await act(async () => { await flushPromises() })
+    fireEvent.click(screen.getByLabelText('Resume session'))
+    await act(async () => { await flushPromises() })
+    fireEvent.click(screen.getByRole('button', { name: 'Abandon session' }))
+    await act(async () => { await flushPromises() })
+    const writes = vi.mocked(globalThis.fetch).mock.calls.filter(([url, init]) => url === '/api/timer' && init?.method === 'PUT')
+      .map(([, init]) => JSON.parse(String(init?.body)))
+    expect(writes.map(write => write.phase)).toEqual(['running', 'paused', 'running', 'idle'])
+    expect(writes.map(write => write.actionSessionStart)).toEqual([null, writes[0].startedAt, writes[0].startedAt, writes[0].startedAt])
+  })
+})

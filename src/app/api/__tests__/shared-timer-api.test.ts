@@ -44,6 +44,13 @@ describe('shared timer HTTP contract', () => {
       expect(await result.json()).toMatchObject({ timerConflict: true, timer: { startedAt: now } })
     }
   })
+  it('PUT source precondition rejects old Abandon even against a current causal receipt', async () => {
+    await PUT(request('PUT', start({ actionSessionStart: null })))
+    await PUT(request('PUT', start({ opId: 'start-b', afterTimerOpId: 'start', actionSessionStart: now, startedAt: now + 30_000 })))
+    const result = await PUT(request('PUT', start({ opId: 'old-abandon', afterTimerOpId: 'start-b', actionSessionStart: now, phase: 'idle', startedAt: null })))
+    expect(result.status).toBe(409)
+    expect(await result.json()).toMatchObject({ timerConflict: true, timer: { startedAt: now + 30_000, phase: 'running' } })
+  })
   it('PUT malformed guarded timings return 400 without a write', async () => {
     expect((await PUT(request('PUT', start({ expectedUpdatedAt: '0' })))).status).toBe(400)
     expect(await (await GET()).json()).toMatchObject({ updatedAt: 0 })

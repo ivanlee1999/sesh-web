@@ -155,6 +155,32 @@ describe('guarded shared live timer', () => {
     expect(result.results[0].status).toBe('rejected')
     expect(result.effects).toEqual([])
   })
+  it('old abandon cannot clear B even when its causal predecessor is B', () => {
+    const a = mirror('start-a', input({ actionSessionStart: null }))
+    expect(a.status).toBe('applied')
+    const b = mirror('start-b', input({ afterTimerOpId: 'start-a', startedAt: now + 30_000, actionSessionStart: now }))
+    expect(b.status).toBe('applied')
+    const before = row()
+    expect(mirror('old-abandon-a', input({ afterTimerOpId: 'start-b', phase: 'idle', startedAt: null, actionSessionStart: now }))).toMatchObject({ status: 'stale', timerConflict: true })
+    expect(row()).toEqual(before)
+  })
+  it('new start must name the idle or active state from which it was created', () => {
+    mirror('start-a', input({ actionSessionStart: null }))
+    expect(mirror('start-b', input({ afterTimerOpId: 'start-a', startedAt: now + 30_000, actionSessionStart: null }))).toMatchObject({ status: 'stale', timerConflict: true })
+    expect(row().started_at).toBe(now)
+  })
+  it('completion followed by its trailing idle mirror is harmless and accepted', () => {
+    mirror('start-a', input({ actionSessionStart: null }))
+    const completion = applyOps(db, [{ opId: 'complete-a', kind: 'session.complete', payload: {
+      id: `manual-${now}`, startedAt: now, afterTimerOpId: 'start-a', endedAt: now + 30_000,
+    } }], 'phone')
+    expect(completion.results[0]).toMatchObject({ status: 'applied', timerStartedAt: null })
+    expect(mirror('idle-a', input({ afterTimerOpId: 'complete-a', phase: 'idle', startedAt: null, actionSessionStart: now }))).toMatchObject({ status: 'applied', timerStartedAt: null })
+  })
+  it.each([undefined, '0', 0, -1, 1.5])('invalid action session identity rejects guarded writes: %s', identity => {
+    expect(mirror('invalid-source', input({ actionSessionStart: identity }))).toMatchObject({ status: 'rejected', timerConflict: true })
+    expect(row().updated_at).toBe(0)
+  })
   it('legacy clients continue to write without guards', () => {
     writeTimerState(db, { phase: 'running', startedAt: String(now), remainingMs: '5000', category: 'other' }, 'build3')
     expect(row()).toMatchObject({ started_at: now, remaining_ms: 5000 })
